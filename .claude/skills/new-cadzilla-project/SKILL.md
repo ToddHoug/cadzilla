@@ -14,14 +14,15 @@ is a working reference example if anything here is ambiguous.
 
 ## 1. Get the project name
 
-Ask the user if they haven't given one. It needs to work as both a
-lowercase host directory name (`software/<name>/`, matching this repo's
-`software/hello`, `software/firstdraw` convention) and an uppercase CP/M
-8.3 filename (`<NAME>.ASM`, max 8 characters) -- so lowercase letters and
-digits only, starting with a letter, 8 characters or fewer. If the user's
-preferred name doesn't fit those rules, ask them to shorten it rather than
-silently truncating or slugifying it for them -- an 8.3 name that doesn't
-obviously match what they asked for is more confusing than a quick check.
+Ask the user if they haven't given one. The directory name follows this
+repo's normal convention (`software/<name>/`, matching `software/hello`,
+`software/firstdraw`) -- lowercase letters and digits, starting with a
+letter. The CP/M-side `<NAME>.ASM` is that same name uppercased, and CP/M's
+8.3 format caps it at 8 characters -- if the project name itself is longer
+(e.g. "firstdraw" is 9), don't silently truncate or slugify it: keep the
+project name the user wants and ask them to either shorten it or pick an
+explicit CP/M-side abbreviation instead (the script's `--cpm-name` option
+below handles this).
 
 ## 2. Scaffold it
 
@@ -32,7 +33,7 @@ requirement correctly, which are easy to get wrong by hand (writing the
 which `ASM.COM` accepts silently and then assembles into nothing):
 
 ```bash
-.claude/skills/new-cadzilla-project/scripts/new_project.sh <name> ["<welcome message>"]
+.claude/skills/new-cadzilla-project/scripts/new_project.sh <name> [--cpm-name NAME] ["<welcome message>"]
 ```
 
 This creates `software/<name>/{src,include,build}` (with `.gitkeep` in
@@ -43,7 +44,15 @@ stub, self-contained (no `INCLUDE` -- `ASM.COM` doesn't support it) and
 free of underscores in any symbol name (`ASM.COM` silently resolves an
 underscored symbol to 0 instead of erroring, which is a much worse failure
 mode than a normal typo). The welcome message defaults to `Welcome to
-CADzilla: <name>!` if not given.
+CADzilla: <name>!` if not given. `--cpm-name` overrides the CP/M-side name
+when the project name itself doesn't fit CP/M's 8.3 limit (e.g. `firstdraw
+--cpm-name FIRSTDRW`).
+
+The script is also safe to run against a directory that already exists as
+an empty scaffold (`src`/`include`/`build` holding only `.gitkeep`, like
+`software/firstdraw` shipped from this repo's initial commit) -- it fills
+those in rather than refusing outright, but still won't overwrite a source
+file that's already there with real content.
 
 This is meant as a starting point the user then edits, not a finished
 program -- say so, and point at the file, once it's created.
