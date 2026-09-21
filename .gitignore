@@ -9,5 +9,8 @@ schematics/*.kicad_prl
 software/*/build/*
 !software/*/build/.gitkeep
 
+# altairsim working copy (mutated in place each session; pristine/ is the tracked master)
+tools/altairsim/work/
+
 # OS
 .DS_Store

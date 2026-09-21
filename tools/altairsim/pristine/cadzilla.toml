@@ -1,0 +1,128 @@
+# CADzilla's CP/M dev bench: the REAL board machine (altairsim's machines/cadzilla.toml --
+# HD63484 ACRTC + Bt453 RAMDAC, docs/boards/cadzilla.md) with CP/M boot and host-bridge
+# support layered on top, so 8080 software for this repo assembles, runs, and can be
+# single-stepped under CP/M 2.2 on the same port map the real board answers to -- not a
+# generic Altair.
+#
+# This is the PRISTINE copy (tools/altairsim/pristine/) -- read-only master, never
+# mutated directly. Each session, copy this file + the disk beside it into
+# tools/altairsim/work/ (gitignored) and register/mount THAT copy instead, since
+# ASM/LOAD/PIP write to the mounted disk in place with no undo.
+#
+#     cd tools/altairsim/work && altairsim cadzilla.toml       # a human, at the A> prompt
+#
+# For MCP driving, register from the CADzilla repo ROOT instead (not this directory),
+# pointing at tools/altairsim/work/cadzilla.toml -- that makes the host bridge (`R`/`W`)
+# resolve relative to the repo root, so it can reach both this disk (tools/altairsim/work/)
+# and any program's source (software/<name>/src/) by their normal repo-relative paths.
+# See tools/altairsim/README.md for the exact registration command.
+#
+# The disk beside this file is Mike Douglas's track-buffered CP/M 2.2b (originally
+# from altairsim's examples/ai-mcp/), carrying ASM.COM, LOAD.COM, DDT.COM, and the
+# host-bridge R/W/HDIR.COM utilities used to move files between the host and CP/M.
+#
+# THE PATHS BELOW ARE RELATIVE TO THIS FILE. The disk is lying in this directory, so
+# this file names it and no directory at all -- which is what lets the folder be
+# copied anywhere and still boot.
+#
+# THIS FILE IS A DELTA on `base = "cadzilla"` (altairsim's machines/cadzilla.toml),
+# which brings the CPU, the console, and the board itself:
+#   - cpu0: 8080, real-timed at 2MHz
+#   - sio0: 2SIO console @ 0x10 (unit a = console, unit b = null)
+#   - cad0: the ACRTC/Bt453 graphics board @ 0x70, DAC @ 0x74, 640x480, 2MB vram --
+#     decodes no memory at all, so nothing below touches it
+#   - mem0: 64K of plain RAM, no boot ROM
+#
+# What this file adds/replaces is exactly what turns that bench into something CP/M can
+# boot on -- the same pieces altairsim's own machines/default.toml carries, minus the
+# parts cadzilla's base already has (cpu0, sio0):
+#   - cpu0   REPLACED: clock_hz forced back to 0 (flat out). See the note by the board
+#            below -- real 2MHz pacing on cadzilla's own cpu0 corrupts console input
+#            fed through the MCP `run` tool's `input` argument.
+#   - fp0    a front panel, for DBL's own sense-switch read (stop bits)
+#   - dsk0   an 88-DCDD floppy controller at 0x08, with this disk in drive 0
+#   - hb0    the host bridge (R/W/HDIR), at 0xB0
+#   - mem0   REPLACED: this CP/M disk was built for 56K (0000-DFFF) + the DBL boot PROM
+#            at FF00 (see machines/default.toml for the arithmetic) -- not cadzilla's
+#            64K of plain RAM. `id` on a board the base brought replaces it outright, so
+#            the PROM region has to be re-stated here too, not just the RAM shrink.
+
+[machine]
+name = "cadzilla-cpm"
+base = "cadzilla"
+
+# THE BOOT PROM IS THE BOOT COMMAND. `RUN FF00` is EXAMINE FF00 / RUN on a real disk
+# Altair. A human launching this file boots straight to A>. Under --mcp the startup is
+# NOT run -- the assistant boots it itself with `run {from: 0xFF00}`, so nothing blocks
+# before it has control.
+startup = ["RUN FF00"]
+
+# THE BACKSPACE KEY. A modern terminal's Backspace sends DEL (0x7F); CP/M's line editor
+# wants BS (0x08). `bsdel = bs` folds DEL -> BS on the way in so Backspace erases at the
+# A> prompt. It is a property of the TERMINAL, so it lives on the [console].
+[console]
+bsdel = "bs"
+
+# THE CPU CLOCK, OVERRIDDEN. cadzilla's base sets a real 2MHz clock_hz (accurate to
+# the physical board), which paces every instruction -- including CP/M's console
+# polling loop -- to real wall-clock time. Verified this breaks the MCP `run` tool's
+# console driving: paced that slowly, queued keystrokes from one `run{input:...}`
+# call spill into the next before the guest finishes consuming them, corrupting the
+# command line (observed as leftover characters re-interpreted as a new command, and
+# once a phantom `Bdos Err On C:`). This dev bench runs flat out instead, exactly
+# like altairsim's own default machine. Re-enable real pacing ad hoc
+# (`SET cpu0 clock_hz=2000000`) only when timing specifically matters -- e.g.
+# exercising cad0's FIFO wait states -- not for routine assemble/run/debug work.
+[[board]]
+id       = "cpu0"
+clock_hz = 0
+
+# THE FRONT PANEL. DBL reads the sense switches at FF22 to decide the 2SIO's stop bits
+# (roms/DBL/DBL.ASM:166) -- cadzilla's base has no front panel at all, so without this
+# DBL is reading a floating bus instead of a switch. All eight down (sense = 0x00) is
+# 8N1, same as altairsim's own default machine.
+[[board]]
+type  = "fp"
+id    = "fp0"
+sense = 0x00
+
+# THE FLOPPY CONTROLLER -- an 88-DCDD at 0x08, which is not a choice: the boot PROM
+# is hard-wired to it (DBL selects drive 0 at port 08), and so is every Altair CP/M
+# BIOS ever written. The disk beside this file carries ASM.COM, LOAD.COM, DDT.COM,
+# and the host-bridge R/W/HDIR.COM.
+[[board]]
+type   = "dcdd"
+id     = "dsk0"
+port   = 08
+drives = 4
+
+  [[board.drive]]
+  unit  = 0
+  mount = "cpm22b23-56k.dsk"
+
+# THE HOST BRIDGE -- the one card no real Altair ever had, and the supported path for
+# getting a file into or out of a running CP/M guest (R/W/HDIR at the A> prompt).
+# `hostdir = ""` means the directory altairsim was launched from.
+[[board]]
+type    = "hostbridge"
+id      = "hb0"
+port    = B0
+hostdir = ""
+
+# MEMORY, REPLACED. cadzilla's base mem0 is 64K of plain RAM with no boot ROM; this
+# CP/M disk was built for 56K (0000-DFFF) with the DBL boot PROM at FF00. cad0 decodes
+# no memory at all, so shrinking RAM here does not touch the graphics board.
+[[board]]
+type = "memory"
+id   = "mem0"
+fill = "random"
+
+  [[board.region]]
+  type = "ram"
+  at   = 0000
+  size = "56K"
+
+  [[board.region]]
+  type  = "rom"
+  at    = FF00
+  mount = "builtin:dbl"
