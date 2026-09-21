@@ -71,6 +71,26 @@ machine-specific path to the altairsim binary — it's stored in your own
 Claude config, not committed to the repo. A newly registered MCP server's
 tools may not appear until the session/window is reloaded.
 
+### Resuming a session — check the disk is actually mounted
+
+Once registered, the `altairsim` MCP server is a long-lived process that
+can easily outlive a single conversation — a later Claude Code session (or
+even a later turn in the same one) may find the guest already booted and
+sitting at `A>` from before. That's not the same as a fresh, working
+machine: if the previous session ended cleanly with `UNMOUNT` (as it
+should), the disk is gone from under a CP/M that's still technically
+"running" and looks alive. Every disk access then fails with `Bdos Err On
+A: Bad Sector`, which reads like corruption but isn't — there's simply
+nothing mounted.
+
+Check first: `monitor {command: "SHOW MOUNTS"}`. If `dsk0:drive0` shows
+`(empty)`, mount it back — `monitor {command: "MOUNT dsk0:drive0
+cpm22b23-56k.dsk"}` — and then do a clean reboot, `run {from: 0xFF00,
+until: "A>"}`, before touching the disk again. The reboot isn't optional:
+mounting a disk out from under a CP/M that's already running (rather than
+through its own boot-time disk detection) makes BDOS defensively mark the
+drive read-only (`Bdos Err On A: R/O`) until the next warm boot clears it.
+
 ### The host bridge (`R`/`W`) and CP/M's automatic uppercasing
 
 `R`/`W` genuinely do support subdirectory paths and a rename argument (e.g.
