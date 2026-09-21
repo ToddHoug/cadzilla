@@ -1,0 +1,13 @@
+# KiCAD
+schematics/*.bak
+schematics/*-backups/
+schematics/_autosave-*
+schematics/fp-info-cache
+schematics/*.kicad_prl
+
+# Build outputs
+software/*/build/*
+!software/*/build/.gitkeep
+
+# OS
+.DS_Store
