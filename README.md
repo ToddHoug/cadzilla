@@ -11,7 +11,7 @@ Board design project: KiCAD schematics/PCB, GAL16V8 PLD logic, and supporting
 software projects that run on it (assembled and tested on an emulator).
 
 For the full board reference, see the
-[CADzilla Board User Reference Manual](docs/cadzilla-manual.pdf).
+[CADzilla User Reference Manual](docs/cadzilla-manual.pdf).
 
 ## Layout
 
@@ -20,7 +20,7 @@ For the full board reference, see the
 - `software/` — one directory per software project targeting the board
   - `firstdraw/` — first software project
 - `docs/` — design notes and reference datasheets
-  - `docs/cadzilla-manual.pdf` — board user reference manual
+  - `docs/cadzilla-manual.pdf` — user reference manual
   - `docs/images/` — logo and other documentation images
 - `tools/` — build/assemble/program scripts
 - `tests/` — emulator test programs and expected output
