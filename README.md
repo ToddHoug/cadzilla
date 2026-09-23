@@ -1,4 +1,4 @@
-# cadzilla
+# CADzilla
 
 ![CADzilla](docs/images/cadzilla.png)
 
