@@ -37,26 +37,24 @@ could never be created from the command line in the first place.
   ever reports a write-protect error, the wrong disk is mounted — fix
   the path, never the permissions. `git status tools/altairsim/pristine`
   should always be clean after a session. `cadzilla.toml` is a
-  delta on altairsim's own `machines/cadzilla.toml` — the real board
-  (8080, console, the HD63484/Bt453 graphics board) — with CP/M boot
-  support layered on top (front panel, disk controller, host bridge, and a
-  56K+ROM memory map in place of the base's 64K of plain RAM). See the
-  comments in the file itself for the full reasoning, including why its
-  `cpu0` clock is forced back to flat-out despite the real board running
-  at 2MHz. `CPM22-8MB-56K-DEV.DSK` (drive 0) is an 8MB virtual hard disk
+  delta on altairsim's own `machines/cadzilla.toml` — the real board with
+  its console, front panel, flat-out CPU, host bridge, an empty disk
+  controller and 56K of RAM — adding only what CP/M needs to boot: the
+  DBL boot PROM at FF00, this project's disks in drives 0 and 1, the
+  `RUN FF00` startup and the console's Backspace mapping. See the comments
+  in the file itself for the full reasoning. `CPM22-8MB-56K-DEV.DSK` (drive 0) is an 8MB virtual hard disk
   carrying CP/M itself (`ASM.COM`, `LOAD.COM`, `DDT.COM`, the host-bridge
   `R`/`W`/`HDIR.COM`, and more disk tools than the old 8" floppy image had
   room for) — the "56K" in its name is the CP/M memory footprint (RAM
   0000-DFFF), not the disk capacity; `BLANK-8MB.DSK` (drive 1) is a second,
   empty 8MB volume for scratch space.
-- `work/` — **gitignored.** Not a real project's disk — just a harmless
-  landing spot the MCP server can point at before it's told to load a
-  specific project (see "Starting a session"). Never build real project
-  work here; each project has its own `work/` instead (below).
-- `scripts/sync_pristine.sh <dest-dir>` — copies the pristine machine +
-  disk(s) into any destination directory, creating it if needed. Used to
-  set up a new project's own `work/`, to set this directory up, and to
-  recover a work directory that's ended up in a bad state. It makes the
+- `scripts/sync_pristine.sh [--machine-only] <dest-dir>` — copies the
+  pristine machine + disk(s) into any destination directory, creating it
+  if needed. Used to set up a new project's own `work/`, and to recover a
+  work directory that's ended up in a bad state. `--machine-only` copies
+  just `cadzilla.toml` and leaves the destination's disks alone — use it to
+  pick up a change to the pristine machine definition in every existing
+  `software/*/work/` without losing what's been built there. It makes the
   copies writable, keeps pristine read-only, and refuses to target
   `pristine/` itself.
 - `DRIVING-WITH-AI.md` — altairsim's own guide for driving it via MCP
@@ -91,23 +89,28 @@ From the **repo root**:
 
 ```bash
 cd /home/thoug/Projects/cadzilla
-tools/altairsim/scripts/sync_pristine.sh tools/altairsim/work
-
-claude mcp add altairsim -- /home/thoug/altairsim/build/altairsim tools/altairsim/work/cadzilla.toml --mcp
+claude mcp add altairsim -- /home/thoug/altairsim/build/altairsim -m cadzilla --mcp
 claude mcp list   # confirm "altairsim" is registered and reachable
 ```
+
+(Migrating from an older registration that pointed at a
+`tools/altairsim/work/cadzilla.toml` file? `claude mcp remove altairsim`
+first, then add it as above.)
 
 Registration uses local scope (the default) since it embeds an absolute,
 machine-specific path to the altairsim binary — it's stored in your own
 Claude config, not committed to the repo. A newly registered MCP server's
 tools may not appear until the session/window is reloaded.
 
-The registered path (`tools/altairsim/work/`) is just a safe bootstrap
-target, not any real project's disk — the first real step of any session
-is `CONFIG LOAD`-ing whichever project you're actually about to work on
-(see "Working on a project" below). Registration only needs to point
-somewhere *valid*, so the server has a machine file to load if it's ever
-restarted; it doesn't matter that nothing real happens there.
+The server starts on altairsim's **built-in `cadzilla` machine** (`-m
+cadzilla`): the real board with its console, front panel, host bridge and
+an empty disk controller — **no disks mounted and no boot PROM**, so
+nothing can be written anywhere until you choose a project. The first
+real step of any session is always `CONFIG LOAD`-ing the project you're
+about to work on (see "Working on a project" below). No repo file is
+named in the registration, so nothing in the repo has to exist for the
+server to start, and no project's disks are held open by a server that
+outlives its session.
 
 ### Resuming a session — check the disk is actually mounted
 
@@ -123,14 +126,17 @@ nothing mounted. It's also possible to find the guest sitting at PC 0 with
 every register zeroed and nothing booted at all (a fresh server process
 that was never driven through a boot yet) — `regs` tells the two apart.
 
-Check first: `monitor {command: "SHOW MOUNTS"}`. If `dsk0:drive0` shows
-`(empty)`, mount it back — `monitor {command: "MOUNT dsk0:drive0
-CPM22-8MB-56K-DEV.DSK"}` (and `dsk0:drive1` / `BLANK-8MB.DSK` if that
-project uses it too) — and then do a clean reboot, `run {from: 0xFF00,
-until: "A0>"}`, before touching the disk again. The reboot isn't optional:
-mounting a disk out from under a CP/M that's already running (rather than
-through its own boot-time disk detection) makes BDOS defensively mark the
-drive read-only (`Bdos Err On A: R/O`) until the next warm boot clears it.
+Check first: `monitor {command: "SHOW MOUNTS"}`. On a freshly started
+server every drive shows `(empty)` — that's the built-in machine, as
+expected. Either way, if `dsk0:drive0` isn't your project's disk, don't
+`MOUNT` a disk by hand: `CONFIG LOAD` the project's own
+`work/cadzilla.toml` again (it mounts both of that project's disks,
+resolved against its own `work/`) and do a clean boot, `run {from:
+0xFF00, until: "A0>"}`, before touching the disk. The boot isn't
+optional: a disk mounted out from under a CP/M that's already running
+(rather than through its own boot-time disk detection) makes BDOS
+defensively mark the drive read-only (`Bdos Err On A: R/O`) until the
+next warm boot clears it.
 
 ## Working on a project — each one has its own disk
 

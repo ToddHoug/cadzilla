@@ -11,11 +11,21 @@
 #     tools/altairsim/README.md). This discards everything built there
 #     since the last sync, so only do it deliberately.
 #
-# Usage: sync_pristine.sh <dest-dir>
+# --machine-only copies just cadzilla.toml and leaves the destination's
+# disks (and everything built on them) alone -- for picking up a change to
+# the pristine machine definition in an existing work directory.
+#
+# Usage: sync_pristine.sh [--machine-only] <dest-dir>
 set -euo pipefail
 
+MACHINE_ONLY=0
+if [ "${1:-}" = "--machine-only" ]; then
+  MACHINE_ONLY=1
+  shift
+fi
+
 if [ $# -ne 1 ]; then
-  echo "Usage: $0 <dest-dir>" >&2
+  echo "Usage: $0 [--machine-only] <dest-dir>" >&2
   exit 1
 fi
 
@@ -49,8 +59,14 @@ chmod a-w "$PRISTINE/cadzilla.toml" "${disks[@]}"
 # cp carries the read-only mode over to new files -- the work copies are
 # meant to be written, so make them writable again.
 cp -f "$PRISTINE/cadzilla.toml" "$DEST/"
-cp -f "${disks[@]}" "$DEST/"
 chmod u+w "$DEST/cadzilla.toml"
+if [ "$MACHINE_ONLY" -eq 1 ]; then
+  echo "Synced pristine machine (disks untouched) into $DEST:"
+  printf '  %s\n' "$(basename "$PRISTINE/cadzilla.toml")"
+  exit 0
+fi
+
+cp -f "${disks[@]}" "$DEST/"
 for d in "${disks[@]}"; do
   chmod u+w "$DEST/$(basename "$d")"
 done

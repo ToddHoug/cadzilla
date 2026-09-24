@@ -153,7 +153,10 @@ this project's working disk.
   stale prompt from whatever it was last doing.** `monitor {command: "SHOW
   MOUNTS"}` before assuming a `CONFIG LOAD` + boot is unnecessary, and
   `regs` if the guest seems unresponsive -- PC 0 with every register
-  zeroed means nothing's booted yet, not that something's wrong.
+  zeroed means nothing's booted yet, not that something's wrong. A fresh
+  server runs altairsim's built-in `cadzilla` machine with every drive
+  `(empty)` and no boot PROM; that's expected, and the project's
+  `CONFIG LOAD` above is what gives it disks.
 
 ## 4. Report back
 

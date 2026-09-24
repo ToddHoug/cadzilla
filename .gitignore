@@ -10,10 +10,8 @@ software/*/build/*
 !software/*/build/.gitkeep
 
 # altairsim working disks -- pristine/ is the tracked master; each project has its own
-# work/ (mutated in place, never shared between projects); tools/altairsim/work/ is only
-# a harmless bootstrap target for the MCP server's registration, never used for real work
+# work/ (mutated in place, never shared between projects)
 software/*/work/
-tools/altairsim/work/
 
 # altairsim's own command-history file -- can leak into pristine/ if it's ever booted
 # directly (which it never should be); ignored everywhere as a safety net
