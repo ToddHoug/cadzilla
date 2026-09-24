@@ -57,6 +57,21 @@ could never be created from the command line in the first place.
   `software/*/work/` without losing what's been built there. It makes the
   copies writable, keeps pristine read-only, and refuses to target
   `pristine/` itself.
+- `scripts/attach_libdisk.sh [--writable] <work-dir>` — points drive 1
+  (CP/M `B:`) of a work machine at the czgfx library disk
+  `software/czgfx/libdisk/CZGFX.DSK` (read-only unless `--writable`),
+  creating that disk from `pristine/BLANK-8MB.DSK` if it doesn't exist
+  yet. See "The M80/L80 toolchain" below. Re-run it after
+  `sync_pristine.sh --machine-only`, which puts the pristine drive 1 back.
+- `scripts/check_dsk.py <image.DSK>...` — checks every sector of a CP/M
+  disk image for a valid stop byte and checksum; exit status 1 on any bad
+  sector. Run it on a project's disks after a session. A bad sector means
+  the disk was unmounted while the BIOS was still flushing (see "Ending a
+  session").
+- `scripts/crlf.sh <file>...` — gives text files CP/M's CR/LF line
+  endings in place (idempotent). Run it on every `.ASM`/`.MAC`/`.INC`/`.SUB`
+  before `R`: files written on this host are LF-only, and an LF-only
+  source assembles to nothing without an error.
 - `DRIVING-WITH-AI.md` — altairsim's own guide for driving it via MCP
   (kept here for reference; canonical copy lives in `~/altairsim/docs/`).
 
@@ -243,10 +258,74 @@ Other notes (see `DRIVING-WITH-AI.md` for the full detail):
 - `ASM.COM` symbol names can't contain underscores (silently resolve to
   `0`) and are case-insensitive (watch for accidental collisions).
 - `ASM.COM` has no `INCLUDE` directive — each `.asm` file is
-  self-contained.
+  self-contained. Projects that need shared code use M80/L80 instead
+  (next section).
 - If output looks wrong, debug in place rather than guessing:
   `monitor {command: "BREAK <addr>"}`, `STEP`, `DISASM`, `HISTORY`,
   `regs`.
+
+## The M80/L80 toolchain and the czgfx library disk
+
+The pristine CP/M disk also carries Microsoft's **M80.COM** (MACRO-80
+3.44) and **L80.COM** (LINK-80 3.44) — but not LIB80, so there's no
+librarian. Unlike `ASM.COM`, M80 has `INCLUDE`, real macros (`MACRO`,
+`REPT`, `IRP`, `LOCAL`, `IFNB`...), `PUBLIC`/`EXTRN`, and emits
+relocatable `.REL` modules that L80 links into a `.COM`. That's what makes
+a shared library possible:
+
+- **`software/czgfx/`** is the CADzilla graphics-primitive library: the
+  `CZGFX.INC` header (board equates, `EXTRN`s, the `G...` drawing macros)
+  plus one `.REL` per module (`CZCORE`, `CZPAL`, `CZINIT`, `CZDRAW`,
+  `CZPOLY`), and `CZLINK.SUB`, the link script that knows the module
+  list and order. API reference: `software/czgfx/README.md`.
+- czgfx builds all of that onto its own **library disk**,
+  `software/czgfx/libdisk/CZGFX.DSK` (gitignored — a build product).
+  czgfx's own `work/` mounts it **writable** as drive 1.
+- Every M80 consumer project mounts the same disk as **`B:`, read-only**
+  (`readonly = true` in its `work/cadzilla.toml`; `SHOW MOUNTS` says
+  `(write-protected)`), `INCLUDE`s `B:CZGFX.INC`, and links with
+  `SUBMIT B:CZLINK <NAME>` — so it never lists library modules itself,
+  and L80's `/S` search pulls in only the modules the program uses.
+  `software/gfxdemo/` is the working example.
+
+```
+drive 0  A:  software/<project>/work/CPM22-8MB-56K-DEV.DSK   the project's own disk
+drive 1  B:  software/czgfx/libdisk/CZGFX.DSK                 czgfx library (read-only here)
+```
+
+Build a consumer (from a clean `A0>` on the project's own machine):
+
+```
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<proj>/src"}
+run {input: "R <NAME>.MAC\r", until: "A0>"}
+run {input: "M80 <NAME>,<NAME>=<NAME>\r", until: "A0>", timeout_ms: 60000}   # -> .REL + .PRN
+run {input: "SUBMIT B:CZLINK <NAME>\r", timeout_ms: 60000}                 # -> .COM (no until: stops when idle)
+run {input: "<NAME>\r", until: "A0>"}
+```
+
+then `W <NAME>.COM` (binary) and `W <NAME>.PRN T` into `build/` as usual.
+
+**Rebuild the library first when it's stale** — if anything in
+`software/czgfx/src/` is newer than `libdisk/CZGFX.DSK`, or the disk
+doesn't exist yet: `CONFIG LOAD` czgfx's own `work/cadzilla.toml`, boot,
+`R *.*` from `czgfx/src`, `SUBMIT CZBUILD`, `W` the `.REL`/`.PRN` into
+`czgfx/build`, and unmount both drives *before* switching the server to a
+consumer project. The `cadzilla-build-m80` skill has the full procedure.
+
+M80/L80 gotchas (the `cadzilla-build-m80` skill has more):
+- **Global names are 6 characters.** L80 keeps only the first 6 of a
+  `PUBLIC`/`EXTRN` name — `LONGNAME1` and `LONGNAME2` link as one
+  `%Mult. Def. Global LONGNA`.
+- M80's default source extension is `.MAC`; the command is
+  `M80 <rel>,<prn>=<src>`. Success prints `No Fatal error(s)`; also
+  scan the `.PRN` for a flag letter in column 1.
+- **L80 searches libraries in one pass**, in command-line order: a module
+  must come after every module that references it (`CZLINK.SUB` keeps
+  that order: high-level first, `CZCORE` last).
+- Source must be relocatable: `CSEG`, no `ORG` — L80 puts the program at
+  0100H.
+- `SUBMIT` here is SuperSUB; it echoes each line at an `A0>` prompt, so
+  don't use `until: "A0>"` on a `SUBMIT` — let the `run` stop when idle.
 
 ## Adding a new program
 
@@ -269,14 +348,29 @@ using it.)
 
 ## Ending a session
 
-Make sure you're back at a clean `A0>` prompt, then flush the working
-disk's track buffer to the host file:
+Let the guest go idle at the `A0>` prompt, then unmount, which flushes the
+disk image to the host file:
 
 ```
+run {}                                      # no input, no until: must say stopped: "idle"
 monitor {command: "UNMOUNT dsk0:drive0"}
 ```
 
-(And `dsk0:drive1` too, if that project's session mounted `BLANK-8MB.DSK`.)
+**Stopping on `A0>` is not the same as idle.** This CP/M BIOS keeps the
+last track it wrote in a RAM buffer, and writes it to the disk only once
+the CCP waits for console input, which happens *after* the `A0>` prompt is
+printed. A `run` that stopped on `until: "A0>"` can therefore still have
+that write outstanding. Unmounting then either loses it, or cuts it short
+halfway through a sector, and the next boot says
+`Bdos Err On A: Bad Sector`. This has happened to `software/gfxdemo/work`.
+So before any `UNMOUNT`, `CONFIG LOAD` or `reset`, run once with no input
+and no `until`, and check that it reports `stopped: "idle"`.
+
+Afterwards, `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK`
+should say `ok`.
+
+(And `dsk0:drive1` too — `BLANK-8MB.DSK`, or the czgfx library disk on
+an M80 project.)
 
 **Don't force-interrupt a disk operation in flight.** `reset` or `CONFIG
 LOAD` mid-`ASM`/`LOAD`/`R`/`W` (e.g. because a `run` call timed out) can

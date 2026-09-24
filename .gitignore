@@ -13,6 +13,9 @@ software/*/build/*
 # work/ (mutated in place, never shared between projects)
 software/*/work/
 
+# the czgfx library disk -- a build product of software/czgfx/src, rebuilt from it
+software/*/libdisk/
+
 # altairsim's own command-history file -- can leak into pristine/ if it's ever booted
 # directly (which it never should be); ignored everywhere as a safety net
 .altairsim_history

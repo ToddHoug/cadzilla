@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # Scaffold a new CADzilla software project: software/<name>/{src,include,build}
 # plus a minimal starter assembly source file, correctly CR/LF-terminated and
-# uppercased for CP/M's ASM.COM.
+# uppercased for CP/M.
 #
-# Usage: new_project.sh <project-name> [--cpm-name NAME] [welcome-message]
+# Usage: new_project.sh <project-name> [--toolchain asm|m80] [--cpm-name NAME] [welcome-message]
+#
+# --toolchain picks the assembler (default asm):
+#   asm  DRI ASM.COM + LOAD.COM: one self-contained <NAME>.ASM, no INCLUDE,
+#        no linker -- the original CP/M flow (cadzilla-build-asm skill).
+#   m80  Microsoft M80 + L80: a relocatable <NAME>.MAC that INCLUDEs the
+#        czgfx graphics library header from B: and links against its .REL
+#        modules (cadzilla-build-m80 skill). The project's work machine gets
+#        the czgfx library disk as drive 1 (B:), read-only.
 #
 # --cpm-name is for when <project-name> itself doesn't fit CP/M's 8.3 limit
 # (8 characters before the extension) -- e.g. `new_project.sh firstdraw
@@ -14,9 +22,18 @@ set -euo pipefail
 NAME=""
 MESSAGE=""
 CPM_NAME_OVERRIDE=""
+TOOLCHAIN="asm"
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --toolchain)
+      if [ $# -lt 2 ]; then
+        echo "error: --toolchain needs a value (asm or m80)" >&2
+        exit 1
+      fi
+      TOOLCHAIN="$2"
+      shift 2
+      ;;
     --cpm-name)
       if [ $# -lt 2 ]; then
         echo "error: --cpm-name needs a value" >&2
@@ -40,14 +57,23 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$NAME" ]; then
-  echo "Usage: $0 <project-name> [--cpm-name NAME] [welcome-message]" >&2
+  echo "Usage: $0 <project-name> [--toolchain asm|m80] [--cpm-name NAME] [welcome-message]" >&2
   exit 1
 fi
+
+case "$TOOLCHAIN" in
+  asm) EXT="ASM" ;;
+  m80) EXT="MAC" ;;
+  *)
+    echo "error: --toolchain must be asm or m80, not '$TOOLCHAIN'" >&2
+    exit 1
+    ;;
+esac
 
 MESSAGE="${MESSAGE:-Welcome to CADzilla: ${NAME}!}"
 
 if [[ "$MESSAGE" == *"'"* ]]; then
-  echo "error: welcome message can't contain a single quote -- it goes inside a DB '...' string in the .ASM source and would break the assembly" >&2
+  echo "error: welcome message can't contain a single quote -- it goes inside a DB '...' string in the source and would break the assembly" >&2
   exit 1
 fi
 
@@ -95,7 +121,7 @@ esac
 # ahead of time (software/firstdraw's src/include/build with only .gitkeep in
 # them). That's fine to fill in. What's NOT fine is clobbering a source file
 # that's already there with real content in it.
-ASM_PATH="$PROJECT_DIR/src/$CPM_NAME.ASM"
+ASM_PATH="$PROJECT_DIR/src/$CPM_NAME.$EXT"
 if [ -e "$ASM_PATH" ]; then
   echo "error: $ASM_PATH already exists -- not overwriting it" >&2
   exit 1
@@ -112,6 +138,61 @@ if [ ! -d "$PROJECT_DIR/work" ]; then
   "$REPO_ROOT/tools/altairsim/scripts/sync_pristine.sh" "$PROJECT_DIR/work"
 fi
 
+# An M80 project reads the czgfx library from drive B: -- point drive 1 of its
+# machine at the library disk, read-only. (Idempotent, so it's also safe on
+# an existing work/.)
+if [ "$TOOLCHAIN" = "m80" ]; then
+  "$REPO_ROOT/tools/altairsim/scripts/attach_libdisk.sh" "$PROJECT_DIR/work"
+fi
+
+if [ "$TOOLCHAIN" = "m80" ]; then
+# A minimal czgfx starter: set up the board, draw a frame and a filled box,
+# wait for the drawing to finish, then print the message and return to CP/M.
+# Relocatable (CSEG, no ORG) -- L80 places it at 0100H.
+cat > "$ASM_PATH" <<EOF
+;
+; $CPM_NAME.MAC -- CADzilla program using the czgfx graphics library
+;
+; Build (czgfx library disk mounted as B:, see cadzilla-build-m80):
+;   A0>M80 $CPM_NAME,$CPM_NAME=$CPM_NAME
+;   A0>SUBMIT B:CZLINK $CPM_NAME
+;
+        INCLUDE B:CZGFX.INC
+;
+BDOS    EQU     0005H
+PSTRING EQU     9
+CR      EQU     0DH
+LF      EQU     0AH
+;
+        CSEG
+;
+START:  LXI     H,0             ;keep CCP's stack, run on our own
+        DAD     SP
+        SHLD    OLDSP
+        LXI     SP,STACK
+;
+        GINIT                   ;640x480, default palette, screen cleared
+        GCOLOR  WHITE+BRIGHT
+        GBOX    0,0,639,479     ;frame around the whole screen
+        GFBOX   280,200,360,280,BLUE+BRIGHT
+        GWAIT                   ;let the ACRTC finish drawing
+;
+        LXI     D,MSG
+        MVI     C,PSTRING
+        CALL    BDOS
+        LHLD    OLDSP
+        SPHL
+        RET
+;
+MSG:    DB      '$MESSAGE',CR,LF,'\$'
+;
+OLDSP:  DS      2
+        DS      64
+STACK:
+;
+        END     START
+EOF
+else
 # A minimal, self-contained starter: BDOS function 9 prints a '$'-terminated
 # string. No INCLUDE (ASM.COM doesn't support it) and no underscores in any
 # symbol name (ASM.COM silently resolves those to 0 instead of erroring).
@@ -132,15 +213,25 @@ MSG:    DB      '$MESSAGE',CR,LF,'\$'
 ;
         END     START
 EOF
+fi
 
-# ASM.COM requires CR/LF line endings -- an LF-only file silently assembles to
-# nothing at all, with no error, just an empty "000H USE FACTOR".
-sed -i 's/$/\r/' "$ASM_PATH"
+# CP/M's assemblers require CR/LF line endings -- an LF-only file silently
+# assembles to nothing at all, with no error (ASM.COM: just an empty "000H
+# USE FACTOR").
+"$REPO_ROOT/tools/altairsim/scripts/crlf.sh" "$ASM_PATH"
 
 echo "Created/filled in $PROJECT_DIR"
-echo "  src/$CPM_NAME.ASM   (CR/LF line endings, ready for ASM.COM)"
+if [ "$TOOLCHAIN" = "m80" ]; then
+  echo "  src/$CPM_NAME.MAC   (CR/LF line endings, ready for M80.COM; uses czgfx from B:)"
+else
+  echo "  src/$CPM_NAME.ASM   (CR/LF line endings, ready for ASM.COM)"
+fi
 echo "  include/.gitkeep"
 echo "  build/.gitkeep"
-echo "  work/               (this project's own altairsim machine + disk(s))"
+if [ "$TOOLCHAIN" = "m80" ]; then
+  echo "  work/               (this project's own altairsim machine + disk; B: = czgfx library, read-only)"
+else
+  echo "  work/               (this project's own altairsim machine + disk(s))"
+fi
 echo
 echo "CP/M-side name: $CPM_NAME"

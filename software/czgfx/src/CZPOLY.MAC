@@ -1,0 +1,59 @@
+;
+; CZPOLY.MAC -- czgfx: polylines and polygons
+;
+; Both take a point table at HL, as built by the GPTS, GPLINE and
+; GPOLY macros:
+;
+;       DW      n               ;number of points, n >= 2
+;       DW      X0,Y0           ;start point (AMOVE here first)
+;       DW      X1,Y1 .. Xn-1,Yn-1
+;
+; Both preserve BC and DE and return HL just past the table.
+;
+CZLIB   EQU     1
+        INCLUDE CZGFX.INC
+;
+        PUBLIC  CZPLL,CZPLG
+        EXTRN   CZPUTW,CZXY,CZSEND,CZLDW
+;
+        CSEG
+;
+; CZPLL -- open polyline X0,Y0 .. Xn-1,Yn-1 (CP = the last point)
+;
+CZPLL:  MVI     A,OPAPLL
+        JMP     POLY
+;
+; CZPLG -- closed polygon: as CZPLL, then back to X0,Y0
+;
+CZPLG:  MVI     A,OPAPLG
+;
+POLY:   PUSH    B
+        PUSH    D
+        MOV     B,A             ;B = command high byte
+        CALL    CZLDW           ;DE = n
+        DCX     D               ;points after the start
+        PUSH    D
+        CALL    CZLDW           ;DE = X0
+        PUSH    D
+        CALL    CZLDW           ;DE = Y0
+        XTHL                    ;HL = X0, table pointer on stack
+        MVI     A,OPMOVE
+        CALL    CZXY
+        POP     H               ;HL = table at X1
+        POP     D               ;DE = n-1
+        PUSH    H
+        MOV     H,B             ;command word
+        MVI     L,0
+        CALL    CZPUTW
+        XCHG                    ;parameter: n-1 points
+        CALL    CZPUTW
+        DAD     H               ;BC = 2(n-1) words of points
+        MOV     B,H
+        MOV     C,L
+        POP     H
+        CALL    CZSEND
+        POP     D
+        POP     B
+        RET
+;
+        END

@@ -1,0 +1,67 @@
+;
+; CZDRAW.MAC -- czgfx: basic drawing primitives
+;
+; Color, move, line, rectangle, filled rectangle and dot, in absolute
+; (X = HL, Y = DE) and relative (dX = HL, dY = DE, from the current
+; drawing pointer, CP) forms. Every entry preserves BC, DE and HL.
+;
+; The ACRTC does not draw a line's end point, so a closed shape drawn
+; from lines lights each corner exactly once.
+;
+CZLIB   EQU     1
+        INCLUDE CZGFX.INC
+;
+        PUBLIC  CZCOL,CZMOVE,CZLINE,CZRECT,CZFRCT,CZDOT
+        PUBLIC  CZRMOV,CZRLIN,CZRRCT,CZRFRC
+        EXTRN   CZPUTW,CZXY
+;
+        CSEG
+;
+; CZCOL -- set the drawing color to palette index A (WPR CL1). The
+; pattern RAM is all ones, so COL=00 always draws with CL1. At 8 bpp
+; the index is replicated into both bytes of the color register.
+;
+CZCOL:  PUSH    H
+        PUSH    PSW
+        LXI     H,0801H         ;WPR CL1
+        CALL    CZPUTW
+        POP     PSW
+        MOV     H,A
+        MOV     L,A
+        CALL    CZPUTW
+        POP     H
+        RET
+;
+; Absolute: X = HL, Y = DE
+;
+CZMOVE: MVI     A,OPMOVE        ;CP = X,Y
+        JMP     CZXY
+CZLINE: MVI     A,OPLINE        ;line CP to X,Y; CP = X,Y
+        JMP     CZXY
+CZRECT: MVI     A,OPRECT        ;rectangle, corners CP and X,Y
+        JMP     CZXY
+CZFRCT: MVI     A,OPFRCT        ;filled rectangle, corners CP and X,Y
+        JMP     CZXY
+;
+; Relative: dX = HL, dY = DE
+;
+CZRMOV: MVI     A,OPRMOV
+        JMP     CZXY
+CZRLIN: MVI     A,OPRLIN
+        JMP     CZXY
+CZRRCT: MVI     A,OPRRCT
+        JMP     CZXY
+CZRFRC: MVI     A,OPRFRC
+        JMP     CZXY
+;
+; CZDOT -- set the pixel at X = HL, Y = DE (CP = X,Y)
+;
+CZDOT:  MVI     A,OPMOVE
+        CALL    CZXY
+        PUSH    H
+        LXI     H,CMDDOT
+        CALL    CZPUTW
+        POP     H
+        RET
+;
+        END

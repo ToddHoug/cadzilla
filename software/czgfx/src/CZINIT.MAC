@@ -1,0 +1,242 @@
+;
+; CZINIT.MAC -- czgfx: board setup and screen clear
+;
+; CZINIT programs the MODE register, the ACRTC control registers, the
+; Bt453 palette and the ACRTC drawing parameters for one display mode,
+; then clears the screen. The mode is given as a descriptor:
+;
+;   CZM640  640x480  (VESA 640x480@60, the board model's default strap)
+;   CZM1K   1024x768 (VESA 1024x768@60; strap the monitor for it)
+;
+; Both are 8 bpp, single access, one base screen at frame buffer word
+; 0, with the drawing origin at the bottom-left pixel (Y up).
+;
+; A descriptor is:
+;   DB  MODE register value
+;   DW  mode control register table (CZRTAB format)
+;   DW  mode drawing parameters (DPMLEN FIFO words: ADR limits, ORG)
+;   DW  X max, Y max, words per raster - 1
+;
+CZLIB   EQU     1
+        INCLUDE CZGFX.INC
+;
+        PUBLIC  CZINIT,CZM640,CZM1K,CZXMAX,CZYMAX,CZCLS
+        EXTRN   CZRTAB,CZSEND,CZPUTW,CZLDW,CZPALD
+;
+DPMLEN  EQU     7               ;words in a mode drawing parameter block
+;
+        CSEG
+;
+; CZINIT -- set up the board for the mode descriptor at HL and clear
+; the screen to color 0. Clobbers all registers.
+;
+CZINIT: MOV     A,M             ;MODE: sync polarity, access mode
+        INX     H
+        OUT     MODEREG
+        CALL    CZLDW           ;DE = mode control register table
+        PUSH    H
+        LXI     H,RPRE          ;abort, 8 bpp, display stopped and off
+        CALL    CZRTAB
+        XCHG
+        CALL    CZRTAB          ;timing for this mode
+        LXI     H,RPOST         ;everything else, display started
+        CALL    CZRTAB          ;(leaves AR = r00 for the FIFO)
+        CALL    CZPALD          ;Bt453 default palette
+        LXI     H,DPCOM         ;drawing parameters common to all modes
+        LXI     B,(DPCEND-DPCOM)/2
+        CALL    CZSEND
+        POP     H
+        CALL    CZLDW           ;DE = mode drawing parameters
+        PUSH    H
+        XCHG
+        LXI     B,DPMLEN
+        CALL    CZSEND
+        POP     H
+        CALL    CZLDW           ;screen size
+        XCHG
+        SHLD    CZXMAX
+        XCHG
+        CALL    CZLDW
+        XCHG
+        SHLD    CZYMAX
+        XCHG
+        CALL    CZLDW
+        XCHG
+        SHLD    WMAX
+        XRA     A
+;       JMP     CZCLS           ;(falls through)
+;
+; CZCLS -- clear the whole base screen to palette index A
+;
+CZCLS:  PUSH    B
+        PUSH    D
+        PUSH    H
+        MOV     B,A
+        LXI     H,CLSTAB        ;RWP: base screen, top raster; CLR op
+        MVI     C,(CLSEND-CLSTAB)/2
+CLSLP:  CALL    CZLDW
+        XCHG
+        CALL    CZPUTW
+        XCHG
+        DCR     C
+        JNZ     CLSLP
+        MOV     H,B             ;fill data: color in both pixels
+        MOV     L,B
+        CALL    CZPUTW
+        LHLD    WMAX            ;width in words - 1
+        CALL    CZPUTW
+        LHLD    CZYMAX          ;-(height - 1): downward from the top
+        MOV     A,L
+        CMA
+        MOV     L,A
+        MOV     A,H
+        CMA
+        MOV     H,A
+        INX     H
+        CALL    CZPUTW
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+CLSTAB: DW      080CH,4000H     ;RWP: base screen, address 0 (top raster)
+        DW      080DH,0000H
+        DW      5800H           ;CLR (data, width, height follow)
+CLSEND:
+;
+; Screen size of the current mode (CZINIT sets them)
+;
+CZXMAX: DW      639
+CZYMAX: DW      479
+WMAX:   DW      319
+;
+; ---- mode descriptors ----
+;
+CZM640: DB      03H             ;MODE: HSPOL=VSPOL=1 (negative), single
+        DW      R640
+        DW      D640
+        DW      639,479,319
+;
+CZM1K:  DB      03H             ;MODE: HSPOL=VSPOL=1 (negative), single
+        DW      R1K
+        DW      D1K
+        DW      1023,767,511
+;
+; ---- control registers: DB register / DW value, 0FFH ends ----
+;
+RPRE:   DB      02H             ;CCR: ABT - abort, flush FIFOs
+        DW      8300H
+        DB      02H             ;CCR: GBM=011 8 bpp, no interrupts
+        DW      0300H
+        DB      04H             ;OMR: M/S=1, STR=0 (stopped), RAM=1
+        DW      80B0H           ;  static RAM, GAI=011 +8, ACM=00 single
+        DB      06H             ;DCR: all screens off while programming
+        DW      0000H
+        DB      0FFH
+;
+; Timing, 16 pixels per memory cycle (8 words, GAI +8). Values from
+; the board's VESA mode table (altairsim docs/boards/cadzilla.md).
+;
+R640:   DB      82H             ;HSR: HC=49 (50 cycles), HSW=6
+        DW      3106H
+        DB      84H             ;HDR: HDS=2, HDW=39 (40 cycles = 640 px)
+        DW      0227H
+        DB      86H             ;VSR: VC=525 rasters
+        DW      020DH
+        DB      88H             ;VDR: VDS=32, VSW=2
+        DW      2002H
+        DB      8AH             ;SP1: base screen 480 rasters
+        DW      01E0H
+        DB      0CAH            ;MWR1: graphic, 320 words per raster
+        DW      0140H
+        DB      0FFH
+;
+R1K:    DB      82H             ;HSR: HC=83 (84 cycles), HSW=8
+        DW      5308H
+        DB      84H             ;HDR: HDS=9, HDW=63 (64 cycles = 1024 px)
+        DW      093FH
+        DB      86H             ;VSR: VC=806 rasters
+        DW      0326H
+        DB      88H             ;VDR: VDS=28, VSW=6
+        DW      1C06H
+        DB      8AH             ;SP1: base screen 768 rasters
+        DW      0300H
+        DB      0CAH            ;MWR1: graphic, 512 words per raster
+        DW      0200H
+        DB      0FFH
+;
+RPOST:  DB      8CH             ;SP0: upper screen (disabled)
+        DW      0000H
+        DB      8EH             ;SP2: lower screen (disabled)
+        DW      0000H
+        DB      90H             ;BCR: no blink
+        DW      0000H
+        DB      92H             ;HWR: window (disabled)
+        DW      0000H
+        DB      94H             ;VWS
+        DW      0000H
+        DB      96H             ;VWW
+        DW      0000H
+        DB      98H             ;GCR: graphic cursor (not supported)
+        DW      0000H
+        DB      9AH
+        DW      0000H
+        DB      9CH
+        DW      0000H
+        DB      0C8H            ;RAR1: base screen raster address
+        DW      0000H
+        DB      0CCH            ;SAR1: start address = 0 (high nibble)
+        DW      0000H
+        DB      0CEH            ;SAR1: start address = 0 (low word)
+        DW      0000H
+        DB      0E0H            ;BCUR1/2: block cursors (not supported)
+        DW      0000H
+        DB      0E2H
+        DW      0000H
+        DB      0E4H
+        DW      0000H
+        DB      0E6H
+        DW      0000H
+        DB      0E8H            ;CDR: cursor definition
+        DW      0000H
+        DB      0EAH            ;ZFR: no zoom (not supported)
+        DW      0000H
+        DB      06H             ;DCR: SE1 - base screen displayed
+        DW      4000H
+        DB      04H             ;OMR: as above with STR=1 - start
+        DW      0C0B0H
+        DB      0FFH
+;
+; ---- drawing parameters, streamed through the FIFO as words ----
+;
+DPCOM:  DW      1800H,32        ;WPTN PRA=0, n=32 bytes (8-bit bus)
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH     ;pattern RAM all ones
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
+        DW      0805H,0000H     ;PRC: PPY=PPX=0, zoom counts 0
+        DW      0806H,0000H     ;PRC: PSY=PSX=0
+        DW      0807H,0F0F0H    ;PRC: PEY=PEX=15, no pattern zoom
+        DW      0800H,0000H     ;CL0 = 0
+        DW      0801H,0FFFFH    ;CL1 = 0FFH (bright white)
+        DW      0802H,0000H     ;CCMP
+        DW      0803H,0000H     ;EDG
+        DW      0804H,0FFFFH    ;MASK: all bits
+        DW      0808H,0         ;ADR XMIN
+        DW      0809H,0         ;ADR YMIN
+        DW      080CH,4000H     ;RWP: base screen, address 0 (top raster)
+        DW      080DH,0000H
+DPCEND:
+;
+; Per mode: ADR XMAX/YMAX, and ORG at the bottom-left pixel, i.e. word
+; address (height-1)*words per raster, DPD=0.
+;
+D640:   DW      080AH,639       ;ADR XMAX
+        DW      080BH,479       ;ADR YMAX
+        DW      0400H,4025H,6C00H ;ORG: 256C0H = 479*320
+;
+D1K:    DW      080AH,1023      ;ADR XMAX
+        DW      080BH,767       ;ADR YMAX
+        DW      0400H,405FH,0E000H ;ORG: 5FE00H = 767*512
+;
+        END

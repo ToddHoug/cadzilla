@@ -1,6 +1,6 @@
 ---
 name: new-cadzilla-project
-description: Scaffolds a new 8080/CP/M software project in the CADzilla repo under software/<name>/, with a correctly CR/LF-terminated, CP/M-uppercased starter assembly source file, then drives the altairsim MCP server through a first assemble/load/run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080 assembly source file for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
+description: Scaffolds a new 8080/CP/M software project in the CADzilla repo under software/<name>/, with a correctly CR/LF-terminated, CP/M-uppercased starter assembly source file for either toolchain -- the original DRI ASM.COM (single .ASM) or Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:) -- then drives the altairsim MCP server through a first build and run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080 assembly source file for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
 ---
 
 # New CADzilla project
@@ -9,8 +9,20 @@ Every CADzilla software project is 8080 assembly that assembles and runs
 under CP/M 2.2 on the altairsim emulator, driven through altairsim's MCP
 server. `tools/altairsim/README.md` documents the full workflow and the
 gotchas found while building it; this skill exists so those gotchas don't
-have to be rediscovered every time a new project starts. `software/hello/`
-is a working reference example if anything here is ambiguous.
+have to be rediscovered every time a new project starts.
+
+There are two toolchains. The project is built for one of them:
+
+| `--toolchain` | Source | Build skill | Reference project |
+|---|---|---|---|
+| `asm` (default) | one self-contained `<NAME>.ASM`; DRI `ASM.COM` + `LOAD.COM`; no INCLUDE, no macros, no linker | `cadzilla-build-asm` | `software/hello` |
+| `m80` | relocatable `<NAME>.MAC`; Microsoft `M80` + `L80`; `INCLUDE B:CZGFX.INC`, the czgfx graphics macros and library, linked with `SUBMIT B:CZLINK` | `cadzilla-build-m80` | `software/gfxdemo` |
+
+**Recommend `m80` for anything that draws on the CADzilla board.** The
+czgfx library already does the board setup and the drawing primitives,
+which an `asm` project would have to copy in whole (as `firstdraw` and
+`drawdemo` did). `asm` is fine for small console-only programs. If the user
+hasn't said which one and it isn't obvious from what the program does, ask.
 
 ## 1. Get the project name
 
@@ -33,8 +45,16 @@ requirement correctly, which are easy to get wrong by hand (writing the
 which `ASM.COM` accepts silently and then assembles into nothing):
 
 ```bash
-.claude/skills/new-cadzilla-project/scripts/new_project.sh <name> [--cpm-name NAME] ["<welcome message>"]
+.claude/skills/new-cadzilla-project/scripts/new_project.sh <name> [--toolchain asm|m80] [--cpm-name NAME] ["<welcome message>"]
 ```
+
+With `--toolchain m80`, the script also runs
+`tools/altairsim/scripts/attach_libdisk.sh` on the new `work/`, which points
+drive 1 (B:) at the czgfx library disk `software/czgfx/libdisk/CZGFX.DSK`,
+read-only. It writes `src/<NAME>.MAC` instead of `.ASM`. The stub:
+- `INCLUDE`s `B:CZGFX.INC` and calls `GINIT`
+- draws a frame and a filled box, then waits for `GWAIT`
+- prints the message and returns to CP/M
 
 This creates `software/<name>/{src,include,build,work}` (with `.gitkeep`
 in `include/` and `build/`, since build output itself is gitignored per
@@ -66,11 +86,21 @@ program -- say so, and point at the file, once it's created.
 
 ## 3. Prove the toolchain works
 
-Don't stop at "the file exists" -- actually assemble, load, and run the
-stub through the altairsim MCP tools, the same way `software/hello` was
-verified, so the user starts editing a project that's already known to
-build rather than discovering a toolchain problem later mixed in with
+Don't stop at "the file exists". Build and run the stub through the
+altairsim MCP tools, so the user starts editing a project that is already
+known to build. Otherwise a toolchain problem turns up later, mixed in with
 their own code changes.
+
+**For an `m80` project, follow the `cadzilla-build-m80` skill instead of the
+steps below.** It covers:
+- rebuilding the czgfx library disk first if it is missing or stale
+- M80, `SUBMIT B:CZLINK <NAME>`, the run, and the `W` of the `.COM`/`.PRN`
+- unmounting both drives at the end
+
+Its first-run check: the stub's message appears on the console, and
+`board_get cad0` shows `status` with CER clear. The steps below are the
+`asm` flow; the `cadzilla-build-asm` skill has the same steps in more depth
+for later rebuilds.
 
 First confirm the altairsim MCP tools are available (e.g. search for
 `mcp__altairsim__run`). If they're not, the MCP server likely isn't
@@ -122,9 +152,14 @@ run {input: "W <NAME>.PRN T\r", until: "A0>"}
 monitor {command: "SET hb0 HOSTDIR=<repo-root>"}
 ```
 
-End at a clean `A0>` prompt, then `monitor {command: "UNMOUNT
-dsk0:drive0"}` (and `dsk0:drive1` if it ever gets mounted too) to flush
-this project's working disk.
+Then close the session: `run {timeout_ms: 5000}` with no input and no
+`until`, which must report `stopped: "idle"`, then
+`monitor {command: "UNMOUNT dsk0:drive0"}` and `dsk0:drive1`. Stopping on
+the `A0>` match isn't enough: the BIOS writes its last buffered track only
+after the prompt is printed, and unmounting before that finishes has left a
+half-written sector (`Bdos Err On A: Bad Sector` at the next boot).
+`tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK` should
+then say `ok`.
 
 ### Things that will bite you if you skip them
 
