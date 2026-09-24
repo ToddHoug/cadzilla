@@ -12,9 +12,9 @@ built-in MCP server. This directory holds everything that workflow needs.
 host and the CP/M side** — everything under `software/<project>/src/` and
 `software/<project>/build/` (`HELLO.ASM`, `HELLO.COM`, `HELLO.HEX`,
 `HELLO.PRN`, ...), and every `ASM`/`LOAD`/run/`W` argument typed at the
-CP/M `A>` prompt. The same name is used consistently everywhere — no
-renaming between host and CP/M. Directory names (`software/hello/`, `src/`,
-`build/`) still follow this repo's normal lowercase convention
+CP/M console. The same name is used consistently everywhere — no renaming
+between host and CP/M. Directory names (`software/hello/`, `src/`,
+`build/`, `work/`) still follow this repo's normal lowercase convention
 (`CLAUDE.md`); only the files themselves are uppercase.
 
 This also sidesteps a real gotcha explained below: CP/M uppercases
@@ -24,33 +24,53 @@ could never be created from the command line in the first place.
 ## Layout
 
 - `pristine/` — the read-only master copy of the CP/M machine definition
-  (`cadzilla.toml`) and disk image (`cpm22b23-56k.dsk`, Mike Douglas's
-  track-buffered CP/M 2.2b, already carrying `ASM.COM`, `LOAD.COM`,
-  `DDT.COM`, and the host-bridge `R`/`W`/`HDIR.COM` utilities). **Never
-  edit or boot these directly.** `cadzilla.toml` is a delta on altairsim's
-  own `machines/cadzilla.toml` — the real board (8080, console, the
-  HD63484/Bt453 graphics board) — with CP/M boot support layered on top
-  (front panel, disk controller, host bridge, and a 56K+ROM memory map in
-  place of the base's 64K of plain RAM). See the comments in the file
-  itself for the full reasoning, including why its `cpu0` clock is forced
-  back to flat-out despite the real board running at 2MHz.
-- `work/` — **gitignored.** A working copy of the pristine files, created
-  fresh at the start of a session. CP/M writes to its mounted disk in
-  place with no undo, so all mutation happens here, never in `pristine/`.
+  (`cadzilla.toml`) and disk images (`CPM22-8MB-56K-DEV.DSK`,
+  `BLANK-8MB.DSK`). **Never edit or boot these directly** — always work
+  against a copy in a project's own `work/` (below). `cadzilla.toml` is a
+  delta on altairsim's own `machines/cadzilla.toml` — the real board
+  (8080, console, the HD63484/Bt453 graphics board) — with CP/M boot
+  support layered on top (front panel, disk controller, host bridge, and a
+  56K+ROM memory map in place of the base's 64K of plain RAM). See the
+  comments in the file itself for the full reasoning, including why its
+  `cpu0` clock is forced back to flat-out despite the real board running
+  at 2MHz. `CPM22-8MB-56K-DEV.DSK` (drive 0) is an 8MB virtual hard disk
+  carrying CP/M itself (`ASM.COM`, `LOAD.COM`, `DDT.COM`, the host-bridge
+  `R`/`W`/`HDIR.COM`, and more disk tools than the old 8" floppy image had
+  room for) — the "56K" in its name is the CP/M memory footprint (RAM
+  0000-DFFF), not the disk capacity; `BLANK-8MB.DSK` (drive 1) is a second,
+  empty 8MB volume for scratch space.
+- `work/` — **gitignored.** Not a real project's disk — just a harmless
+  landing spot the MCP server can point at before it's told to load a
+  specific project (see "Starting a session"). Never build real project
+  work here; each project has its own `work/` instead (below).
+- `scripts/sync_pristine.sh <dest-dir>` — copies the pristine machine +
+  disk(s) into any destination directory, creating it if needed. Used to
+  set up a new project's own `work/`, to set this directory up, and to
+  recover a work directory that's ended up in a bad state.
 - `DRIVING-WITH-AI.md` — altairsim's own guide for driving it via MCP
   (kept here for reference; canonical copy lives in `~/altairsim/docs/`).
+
+**Every `software/<project>/` also has its own `work/`** — a project's
+private, gitignored copy of the pristine machine + disk(s), created once
+(by the `new-cadzilla-project` skill, or by hand with `sync_pristine.sh`)
+and then persisting across sessions for that project alone. Because each
+project's disk is its own, switching between projects never means
+resetting anything — you just point the server at a different project's
+`work/cadzilla.toml`.
 
 ## One-time setup (per machine)
 
 The `claude` CLI isn't always on `PATH` in every environment (e.g. inside
 the VS Code extension's sandboxed shell, it's bundled as a native binary
-instead). If `claude --version` doesn't work, find the bundled binary
-under `~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude`
-and symlink it onto `PATH`:
+instead, and the exact path changes as the extension updates versions). If
+`claude --version` doesn't work, find the current bundled binary under
+`~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude`
+and symlink it onto `PATH` (re-run this if the extension updates and the
+symlink goes stale):
 
 ```bash
-ln -s ~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude \
-      ~/.local/bin/claude
+ln -sf ~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude \
+       ~/.local/bin/claude
 ```
 
 ## Starting a session
@@ -59,8 +79,7 @@ From the **repo root**:
 
 ```bash
 cd /home/thoug/Projects/cadzilla
-mkdir -p tools/altairsim/work
-cp tools/altairsim/pristine/cadzilla.toml tools/altairsim/pristine/cpm22b23-56k.dsk tools/altairsim/work/
+tools/altairsim/scripts/sync_pristine.sh tools/altairsim/work
 
 claude mcp add altairsim -- /home/thoug/altairsim/build/altairsim tools/altairsim/work/cadzilla.toml --mcp
 claude mcp list   # confirm "altairsim" is registered and reachable
@@ -71,12 +90,19 @@ machine-specific path to the altairsim binary — it's stored in your own
 Claude config, not committed to the repo. A newly registered MCP server's
 tools may not appear until the session/window is reloaded.
 
+The registered path (`tools/altairsim/work/`) is just a safe bootstrap
+target, not any real project's disk — the first real step of any session
+is `CONFIG LOAD`-ing whichever project you're actually about to work on
+(see "Working on a project" below). Registration only needs to point
+somewhere *valid*, so the server has a machine file to load if it's ever
+restarted; it doesn't matter that nothing real happens there.
+
 ### Resuming a session — check the disk is actually mounted
 
 Once registered, the `altairsim` MCP server is a long-lived process that
 can easily outlive a single conversation — a later Claude Code session (or
 even a later turn in the same one) may find the guest already booted and
-sitting at `A>` from before. That's not the same as a fresh, working
+sitting at a prompt from before. That's not the same as a fresh, working
 machine: if the previous session ended cleanly with `UNMOUNT` (as it
 should), the disk is gone from under a CP/M that's still technically
 "running" and looks alive. Every disk access then fails with `Bdos Err On
@@ -87,44 +113,48 @@ that was never driven through a boot yet) — `regs` tells the two apart.
 
 Check first: `monitor {command: "SHOW MOUNTS"}`. If `dsk0:drive0` shows
 `(empty)`, mount it back — `monitor {command: "MOUNT dsk0:drive0
-cpm22b23-56k.dsk"}` — and then do a clean reboot, `run {from: 0xFF00,
-until: "A>"}`, before touching the disk again. The reboot isn't optional:
+CPM22-8MB-56K-DEV.DSK"}` (and `dsk0:drive1` / `BLANK-8MB.DSK` if that
+project uses it too) — and then do a clean reboot, `run {from: 0xFF00,
+until: "A0>"}`, before touching the disk again. The reboot isn't optional:
 mounting a disk out from under a CP/M that's already running (rather than
 through its own boot-time disk detection) makes BDOS defensively mark the
 drive read-only (`Bdos Err On A: R/O`) until the next warm boot clears it.
 
-### Starting or switching to a project — reset the shared disk first
+## Working on a project — each one has its own disk
 
-The working disk is one shared image: every project's `ASM`/`LOAD` writes
-onto the same `cpm22b23-56k.dsk`, and nothing ever reclaims that space, so
-free space keeps shrinking as more projects get built on it (`STAT` at the
-`A>` prompt shows how much is left). Since each project's real, permanent
-output already lives on the host (`software/<project>/src/` and
-`.../build/`), the disk itself is disposable scratch space, not the source
-of truth — so before starting work on a project that **isn't** the one the
-disk was last used for (a brand-new project, or switching back to a
-different existing one), reset it to the pristine master instead of
-letting it keep accumulating:
+Every project's `work/` is its own persistent copy of the pristine
+machine + disk(s) (see "Layout" above), so there's no shared state to
+reset when switching between projects — just point the server at the
+project you're working on:
+
+```
+monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
+run {from: 0xFF00, until: "A0>"}
+```
+
+(`CONFIG LOAD` swaps the running server's machine definition without
+restarting the MCP connection or needing a session reload — safe to use
+any time you're at a clean prompt, between commands.) The mount-and-reboot
+notes above still apply per project: `SHOW MOUNTS` before assuming a
+`CONFIG LOAD` alone leaves you ready to go.
+
+If a project doesn't have a `work/` yet (an existing project from before
+per-project disks, or one someone set up by hand without it), create one
+the same way the `new-cadzilla-project` skill does:
 
 ```bash
-tools/altairsim/scripts/reset_disk.sh
+tools/altairsim/scripts/sync_pristine.sh software/<name>/work
 ```
 
-If a disk is currently mounted, `UNMOUNT` it first (`monitor {command:
-"UNMOUNT dsk0:drive0"}`) so the host file isn't overwritten out from under
-a live mount, then run the script, then `MOUNT` the fresh copy back and do
-a clean reboot — the same remount-plus-reboot dance as above:
+### The prompt is `A0>`, not `A>`
 
-```
-monitor {command: "MOUNT dsk0:drive0 cpm22b23-56k.dsk"}
-run {from: 0xFF00, until: "A>"}
-```
+`CPM22-8MB-56K-DEV.DSK` boots a CP/M build for an 8MB virtual drive, which
+numbers logical units — the prompt is `A0>` (or `B0>` after `B:`), not the
+plain `A>` of the old 8" floppy image. Every `until` in a `run` call needs
+to match `A0>` — matching against `A>` simply never matches, so the call
+runs to its full timeout instead of stopping cleanly at the prompt.
 
-If you're continuing work on the *same* project within a session, there's
-no need to reset every rebuild — picking up where a previous session's
-clean `UNMOUNT` left off (above) is enough.
-
-### The host bridge (`R`/`W`) and CP/M's automatic uppercasing
+## The host bridge (`R`/`W`) and CP/M's automatic uppercasing
 
 `R`/`W` genuinely do support subdirectory paths and a rename argument (e.g.
 `R SUBDIR/FOO.TXT` works, and `W FOO.BIN RENAMED.BIN` really does create
@@ -133,9 +163,9 @@ scratch subdirectory. The catch is CP/M itself: the CCP reads the command
 line through BDOS function 10 (buffered console input), which **uppercases
 every lowercase letter you type** before any program — including `R`/`W`
 — ever sees it. Since this repo's directories and filenames are lowercase
-by convention (per `CLAUDE.md`), any path or filename typed at the `A>`
-prompt gets uppercased first and then fails a case-sensitive lookup against
-the real lowercase host paths (`R software/hello/src/hello.asm HELLO.ASM`
+by convention (per `CLAUDE.md`), any path or filename typed at the prompt
+gets uppercased first and then fails a case-sensitive lookup against the
+real lowercase host paths (`R software/hello/src/hello.asm HELLO.ASM`
 becomes `R SOFTWARE/HELLO/SRC/HELLO.ASM HELLO.ASM` internally, and
 `software/` on the host doesn't match `SOFTWARE/`).
 
@@ -145,19 +175,20 @@ There's no way around the uppercasing from inside CP/M — instead, repoint
 subject to its uppercasing) before each `R`/`W`, and use bare filenames:
 
 ```
-run {from: 0xFF00, until: "A>"}                                   # boot CP/M
+monitor {command: "CONFIG LOAD /home/thoug/Projects/cadzilla/software/<proj>/work/cadzilla.toml"}
+run {from: 0xFF00, until: "A0>"}                                  # boot CP/M
 
 monitor {command: "SET hb0 HOSTDIR=/home/thoug/Projects/cadzilla/software/<proj>/src"}
-run {input: "R <NAME>.ASM\r", until: "A>"}                        # host -> CP/M
+run {input: "R <NAME>.ASM\r", until: "A0>"}                       # host -> CP/M
 
-run {input: "ASM <NAME>\r", until: "A>", timeout_ms: 20000}       # assemble
-run {input: "LOAD <NAME>\r", until: "A>"}                         # -> .COM
-run {input: "<NAME>\r", until: "A>"}                               # run, capture output
+run {input: "ASM <NAME>\r", until: "A0>", timeout_ms: 20000}      # assemble
+run {input: "LOAD <NAME>\r", until: "A0>"}                        # -> .COM
+run {input: "<NAME>\r", until: "A0>"}                              # run, capture output
 
 monitor {command: "SET hb0 HOSTDIR=/home/thoug/Projects/cadzilla/software/<proj>/build"}
-run {input: "W <NAME>.COM\r", until: "A>"}                        # CP/M -> host (binary)
-run {input: "W <NAME>.HEX T\r", until: "A>"}                      # (text)
-run {input: "W <NAME>.PRN T\r", until: "A>"}                      # (text)
+run {input: "W <NAME>.COM\r", until: "A0>"}                       # CP/M -> host (binary)
+run {input: "W <NAME>.HEX T\r", until: "A0>"}                     # (text)
+run {input: "W <NAME>.PRN T\r", until: "A0>"}                     # (text)
 ```
 
 Since source and build filenames are uppercase on both sides (per the
@@ -201,30 +232,33 @@ Other notes (see `DRIVING-WITH-AI.md` for the full detail):
 
 ## Adding a new program
 
-(The `new-cadzilla-project` skill automates all of this, including the
-disk reset below — this is the manual version if you're not using it.)
+(The `new-cadzilla-project` skill automates all of this, including setting
+up the project's own `work/` — this is the manual version if you're not
+using it.)
 
 1. `software/<name>/{src,include,build}` — create the directory
    layout (`build/` needs a `.gitkeep`; it's gitignored otherwise), using
    this repo's normal lowercase directory-naming convention.
 2. Write `software/<name>/src/<NAME>.ASM` (CR/LF line endings, uppercase
    filename per the naming convention above).
-3. Reset the working disk first (see "Starting or switching to a project"
-   above) — a new project should build on a full disk, not whatever's left
-   over from the last one.
-4. Drive the build/run/debug loop above through the MCP tools, repointing
-   `hb0` between the source directory (for `R`) and `build/` (for `W`).
-   The pulled-back `<NAME>.COM`/`.HEX`/`.PRN` land in `build/` already
-   named correctly — no renaming needed.
+3. `tools/altairsim/scripts/sync_pristine.sh software/<name>/work` — give
+   the new project its own disk.
+4. `monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}`,
+   then drive the build/run/debug loop above through the MCP tools,
+   repointing `hb0` between the source directory (for `R`) and `build/`
+   (for `W`). The pulled-back `<NAME>.COM`/`.HEX`/`.PRN` land in `build/`
+   already named correctly — no renaming needed.
 
 ## Ending a session
 
-Make sure you're back at the `A>` prompt, then flush the working disk's
-track buffer to the host file:
+Make sure you're back at a clean `A0>` prompt, then flush the working
+disk's track buffer to the host file:
 
 ```
 monitor {command: "UNMOUNT dsk0:drive0"}
 ```
+
+(And `dsk0:drive1` too, if that project's session mounted `BLANK-8MB.DSK`.)
 
 **Don't force-interrupt a disk operation in flight.** `reset` or `CONFIG
 LOAD` mid-`ASM`/`LOAD`/`R`/`W` (e.g. because a `run` call timed out) can
@@ -233,19 +267,17 @@ leave the in-memory disk in a half-written state — observed once as a
 having reported a successful write moments earlier, which then made CCP
 jump into stale leftover memory instead of the program. If a call times
 out, let it keep running (call `run` again with no `input` to keep
-draining) rather than resetting; if the disk does end up in a suspect
-state, the fix is the same reset used when switching projects (above) —
-restore `work/` from `pristine/` and rebuild rather than debugging the
+draining) rather than resetting; if a project's working disk does end up
+in a suspect state, the fix is the same sync used to set it up —
+restore it from `pristine/` and rebuild rather than debugging the
 corruption:
 
 ```bash
-tools/altairsim/scripts/reset_disk.sh
+tools/altairsim/scripts/sync_pristine.sh software/<name>/work
 ```
 
-(`monitor {command: "CONFIG LOAD <path-to-toml>"}` reloads the running
-server's machine definition without restarting the MCP connection — handy
-after editing the `.toml`, but treat it the same as a reset for this
-purpose: only do it between commands, at a clean `A>` prompt.)
+(This discards everything built on that project's disk since the last
+sync, so treat it as a deliberate reset, not a reflex.)
 
-`work/` is gitignored, so nothing needs to be cleaned up in git — the next
-session just re-copies from `pristine/`.
+Every project's `work/` is gitignored, so nothing needs to be cleaned up
+in git — a fresh copy just needs `sync_pristine.sh` re-run against it.

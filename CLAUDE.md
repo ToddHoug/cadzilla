@@ -13,7 +13,8 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
 - `schematics/` — KiCAD project files, libraries, fab outputs
 - `pld/src/` — GAL16V8 source (equations), `pld/jed/` — assembled fuse maps
 - `software/<project>/` — independent software projects targeting the board;
-  each has its own `src/`, `include/`, `build/`
+  each has its own `src/`, `include/`, `build/`, and `work/` (its own,
+  gitignored altairsim CP/M disk — see `tools/altairsim/README.md`)
 - `docs/` — design notes, decisions, datasheets
 - `tools/` — build/assemble/program scripts
 - `tests/` — emulator test programs and expected output

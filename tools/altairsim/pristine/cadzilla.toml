@@ -5,21 +5,22 @@
 # generic Altair.
 #
 # This is the PRISTINE copy (tools/altairsim/pristine/) -- read-only master, never
-# mutated directly. Each session, copy this file + the disk beside it into
-# tools/altairsim/work/ (gitignored) and register/mount THAT copy instead, since
-# ASM/LOAD/PIP write to the mounted disk in place with no undo.
+# mutated directly. Every software/<project>/ gets its OWN copy of this file + the
+# disk(s) beside it, in its own gitignored software/<project>/work/ -- so each
+# project has a persistent disk that's never shared with (or reset by) any other
+# project. `tools/altairsim/scripts/sync_pristine.sh <dest-dir>` makes the copy.
 #
-#     cd tools/altairsim/work && altairsim cadzilla.toml       # a human, at the A> prompt
+#     cd software/<project>/work && altairsim cadzilla.toml    # a human, at the A0> prompt
 #
-# For MCP driving, register from the CADzilla repo ROOT instead (not this directory),
-# pointing at tools/altairsim/work/cadzilla.toml -- that makes the host bridge (`R`/`W`)
-# resolve relative to the repo root, so it can reach both this disk (tools/altairsim/work/)
-# and any program's source (software/<name>/src/) by their normal repo-relative paths.
-# See tools/altairsim/README.md for the exact registration command.
+# For MCP driving, register from the CADzilla repo ROOT instead (not this directory);
+# see tools/altairsim/README.md for the exact registration command, and for `CONFIG
+# LOAD`-ing a specific project's own work/cadzilla.toml once the server is running.
 #
-# The disk beside this file is Mike Douglas's track-buffered CP/M 2.2b (originally
-# from altairsim's examples/ai-mcp/), carrying ASM.COM, LOAD.COM, DDT.COM, and the
-# host-bridge R/W/HDIR.COM utilities used to move files between the host and CP/M.
+# The disk beside this file (CPM22-8MB-56K-DEV.DSK) is an 8MB virtual hard disk
+# carrying CP/M 2.2, ASM.COM, LOAD.COM, DDT.COM, and the host-bridge R/W/HDIR.COM
+# utilities used to move files between the host and CP/M -- this build boots to an
+# "A0>" prompt (logical-unit numbering), not the plain "A>" of an 8" floppy image.
+# BLANK-8MB.DSK (drive 1) is a second, empty 8MB volume for scratch space.
 #
 # THE PATHS BELOW ARE RELATIVE TO THIS FILE. The disk is lying in this directory, so
 # this file names it and no directory at all -- which is what lets the folder be
@@ -52,14 +53,14 @@ name = "cadzilla-cpm"
 base = "cadzilla"
 
 # THE BOOT PROM IS THE BOOT COMMAND. `RUN FF00` is EXAMINE FF00 / RUN on a real disk
-# Altair. A human launching this file boots straight to A>. Under --mcp the startup is
+# Altair. A human launching this file boots straight to A0>. Under --mcp the startup is
 # NOT run -- the assistant boots it itself with `run {from: 0xFF00}`, so nothing blocks
 # before it has control.
 startup = ["RUN FF00"]
 
 # THE BACKSPACE KEY. A modern terminal's Backspace sends DEL (0x7F); CP/M's line editor
 # wants BS (0x08). `bsdel = bs` folds DEL -> BS on the way in so Backspace erases at the
-# A> prompt. It is a property of the TERMINAL, so it lives on the [console].
+# A0> prompt. It is a property of the TERMINAL, so it lives on the [console].
 [console]
 bsdel = "bs"
 
@@ -98,10 +99,14 @@ drives = 4
 
   [[board.drive]]
   unit  = 0
-  mount = "cpm22b23-56k.dsk"
+  mount = "CPM22-8MB-56K-DEV.DSK"
+
+  [[board.drive]]
+  unit  = 1
+  mount = "BLANK-8MB.DSK"
 
 # THE HOST BRIDGE -- the one card no real Altair ever had, and the supported path for
-# getting a file into or out of a running CP/M guest (R/W/HDIR at the A> prompt).
+# getting a file into or out of a running CP/M guest (R/W/HDIR at the A0> prompt).
 # `hostdir = ""` means the directory altairsim was launched from.
 [[board]]
 type    = "hostbridge"

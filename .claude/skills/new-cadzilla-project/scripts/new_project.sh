@@ -104,6 +104,14 @@ fi
 mkdir -p "$PROJECT_DIR/src" "$PROJECT_DIR/include" "$PROJECT_DIR/build"
 touch "$PROJECT_DIR/include/.gitkeep" "$PROJECT_DIR/build/.gitkeep"
 
+# Each project gets its own altairsim work directory (gitignored) -- its own
+# persistent copy of the pristine machine + disk(s), so building this project
+# never shares (and never fills up) another project's disk. Skip it if one's
+# already there (e.g. re-running against an existing scaffold).
+if [ ! -d "$PROJECT_DIR/work" ]; then
+  "$REPO_ROOT/tools/altairsim/scripts/sync_pristine.sh" "$PROJECT_DIR/work"
+fi
+
 # A minimal, self-contained starter: BDOS function 9 prints a '$'-terminated
 # string. No INCLUDE (ASM.COM doesn't support it) and no underscores in any
 # symbol name (ASM.COM silently resolves those to 0 instead of erroring).
@@ -133,5 +141,6 @@ echo "Created/filled in $PROJECT_DIR"
 echo "  src/$CPM_NAME.ASM   (CR/LF line endings, ready for ASM.COM)"
 echo "  include/.gitkeep"
 echo "  build/.gitkeep"
+echo "  work/               (this project's own altairsim machine + disk(s))"
 echo
 echo "CP/M-side name: $CPM_NAME"
