@@ -13,6 +13,23 @@ software projects that run on it (assembled and tested on an emulator).
 For the full board reference, see the
 [CADzilla User Reference Manual](docs/cadzilla-manual.pdf).
 
+## Design philosophy
+
+CADzilla exists for one reason: to enjoy the graphics board design process
+the way I did it forty years ago. The circuit architecture, schematic
+design, and PCB layout were all done by hand, with no AI assistance — the
+way boards like this were designed back then.
+
+Every component on the board, aside from the modern SRAM used for the
+frame buffer, is a part that would have been available in 1984, when the
+Hitachi HD63484 was released and the S-100 bus was still a going concern.
+As far as I could find, no one had ever built an HD63484-based S-100
+board — so I built one.
+
+AI did play a role, but not in the hardware: it made it possible to build
+a CP/M software development environment and toolchain for the board that I
+could never have put together on my own.
+
 ## Layout
 
 - `schematics/` — KiCAD project (schematic, PCB, libraries, fab outputs)
