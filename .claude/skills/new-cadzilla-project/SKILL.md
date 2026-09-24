@@ -71,18 +71,32 @@ registered in this session yet -- stop and point the user at
 `tools/altairsim/README.md`'s "Starting a session" section rather than
 guessing at setup steps.
 
-**Check the disk is actually mounted before assuming a boot is enough.**
-`monitor {command: "SHOW MOUNTS"}` -- if `dsk0:drive0` shows `(empty)`,
-that's not a fresh machine, it's a previous session that ended (correctly)
-with `UNMOUNT`: CP/M itself may still be sitting at its console prompt
-from before, appearing to respond, while every disk access silently fails
-(`Bdos Err On A: Bad Sector`) because there's nothing under it any more.
-Mounting the disk back with `monitor {command: "MOUNT dsk0:drive0
-cpm22b23-56k.dsk"}` isn't quite enough by itself either -- CP/M defensively
-marks a drive read-only (`Bdos Err On A: R/O`) when a disk appears without
-going through its own disk-change handling. After a `MOUNT`, always follow
-with a clean reboot (`run {from: 0xFF00, until: "A>"}`) before touching the
-disk again, even if the console already looked alive.
+**Reset the working disk before building on it.** It's one shared image
+that every project's `ASM`/`LOAD` writes onto, and nothing ever reclaims
+that space -- a brand-new project is exactly the "switching to a different
+project" case `tools/altairsim/README.md` calls out, so don't build the
+first version of a new program on whatever space happens to be left over
+from every project before it. If a disk is currently mounted (`monitor
+{command: "SHOW MOUNTS"}`), `UNMOUNT` it first (`monitor {command:
+"UNMOUNT dsk0:drive0"}`), then reset the host file and remount:
+
+```bash
+tools/altairsim/scripts/reset_disk.sh
+```
+
+```
+monitor {command: "MOUNT dsk0:drive0 cpm22b23-56k.dsk"}
+run {from: 0xFF00, until: "A>"}
+```
+
+The reboot after mounting isn't optional, even if the console already
+looked alive before you started: CP/M itself may still be sitting at its
+prompt from a previous session that ended (correctly) with `UNMOUNT`,
+while every disk access silently fails (`Bdos Err On A: Bad Sector`)
+because there's nothing mounted underneath it -- and mounting a disk back
+in without going through CP/M's own boot-time disk detection makes BDOS
+defensively mark the drive read-only (`Bdos Err On A: R/O`) until the next
+warm boot clears it.
 
 Then, from a confirmed-mounted, freshly-booted `A>` prompt:
 
@@ -127,12 +141,11 @@ dsk0:drive0"}` to flush the working disk.
   draining it rather than resetting; interrupting mid-write has corrupted
   a project's `.COM` file before (left it with a directory entry showing 0
   records, so CP/M ran stale leftover memory instead of the program). If
-  the working disk does end up in a bad state, restore it from the
-  pristine master rather than debugging the corruption -- this discards
-  anything built since the last clean run, so only do it as a deliberate
-  reset, and check with the user first if any other in-progress project's
-  disk state might be lost:
-  `cp tools/altairsim/pristine/cpm22b23-56k.dsk tools/altairsim/work/`.
+  the working disk does end up in a bad state, `tools/altairsim/scripts/reset_disk.sh`
+  (the same reset used above) recovers it -- but that discards anything
+  built since the last clean run, so treat an unplanned reset as a
+  deliberate call, not a reflex, and check with the user first if any other
+  in-progress project's disk state might be lost.
 
 ## 4. Report back
 

@@ -81,7 +81,9 @@ machine: if the previous session ended cleanly with `UNMOUNT` (as it
 should), the disk is gone from under a CP/M that's still technically
 "running" and looks alive. Every disk access then fails with `Bdos Err On
 A: Bad Sector`, which reads like corruption but isn't — there's simply
-nothing mounted.
+nothing mounted. It's also possible to find the guest sitting at PC 0 with
+every register zeroed and nothing booted at all (a fresh server process
+that was never driven through a boot yet) — `regs` tells the two apart.
 
 Check first: `monitor {command: "SHOW MOUNTS"}`. If `dsk0:drive0` shows
 `(empty)`, mount it back — `monitor {command: "MOUNT dsk0:drive0
@@ -90,6 +92,37 @@ until: "A>"}`, before touching the disk again. The reboot isn't optional:
 mounting a disk out from under a CP/M that's already running (rather than
 through its own boot-time disk detection) makes BDOS defensively mark the
 drive read-only (`Bdos Err On A: R/O`) until the next warm boot clears it.
+
+### Starting or switching to a project — reset the shared disk first
+
+The working disk is one shared image: every project's `ASM`/`LOAD` writes
+onto the same `cpm22b23-56k.dsk`, and nothing ever reclaims that space, so
+free space keeps shrinking as more projects get built on it (`STAT` at the
+`A>` prompt shows how much is left). Since each project's real, permanent
+output already lives on the host (`software/<project>/src/` and
+`.../build/`), the disk itself is disposable scratch space, not the source
+of truth — so before starting work on a project that **isn't** the one the
+disk was last used for (a brand-new project, or switching back to a
+different existing one), reset it to the pristine master instead of
+letting it keep accumulating:
+
+```bash
+tools/altairsim/scripts/reset_disk.sh
+```
+
+If a disk is currently mounted, `UNMOUNT` it first (`monitor {command:
+"UNMOUNT dsk0:drive0"}`) so the host file isn't overwritten out from under
+a live mount, then run the script, then `MOUNT` the fresh copy back and do
+a clean reboot — the same remount-plus-reboot dance as above:
+
+```
+monitor {command: "MOUNT dsk0:drive0 cpm22b23-56k.dsk"}
+run {from: 0xFF00, until: "A>"}
+```
+
+If you're continuing work on the *same* project within a session, there's
+no need to reset every rebuild — picking up where a previous session's
+clean `UNMOUNT` left off (above) is enough.
 
 ### The host bridge (`R`/`W`) and CP/M's automatic uppercasing
 
@@ -168,12 +201,18 @@ Other notes (see `DRIVING-WITH-AI.md` for the full detail):
 
 ## Adding a new program
 
+(The `new-cadzilla-project` skill automates all of this, including the
+disk reset below — this is the manual version if you're not using it.)
+
 1. `software/<name>/{src,include,build}` — create the directory
    layout (`build/` needs a `.gitkeep`; it's gitignored otherwise), using
    this repo's normal lowercase directory-naming convention.
 2. Write `software/<name>/src/<NAME>.ASM` (CR/LF line endings, uppercase
    filename per the naming convention above).
-3. Drive the build/run/debug loop above through the MCP tools, repointing
+3. Reset the working disk first (see "Starting or switching to a project"
+   above) — a new project should build on a full disk, not whatever's left
+   over from the last one.
+4. Drive the build/run/debug loop above through the MCP tools, repointing
    `hb0` between the source directory (for `R`) and `build/` (for `W`).
    The pulled-back `<NAME>.COM`/`.HEX`/`.PRN` land in `build/` already
    named correctly — no renaming needed.
@@ -195,11 +234,12 @@ having reported a successful write moments earlier, which then made CCP
 jump into stale leftover memory instead of the program. If a call times
 out, let it keep running (call `run` again with no `input` to keep
 draining) rather than resetting; if the disk does end up in a suspect
-state, the fix is to restore `work/` from `pristine/` and rebuild rather
-than debugging the corruption:
+state, the fix is the same reset used when switching projects (above) —
+restore `work/` from `pristine/` and rebuild rather than debugging the
+corruption:
 
 ```bash
-cp tools/altairsim/pristine/cpm22b23-56k.dsk tools/altairsim/work/
+tools/altairsim/scripts/reset_disk.sh
 ```
 
 (`monitor {command: "CONFIG LOAD <path-to-toml>"}` reloads the running
