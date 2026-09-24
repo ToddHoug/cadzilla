@@ -88,6 +88,12 @@ monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>"}
 ```
 
+Never `CONFIG LOAD` or `MOUNT` anything under `tools/altairsim/pristine/`
+-- CP/M would write this project's files straight into the master disk
+image. Pristine is read-only on the host, so a `WRITE-PROTECTED` mount or a
+CP/M write-protect error means the wrong path is loaded: fix the path, not
+the permissions.
+
 Note the prompt is `A0>`, not a plain `A>` -- this CP/M build boots off an
 8MB virtual drive and numbers logical units (`A0>`, `B0>`, ...). Match
 `until` against `A0>` for every call below; `until: "A>"` won't match it at

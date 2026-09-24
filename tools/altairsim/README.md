@@ -26,7 +26,17 @@ could never be created from the command line in the first place.
 - `pristine/` — the read-only master copy of the CP/M machine definition
   (`cadzilla.toml`) and disk images (`CPM22-8MB-56K-DEV.DSK`,
   `BLANK-8MB.DSK`). **Never edit or boot these directly** — always work
-  against a copy in a project's own `work/` (below). `cadzilla.toml` is a
+  against a copy in a project's own `work/` (below). CP/M writes to a
+  mounted disk in place, so booting or `CONFIG LOAD`-ing
+  `pristine/cadzilla.toml`, or `MOUNT`-ing a pristine `.DSK`, writes
+  whatever you build straight into the master image (this has happened:
+  HELLO project files ended up in the pristine CP/M disk). As a guard the
+  pristine files are kept **read-only on the host** (`sync_pristine.sh`
+  re-applies `chmod a-w` on every run, since git doesn't track write
+  permission), and altairsim then mounts them `WRITE-PROTECTED`. If CP/M
+  ever reports a write-protect error, the wrong disk is mounted — fix
+  the path, never the permissions. `git status tools/altairsim/pristine`
+  should always be clean after a session. `cadzilla.toml` is a
   delta on altairsim's own `machines/cadzilla.toml` — the real board
   (8080, console, the HD63484/Bt453 graphics board) — with CP/M boot
   support layered on top (front panel, disk controller, host bridge, and a
@@ -46,7 +56,9 @@ could never be created from the command line in the first place.
 - `scripts/sync_pristine.sh <dest-dir>` — copies the pristine machine +
   disk(s) into any destination directory, creating it if needed. Used to
   set up a new project's own `work/`, to set this directory up, and to
-  recover a work directory that's ended up in a bad state.
+  recover a work directory that's ended up in a bad state. It makes the
+  copies writable, keeps pristine read-only, and refuses to target
+  `pristine/` itself.
 - `DRIVING-WITH-AI.md` — altairsim's own guide for driving it via MCP
   (kept here for reference; canonical copy lives in `~/altairsim/docs/`).
 

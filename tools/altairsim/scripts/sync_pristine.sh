@@ -36,8 +36,24 @@ if [ ${#disks[@]} -eq 0 ]; then
 fi
 
 mkdir -p "$DEST"
-cp "$PRISTINE/cadzilla.toml" "$DEST/"
-cp "${disks[@]}" "$DEST/"
+if [ "$(cd "$DEST" && pwd -P)" = "$(cd "$PRISTINE" && pwd -P)" ]; then
+  echo "error: $DEST is the pristine directory itself -- pick a work/ directory" >&2
+  exit 1
+fi
+
+# Pristine is never written: keep it read-only on the host so altairsim can
+# only ever mount it WRITE-PROTECTED if something points at it by mistake.
+# Git doesn't track write permission, so re-assert it on every sync.
+chmod a-w "$PRISTINE/cadzilla.toml" "${disks[@]}"
+
+# cp carries the read-only mode over to new files -- the work copies are
+# meant to be written, so make them writable again.
+cp -f "$PRISTINE/cadzilla.toml" "$DEST/"
+cp -f "${disks[@]}" "$DEST/"
+chmod u+w "$DEST/cadzilla.toml"
+for d in "${disks[@]}"; do
+  chmod u+w "$DEST/$(basename "$d")"
+done
 
 echo "Synced pristine machine + disk(s) into $DEST:"
 printf '  %s\n' "$(basename "$PRISTINE/cadzilla.toml")"

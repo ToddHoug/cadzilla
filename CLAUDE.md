@@ -15,6 +15,10 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
 - `software/<project>/` — independent software projects targeting the board;
   each has its own `src/`, `include/`, `build/`, and `work/` (its own,
   gitignored altairsim CP/M disk — see `tools/altairsim/README.md`)
+- `tools/altairsim/pristine/` — master CP/M machine + disk images.
+  **Never boot, `CONFIG LOAD` or `MOUNT` anything from here**; always use a
+  project's own `work/`. Kept read-only on the host; its git status must
+  stay clean.
 - `docs/` — design notes, decisions, datasheets
 - `tools/` — build/assemble/program scripts
 - `tests/` — emulator test programs and expected output
