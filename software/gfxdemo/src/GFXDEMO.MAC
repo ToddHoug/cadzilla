@@ -171,9 +171,9 @@ S2SPK:  MOV     A,C             ;color = hue*32 + BRIGHT
         PUSH    H
         GMOVE   170,240
         POP     H
-        CALL    CZLDW           ;DE = end X
+        CALL    CZLDW##         ;DE = end X (library routine, direct)
         PUSH    D
-        CALL    CZLDW           ;DE = end Y
+        CALL    CZLDW##         ;DE = end Y
         XTHL                    ;HL = end X, table pointer on stack
         GLINE
         POP     H

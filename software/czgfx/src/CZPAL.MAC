@@ -5,7 +5,6 @@
 ; index = hue*32 + level, hues ORANGE BLUE GREEN CYAN RED MAGENTA
 ; YELLOW WHITE (CZGFX.INC), level 0 = black .. 31 = BRIGHT.
 ;
-CZLIB   EQU     1
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZPALD,CZPALS

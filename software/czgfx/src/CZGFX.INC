@@ -1,6 +1,6 @@
         .XLIST                  ;(.LIST again at the end of this file)
 ;
-; CZGFX.INC -- CADzilla graphics library: equates, externals and macros
+; CZGFX.INC -- CADzilla graphics library: equates and macros
 ;
 ; Use from an M80 program:
 ;
@@ -22,6 +22,13 @@
 ;     GLINE ,100 draws to X = HL, Y = 100
 ;
 ; Global names are 6 characters: L80 keeps only the first 6.
+;
+; Externals: the macros reference the library as NAME## (M80's inline
+; external), so a program links in only the modules it really uses. To
+; call a routine or read a data symbol directly, write it the same way
+; (CALL CZLDW##, LHLD CZXMAX##). Don't EXTRN library names you don't
+; use: M80 emits every EXTRN as a link request, and L80 then loads that
+; module whether anything calls it or not.
 ;
 ;
 ; ---- board I/O map: one 8-port block, base set by SW1-1..SW1-5 ----
@@ -66,17 +73,6 @@ YELLOW  EQU     192
 WHITE   EQU     224
 BRIGHT  EQU     31              ;full brightness level
 ;
-; ---- library entry points (library modules define CZLIB first) ----
-;
-        IFNDEF  CZLIB
-        EXTRN   CZINIT,CZM640,CZM1K,CZXMAX,CZYMAX,CZCLS
-        EXTRN   CZPALD,CZPALS
-        EXTRN   CZCOL,CZMOVE,CZLINE,CZRECT,CZFRCT,CZDOT
-        EXTRN   CZRMOV,CZRLIN,CZRRCT,CZRFRC
-        EXTRN   CZPLL,CZPLG
-        EXTRN   CZWREG,CZPUTW,CZWAIT,CZXY,CZSEND,CZRTAB,CZLDW,CZABT
-        ENDIF
-;
 ; ================= macros =================
 ;
 ; CZLXY -- load HL = XV and DE = YV, skipping either one left blank
@@ -91,16 +87,17 @@ CZLXY   MACRO   XV,YV
         ENDM
 ;
 ; GINIT [mode] -- set up the board and clear the screen to color 0.
-; mode is a descriptor: CZM640 (the default) or CZM1K (1024x768; the
-; monitor must be strapped for it). Clobbers all registers.
+; mode is a library descriptor: CZM640 (the default) or CZM1K
+; (1024x768; the monitor must be strapped for it). For a descriptor of
+; your own, LXI H,yours / CALL CZINIT## instead. Clobbers all registers.
 ;
 GINIT   MACRO   MV
         IFB     <MV>
-        LXI     H,CZM640
+        LXI     H,CZM640##
         ELSE
-        LXI     H,MV
+        LXI     H,MV##
         ENDIF
-        CALL    CZINIT
+        CALL    CZINIT##
         ENDM
 ;
 ; GCLS [c] -- clear the whole screen to color c (default 0)
@@ -111,7 +108,7 @@ GCLS    MACRO   CV
         ELSE
         MVI     A,CV
         ENDIF
-        CALL    CZCLS
+        CALL    CZCLS##
         ENDM
 ;
 ; GCOLOR [c] -- set the drawing color to palette index c
@@ -120,7 +117,7 @@ GCOLOR  MACRO   CV
         IFNB    <CV>
         MVI     A,CV
         ENDIF
-        CALL    CZCOL
+        CALL    CZCOL##
         ENDM
 ;
 ; GPAL i,r,g,b -- set palette entry i to r,g,b (0..255 each).
@@ -131,46 +128,46 @@ GPAL    MACRO   IV,RV,GV,BV
         MVI     C,GV
         MVI     E,BV
         MVI     A,IV
-        CALL    CZPALS
+        CALL    CZPALS##
         ENDM
 ;
 ; Single commands at X,Y (absolute) or dX,dY (relative to the CP)
 ;
 GMOVE   MACRO   XV,YV
         CZLXY   XV,YV
-        CALL    CZMOVE
+        CALL    CZMOVE##
         ENDM
 GLINE   MACRO   XV,YV
         CZLXY   XV,YV
-        CALL    CZLINE
+        CALL    CZLINE##
         ENDM
 GRECT   MACRO   XV,YV
         CZLXY   XV,YV
-        CALL    CZRECT
+        CALL    CZRECT##
         ENDM
 GFRECT  MACRO   XV,YV
         CZLXY   XV,YV
-        CALL    CZFRCT
+        CALL    CZFRCT##
         ENDM
 GDOT    MACRO   XV,YV
         CZLXY   XV,YV
-        CALL    CZDOT
+        CALL    CZDOT##
         ENDM
 GRMOVE  MACRO   XV,YV
         CZLXY   XV,YV
-        CALL    CZRMOV
+        CALL    CZRMOV##
         ENDM
 GRLINE  MACRO   XV,YV
         CZLXY   XV,YV
-        CALL    CZRLIN
+        CALL    CZRLIN##
         ENDM
 GRRECT  MACRO   XV,YV
         CZLXY   XV,YV
-        CALL    CZRRCT
+        CALL    CZRRCT##
         ENDM
 GRFRCT  MACRO   XV,YV
         CZLXY   XV,YV
-        CALL    CZRFRC
+        CALL    CZRFRC##
         ENDM
 ;
 ; GSEG x1,y1,x2,y2 -- line from x1,y1 to x2,y2 (x2,y2 itself not drawn)
@@ -211,7 +208,7 @@ TBL:    DW      (TEND-TBL-2)/4
         ENDM
 TEND:
 SKIP:   LXI     H,TBL
-        CALL    CZPLL
+        CALL    CZPLL##
         ENDM
 GPOLY   MACRO   PTS
         LOCAL   SKIP,TBL,TEND
@@ -222,7 +219,7 @@ TBL:    DW      (TEND-TBL-2)/4
         ENDM
 TEND:
 SKIP:   LXI     H,TBL
-        CALL    CZPLG
+        CALL    CZPLG##
         ENDM
 ;
 ; GPTS name,<x0,y0,x1,y1,...> -- define a named point table (in data,
@@ -242,24 +239,24 @@ TEND:
 ;
 GPLT    MACRO   TV
         CZLXY   TV
-        CALL    CZPLL
+        CALL    CZPLL##
         ENDM
 GPLG    MACRO   TV
         CZLXY   TV
-        CALL    CZPLG
+        CALL    CZPLG##
         ENDM
 ;
 ; GWAIT -- wait for the ACRTC to finish drawing. Returns A = status
 ; register, Z set if the drawing ended cleanly, NZ on a command error.
 ;
 GWAIT   MACRO
-        CALL    CZWAIT
+        CALL    CZWAIT##
         ENDM
 ;
 ; GABORT -- abort the ACRTC (clears a command error, flushes the FIFOs)
 ;
 GABORT  MACRO
-        CALL    CZABT
+        CALL    CZABT##
         ENDM
 ;
         .LIST

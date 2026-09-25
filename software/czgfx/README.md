@@ -7,23 +7,24 @@ parameters) and the drawing primitives. Before czgfx, every program carried
 its own copy of this code (`software/firstdraw`, `software/drawdemo`). It
 comes in two parts:
 
-- **`CZGFX.INC`**, the header a program `INCLUDE`s: board equates, `EXTRN`s
-  for every entry point, and the `G...` macros.
-- **Relocatable modules** (`.REL`), linked in by L80's `/S` library search, so
-  a program gets only the modules it uses.
+- **`CZGFX.INC`**, the header a program `INCLUDE`s: board equates and the
+  `G...` macros.
+- **`CZGFX.REL`**, a LIB80 library of five relocatable modules (`CZPOLY`,
+  `CZDRAW`, `CZINIT`, `CZPAL`, `CZCORE`). L80's `/S` search links in only the
+  modules a program uses. A program that draws only boxes, for example, gets
+  no polygon code.
 
 `software/gfxdemo/` is the worked example.
 
 ## How it's delivered: the library disk
 
-There is no LIB80 on the CP/M disk, so the library is a set of search-mode
-`.REL` files on a CP/M disk of its own:
+The library lives on a CP/M disk of its own:
 
 | Where | What |
 |---|---|
 | `software/czgfx/src/` | sources: `CZGFX.INC`, `CZ*.MAC`, `CZBUILD.SUB`, `CZLINK.SUB`, `CZCHK.MAC` |
-| `software/czgfx/libdisk/CZGFX.DSK` | **the library disk**: `CZGFX.INC`, the five `.REL`s and `CZLINK.SUB` (gitignored, since it is built from `src/`) |
-| `software/czgfx/build/` | `.REL`/`.PRN` copies pulled back to the host for reading (gitignored) |
+| `software/czgfx/libdisk/CZGFX.DSK` | **the library disk**: `CZGFX.INC`, `CZGFX.REL` and `CZLINK.SUB` (gitignored, since it is built from `src/`) |
+| `software/czgfx/build/` | `CZGFX.REL`, the module `.REL`s and the `.PRN` listings, pulled back to the host for reading (gitignored) |
 | `software/czgfx/work/` | czgfx's own altairsim machine: drive 0 is its CP/M disk, drive 1 is the library disk, **writable** |
 
 Consumer projects mount the library disk as **`B:`, read-only**
@@ -46,19 +47,28 @@ run {input: "SUBMIT CZBUILD\r", timeout_ms: 120000}           # stops when idle
 
 `CZBUILD.SUB` runs these steps:
 1. assembles each module;
-2. replaces the `.REL`s on `B:`, then copies `CZGFX.INC` and `CZLINK.SUB` there;
-3. assembles **`CZCHK.MAC`** against the header *as published on `B:`* and
-   links it with `SUBMIT B:CZLINK CZCHK`.
+2. combines them into `CZGFX.REL` with
+   `LIB80 CZGFX=CZPOLY,CZDRAW,CZINIT,CZPAL,CZCORE/E`, in single-pass
+   search order: every module comes before the modules it calls;
+3. checks the library with `LIB80 CZGFX/U/E`, which lists any unsatisfied
+   external requests and prints nothing when the library is
+   self-contained;
+4. replaces the `.REL` on `B:` with `CZGFX.REL`, then copies `CZGFX.INC`
+   and `CZLINK.SUB` there;
+5. assembles **`CZCHK.MAC`** against the header *as published on `B:`*
+   and links it with `SUBMIT B:CZLINK CZCHK`.
 
-`CZCHK` expands every macro and references every entry point. A broken macro, a
-missing `PUBLIC` or a wrong link order therefore fails the library build rather
-than the first consumer. The build is good when every assembly prints
-`No Fatal error(s)` and L80 prints no `?Undefined` or `%Mult. Def.` lines.
+`CZCHK` expands every macro and references every entry point. A broken
+macro, a missing `PUBLIC` or a wrong module order therefore fails the
+library build rather than the first consumer. The build is good when:
+- every assembly prints `No Fatal error(s)`
+- `LIB80 /U` prints nothing
+- L80 prints no `?Undefined` or `%Mult. Def.` lines
 
 ## Using it from a program
 
 ```
-        INCLUDE B:CZGFX.INC     ;equates, EXTRNs, macros
+        INCLUDE B:CZGFX.INC     ;equates and macros
         CSEG                    ;relocatable -- no ORG
 START:  ...
         GINIT                   ;640x480, default palette, screen cleared
@@ -72,8 +82,13 @@ START:  ...
 
 ```
 A0>M80 NAME,NAME=NAME
-A0>SUBMIT B:CZLINK NAME          (optional 2nd arg = extra L80 switch, e.g. /M for a map)
+A0>SUBMIT B:CZLINK NAME
 ```
+
+`CZLINK.SUB` is `L80 $1,B:CZGFX/S,$1/N$2/E`. An optional second argument is
+passed to L80 as an extra switch. `SUBMIT B:CZLINK NAME /M` prints the link
+map, which shows which library modules were loaded. After a map, L80 stops
+at its `*` prompt instead of exiting, so type `/E` to finish the link.
 
 ### Conventions
 
@@ -87,6 +102,12 @@ A0>SUBMIT B:CZLINK NAME          (optional 2nd arg = extra L80 switch, e.g. /M f
   `GLINE ,100` draws to X = HL, Y = 100, and `GCOLOR` alone uses A. That
   is how computed coordinates go through the macros (see `SCR1` in
   `GFXDEMO.MAC`).
+- **Library symbols outside the macros are written `NAME##`**, M80's inline
+  external, as in `CALL CZLDW##` or `LHLD CZXMAX##`. The macros do this
+  themselves. Don't `EXTRN` library names you don't use: M80 turns every
+  `EXTRN` into a link request, and L80 then loads that module whether
+  anything calls it or not. Tested: one unused `EXTRN CZPLL` added CZPOLY's
+  51 bytes to a program. That is also why the header has no `EXTRN` block.
 - **Global names are 6 characters**, because L80 keeps only the first 6.
   Every czgfx global is `CZ` plus 4 characters or fewer. Don't define `CZ...`
   names of your own.
@@ -110,7 +131,7 @@ Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
 
 | Macro | Does | Notes |
 |---|---|---|
-| `GINIT [mode]` | set up board, palette and drawing parameters; clear to 0 | `CZM640` (default) or `CZM1K` (1024×768, monitor strapped for it). Clobbers all |
+| `GINIT [mode]` | set up board, palette and drawing parameters; clear to 0 | `CZM640` (default) or `CZM1K` (1024×768, monitor strapped for it); for your own descriptor use `LXI H,yours` / `CALL CZINIT##`. Clobbers all |
 | `GCLS [c]` | clear the screen to color c (default 0) | |
 | `GCOLOR [c]` | set the drawing color | |
 | `GPAL i,r,g,b` | set palette entry i | clobbers BC, E |
@@ -137,7 +158,8 @@ list too long for one source line, write the `DW`s by hand (`SINE` in
 
 ### Routines
 
-These can be called directly. The macros are thin wrappers around them.
+These can be called directly, written `NAME##` (see Conventions). The
+macros are thin wrappers around them.
 
 | Module | Routines |
 |---|---|
@@ -155,15 +177,18 @@ or fill primitives yet.
 
 ## Changing the library
 
-- **New routine in an existing module:** add it with `PUBLIC` in the
-  module, add its `EXTRN` to the `IFNDEF CZLIB` block in `CZGFX.INC`, add a
-  macro if it helps, and exercise it in `CZCHK.MAC`.
+- **New routine in an existing module:**
+  - make it `PUBLIC` in the module
+  - add a macro if it helps; the macro calls the routine as `NAME##`, never
+    through an `EXTRN` in the header
+  - exercise it in `CZCHK.MAC`
 - **New module:**
-  1. Create `CZxxxx.MAC`. Start it with `CZLIB EQU 1` and
-     `INCLUDE CZGFX.INC`, then its `PUBLIC`s and its own `EXTRN`s.
-  2. Add its `M80` and `PIP B:=` lines to `CZBUILD.SUB`.
-  3. Add it to `CZLINK.SUB`, **after** every module that calls it and
-     **before** every module it calls, because L80 searches in a single
-     pass.
+  1. Create `CZxxxx.MAC`: `INCLUDE CZGFX.INC`, then its `PUBLIC`s and an
+     `EXTRN` for each routine it calls in other modules.
+  2. Add its `M80` line to `CZBUILD.SUB`.
+  3. Add it to the `LIB80 CZGFX=...` list in `CZBUILD.SUB`, **after**
+     every module that calls it and **before** every module it calls,
+     because L80 searches the library in a single pass. `LIB80 /U` in
+     the build flags a missing module. `CZLINK.SUB` doesn't change.
 - Rebuild the library, then rebuild the consumers. Their `.COM` files have the
   old library code linked in until they are relinked.

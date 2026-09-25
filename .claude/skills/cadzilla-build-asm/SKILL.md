@@ -106,8 +106,10 @@ the project's disk can be lost. Then:
 - run `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK`,
   which should say `ok`
 - confirm `git status tools/altairsim/pristine` is clean; if it isn't, stop
-  and tell the user Report what was built and run, quote the console output, and say
-the session was unmounted. `build/` and `work/` are gitignored. Don't commit
+  and tell the user
+
+Report what was built and run, quote the console output, and say the
+session was unmounted. `build/` and `work/` are gitignored. Don't commit
 unless asked.
 
 ## ASM.COM gotchas

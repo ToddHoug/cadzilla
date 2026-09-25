@@ -9,13 +9,15 @@ The pieces (full background is in `tools/altairsim/README.md`, "The M80/L80
 toolchain", and in `software/czgfx/README.md`):
 
 - **`software/czgfx/`** is the graphics library. Its sources are in `src/`
-  (`CZGFX.INC`, `CZ*.MAC`, `CZBUILD.SUB`, `CZLINK.SUB`, `CZCHK.MAC`). It is
-  built onto the **library disk** `software/czgfx/libdisk/CZGFX.DSK`, which
-  czgfx's own `work/` mounts **writable** as drive 1 (B:).
+  (`CZGFX.INC`, `CZ*.MAC`, `CZBUILD.SUB`, `CZLINK.SUB`, `CZCHK.MAC`). Its
+  five modules are combined with **LIB80** into one library, `CZGFX.REL`.
+  That library, the header and `CZLINK.SUB` go onto the **library disk**
+  `software/czgfx/libdisk/CZGFX.DSK`, which czgfx's own `work/` mounts
+  **writable** as drive 1 (B:).
 - **Consumer projects** (`software/gfxdemo` is the example) mount the same
   disk as **B:, read-only**. They `INCLUDE B:CZGFX.INC`, and link with
-  `SUBMIT B:CZLINK <NAME>`, which runs L80 with the library modules in
-  `/S` search mode.
+  `SUBMIT B:CZLINK <NAME>`, which is `L80 <NAME>,B:CZGFX/S,<NAME>/N/E`.
+  L80's library search loads only the modules the program uses.
 
 Only one machine runs in the MCP server at a time. Finish one machine
 before you `CONFIG LOAD` the next: do a `run` with no input and no `until`
@@ -36,6 +38,13 @@ prompt is printed; see step 3.
      `sync_pristine.sh --machine-only`), run
      `tools/altairsim/scripts/attach_libdisk.sh software/<name>/work`.
    - czgfx itself uses `attach_libdisk.sh --writable software/czgfx/work`.
+   - **czgfx's work disk must have LIB80.COM.** It's on the pristine disk
+     from 2026-09-24. An older `software/czgfx/work` doesn't have it, and
+     CZBUILD's `LIB80` lines then fail with `LIB80?`. To fix that:
+     1. run `sync_pristine.sh software/czgfx/work`; it only discards build
+        intermediates
+     2. run `attach_libdisk.sh --writable software/czgfx/work` again
+     Consumers need only M80 and L80, which every work disk has.
 3. **CR/LF.** Run `tools/altairsim/scripts/crlf.sh` on every source you're
    about to `R`: the project's `src/*.MAC`, plus `software/czgfx/src/*`
    when rebuilding the library. It is idempotent. Files written on the host
@@ -72,6 +81,9 @@ run {input: "SUBMIT CZBUILD\r", timeout_ms: 180000}
   `until` off, and the call stops when the guest goes idle at the end.
 - **Check the CZBUILD output:**
   - every `M80` line is followed by `No Fatal error(s)`
+  - `LIB80 CZGFX/U/E` prints **nothing**. If it prints
+    `Unsatisfied external request(s):` and a list of names, a module is
+    missing from the `LIB80 CZGFX=...` line.
   - the final L80 link of `CZCHK` (through `B:CZLINK`) prints no
     `?Undefined` and no `%Mult. Def.`
   - `CZCHK` expands every macro and references every entry point, so a
@@ -81,7 +93,7 @@ run {input: "SUBMIT CZBUILD\r", timeout_ms: 180000}
   monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/czgfx/build"}
   run {input: "W *.REL\r", until: "A0>", timeout_ms: 20000}       # binary
   run {input: "W *.PRN T\r", until: "A0>", timeout_ms: 30000}
-  run {input: "DIR B:\r", until: "A0>"}      # the 5 .RELs, CZGFX.INC, CZLINK.SUB
+  run {input: "DIR B:\r", until: "A0>"}      # CZGFX.REL, CZGFX.INC, CZLINK.SUB
   run {timeout_ms: 5000}                      # idle: lets the BIOS finish its last write
   monitor {command: "UNMOUNT dsk0:drive0"}
   monitor {command: "UNMOUNT dsk0:drive1"}
@@ -109,12 +121,19 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 30000}
 - **A multi-module project** assembles each module with its own `M80`
   line. Then link the main module with L80 directly, listing the
   project's own modules and then `CZLINK`'s library list:
-  `L80 MAIN,PART2,B:CZPOLY/S,...,B:CZCORE/S,MAIN/N/E`.
-- **Passing an extra L80 switch.** `SUBMIT B:CZLINK <NAME> /M` passes `/M`
-  as `$2`, which prints the link map.
+  `L80 MAIN,PART2,B:CZGFX/S,MAIN/N/E`.
+- **Link map.** `SUBMIT B:CZLINK <NAME> /M` passes `/M` as `$2`, and L80
+  prints the map of loaded globals. After a map, L80 waits at its `*`
+  prompt even though `/E` is on the line, so send `run {input: "/E\r"}`
+  to finish the link.
 - **Link check.** The L80 summary `[start end pages]` should show no
   `?Undefined`. A program that doesn't use a module doesn't get it: the
-  link is smaller, with no error.
+  link is smaller, with no error. For example, a GINIT + GBOX program has
+  no `CZPLL`/`CZPLG` in its map.
+- **Library symbols outside the macros:** write them `NAME##`
+  (`CALL CZLDW##`, `LHLD CZXMAX##`). Don't `EXTRN` library names you don't
+  use, because M80 turns every `EXTRN` into a link request and L80 then
+  loads that module whether anything calls it or not.
 - **Checking the run:**
   - the program's console output should appear
   - graphics draw in the altairsim window, which the user sees
@@ -158,15 +177,17 @@ gitignored. Don't commit unless asked.
 
 `software/czgfx/README.md` has the API and the extension recipe. In short:
 
-- **New routine:** `PUBLIC` it in its module, add its `EXTRN` to the
-  `IFNDEF CZLIB` block of `CZGFX.INC`, optionally add a `G...` macro,
-  and exercise it in `CZCHK.MAC`.
+- **New routine:** `PUBLIC` it in its module, optionally add a `G...`
+  macro that calls it as `NAME##`, and exercise it in `CZCHK.MAC`. The
+  header has no `EXTRN` block and must not get one.
 - **New module:**
-  1. Create `CZxxxx.MAC` starting with `CZLIB EQU 1` /
-     `INCLUDE CZGFX.INC`.
-  2. Add its `M80` and `PIP B:=` lines to `CZBUILD.SUB`.
-  3. Insert it into `CZLINK.SUB` after every module that calls it and
-     before every module it calls, because L80 searches in one pass.
+  1. Create `CZxxxx.MAC`, starting with `INCLUDE CZGFX.INC`, its
+     `PUBLIC`s, and `EXTRN`s only for what it calls.
+  2. Add its `M80` line to `CZBUILD.SUB`.
+  3. Insert it into the `LIB80 CZGFX=...` list there, after every module
+     that calls it and before every module it calls, because L80 searches
+     the library in one pass. `LIB80 /U` flags a mistake. `CZLINK.SUB`
+     doesn't change.
 - Then rebuild the library (step 1) and **relink every consumer**. A
   `.COM` contains the library code it was linked with.
 
@@ -176,6 +197,16 @@ gitignored. Don't commit unless asked.
   `LONGNAME1` and `LONGNAME2` collide as `%Mult. Def. Global LONGNA`.
   Keep global names to 6 characters or fewer. Keep local labels short too,
   following the repo's existing style.
+- **Every `EXTRN` is a link request.** M80 emits an `EXTRN` even when
+  nothing uses it, and L80 loads the defining module. Tested: an unused
+  `EXTRN CZPLL` added CZPOLY's 51 bytes. Use `NAME##` for library
+  references.
+- **LIB80:**
+  - `LIB80 LIB=A,B,C/E` builds a library
+  - `LIB80 LIB/L/E` lists its modules, entry points and cross-references
+  - `LIB80 LIB/U/E` lists unsatisfied externals, and prints nothing when
+    the library is complete
+  - it runs silently on success
 - **`M80 <rel>,<prn>=<src>`.** The default source extension is `.MAC`, and
   `No Fatal error(s)` is the success line.
 - **Relocatable code.** Use `CSEG` with no `ORG`; L80 puts the `.COM` at

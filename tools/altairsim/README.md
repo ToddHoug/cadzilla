@@ -43,9 +43,9 @@ could never be created from the command line in the first place.
   DBL boot PROM at FF00, this project's disks in drives 0 and 1, the
   `RUN FF00` startup and the console's Backspace mapping. See the comments
   in the file itself for the full reasoning. `CPM22-8MB-56K-DEV.DSK` (drive 0) is an 8MB virtual hard disk
-  carrying CP/M itself (`ASM.COM`, `LOAD.COM`, `DDT.COM`, the host-bridge
-  `R`/`W`/`HDIR.COM`, and more disk tools than the old 8" floppy image had
-  room for) — the "56K" in its name is the CP/M memory footprint (RAM
+  carrying CP/M itself (`ASM.COM`, `LOAD.COM`, `DDT.COM`, Microsoft's
+  `M80`/`L80`/`LIB80`/`CREF80.COM`, the host-bridge `R`/`W`/`HDIR.COM`, and
+  more disk tools than the old 8" floppy image had room for) — the "56K" in its name is the CP/M memory footprint (RAM
   0000-DFFF), not the disk capacity; `BLANK-8MB.DSK` (drive 1) is a second,
   empty 8MB volume for scratch space.
 - `scripts/sync_pristine.sh [--machine-only] <dest-dir>` — copies the
@@ -266,18 +266,49 @@ Other notes (see `DRIVING-WITH-AI.md` for the full detail):
 
 ## The M80/L80 toolchain and the czgfx library disk
 
-The pristine CP/M disk also carries Microsoft's **M80.COM** (MACRO-80
-3.44) and **L80.COM** (LINK-80 3.44) — but not LIB80, so there's no
-librarian. Unlike `ASM.COM`, M80 has `INCLUDE`, real macros (`MACRO`,
+The pristine CP/M disk also carries Microsoft's MACRO-80 package:
+- **M80.COM** (MACRO-80 3.44), the assembler
+- **L80.COM** (LINK-80 3.44), the linker
+- **LIB80.COM**, the librarian
+- **CREF80.COM**, the cross-reference lister
+
+LIB80 and CREF80 were added to the pristine disk on 2026-09-24 from
+`MASM-80.ZIP`, after being validated on a separate test disk. That zip's
+M80/L80 are byte-identical to the copies already on the disk. The
+additions are:
+
+| File | SHA-256 |
+|---|---|
+| `LIB80.COM` | `28f5af4a73e5317af265abde3d58658df13090bd28a59dafeb5a061f4623aaba` |
+| `CREF80.COM` | `2e616ed60957d3179aca7a1acf0dfcf9e11cc4fbcddb7aacb216cdd8eff72218` |
+
+Work disks copied before that date don't have the two new tools;
+re-running `sync_pristine.sh` on a work dir brings them in, but that also
+discards what's built on that disk.
+
+- **LIB80** combines `.REL` modules into one library:
+  - `LIB80 LIB=MOD1,MOD2,.../E` builds it
+  - `LIB80 LIB/L/E` lists its modules, entry points and cross-references
+  - `LIB80 LIB/U/E` lists the unresolved externals
+  - L80 then searches it with `LIB/S`. Keep the module order right
+    (callers before callees), because L80 searches in one pass.
+- **CREF80** produces a cross-reference listing:
+  - assemble with `M80 X,X=X/C`, which writes `X.CRF` instead of `X.PRN`
+  - then `CREF80 X=X` writes `X.PRN`, the numbered listing plus a symbol
+    table in which `#` marks the defining line
+
+Unlike `ASM.COM`, M80 has `INCLUDE`, real macros (`MACRO`,
 `REPT`, `IRP`, `LOCAL`, `IFNB`...), `PUBLIC`/`EXTRN`, and emits
 relocatable `.REL` modules that L80 links into a `.COM`. That's what makes
 a shared library possible:
 
-- **`software/czgfx/`** is the CADzilla graphics-primitive library: the
-  `CZGFX.INC` header (board equates, `EXTRN`s, the `G...` drawing macros)
-  plus one `.REL` per module (`CZCORE`, `CZPAL`, `CZINIT`, `CZDRAW`,
-  `CZPOLY`), and `CZLINK.SUB`, the link script that knows the module
-  list and order. API reference: `software/czgfx/README.md`.
+- **`software/czgfx/`** is the CADzilla graphics-primitive library. It has
+  three parts:
+  - the `CZGFX.INC` header: board equates and the `G...` drawing macros
+  - `CZGFX.REL`, a LIB80 library of its five modules
+  - `CZLINK.SUB`, the link script (`L80 $1,B:CZGFX/S,$1/N$2/E`)
+
+  API reference: `software/czgfx/README.md`.
 - czgfx builds all of that onto its own **library disk**,
   `software/czgfx/libdisk/CZGFX.DSK` (gitignored — a build product).
   czgfx's own `work/` mounts it **writable** as drive 1.
@@ -316,12 +347,20 @@ M80/L80 gotchas (the `cadzilla-build-m80` skill has more):
 - **Global names are 6 characters.** L80 keeps only the first 6 of a
   `PUBLIC`/`EXTRN` name — `LONGNAME1` and `LONGNAME2` link as one
   `%Mult. Def. Global LONGNA`.
+- **Every `EXTRN` is a link request.** M80 emits even an unused `EXTRN`,
+  and L80 then loads the module that defines it, so a header full of
+  `EXTRN`s defeats library pruning. Reference library symbols inline as
+  `NAME##` instead; that's what the czgfx macros do.
+- With `/M` (link map), L80 stops at its `*` prompt after the map, even
+  with `/E` on the line; type `/E` to finish.
 - M80's default source extension is `.MAC`; the command is
   `M80 <rel>,<prn>=<src>`. Success prints `No Fatal error(s)`; also
   scan the `.PRN` for a flag letter in column 1.
-- **L80 searches libraries in one pass**, in command-line order: a module
-  must come after every module that references it (`CZLINK.SUB` keeps
-  that order: high-level first, `CZCORE` last).
+- **L80 searches libraries in one pass**, both across `/S` files on the
+  command line and across the modules inside a LIB80 library: a module
+  must come after every module that references it. czgfx's library is
+  built in that order, high-level first and `CZCORE` last, by the
+  `LIB80 CZGFX=...` line in `CZBUILD.SUB`.
 - Source must be relocatable: `CSEG`, no `ORG` — L80 puts the program at
   0100H.
 - `SUBMIT` here is SuperSUB; it echoes each line at an `A0>` prompt, so

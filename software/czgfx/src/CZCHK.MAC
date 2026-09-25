@@ -5,7 +5,8 @@
 ; published on B: (B:CZGFX.INC) and links it with B:CZLINK.SUB, so a
 ; broken macro, a missing PUBLIC or a wrong link order fails the
 ; library build instead of the first consumer project. It expands every
-; macro and references every entry point; running it does nothing.
+; macro and references every entry point (as NAME##, the way a program
+; outside the macros must); running it does nothing.
 ;
         INCLUDE B:CZGFX.INC
 ;
@@ -43,15 +44,15 @@ START:  RET                     ;nothing below is ever executed
         GWAIT
         GABORT
 ;
-        LHLD    CZXMAX
-        LHLD    CZYMAX
-        LXI     H,CZPALD
-        LXI     H,CZWREG
-        LXI     H,CZPUTW
-        LXI     H,CZXY
-        LXI     H,CZSEND
-        LXI     H,CZRTAB
-        LXI     H,CZLDW
+        LHLD    CZXMAX##
+        LHLD    CZYMAX##
+        LXI     H,CZPALD##
+        LXI     H,CZWREG##
+        LXI     H,CZPUTW##
+        LXI     H,CZXY##
+        LXI     H,CZSEND##
+        LXI     H,CZRTAB##
+        LXI     H,CZLDW##
         RET
 ;
         GPTS    PTS1,<5,5,50,5,50,50>

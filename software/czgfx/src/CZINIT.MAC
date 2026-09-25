@@ -17,7 +17,6 @@
 ;   DW  mode drawing parameters (DPMLEN FIFO words: ADR limits, ORG)
 ;   DW  X max, Y max, words per raster - 1
 ;
-CZLIB   EQU     1
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZINIT,CZM640,CZM1K,CZXMAX,CZYMAX,CZCLS

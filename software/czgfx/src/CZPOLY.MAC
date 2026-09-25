@@ -10,7 +10,6 @@
 ;
 ; Both preserve BC and DE and return HL just past the table.
 ;
-CZLIB   EQU     1
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZPLL,CZPLG

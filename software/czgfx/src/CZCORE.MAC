@@ -5,7 +5,6 @@
 ; Every other czgfx module is built on these. See CZGFX.INC for the
 ; register conventions.
 ;
-CZLIB   EQU     1
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZWREG,CZPUTW,CZWAIT,CZXY,CZSEND,CZRTAB,CZLDW,CZABT

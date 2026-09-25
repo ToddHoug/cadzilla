@@ -8,7 +8,6 @@
 ; The ACRTC does not draw a line's end point, so a closed shape drawn
 ; from lines lights each corner exactly once.
 ;
-CZLIB   EQU     1
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZCOL,CZMOVE,CZLINE,CZRECT,CZFRCT,CZDOT
