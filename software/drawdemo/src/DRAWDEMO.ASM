@@ -21,9 +21,10 @@
 ; model recognizes them but does not execute them (it sets CER).
 ;
 ; Board setup (MODE register, ACRTC registers, Bt453 palette, drawing
-; parameters) is the same as software/firstdraw: 640x480, 8 bpp, single
-; access, origin at the bottom-left pixel, so X runs 0..639 left to
-; right and Y runs 0..479 BOTTOM to TOP.
+; parameters) is the same as software/firstdraw: 1024x768, 8 bpp, single
+; access, origin at the bottom-left pixel, so X runs 0..1023 left to
+; right and Y runs 0..767 BOTTOM to TOP. The machine's monitor must be
+; strapped for 1024x768 (cad0 mode, the pristine machine's default).
 ;
         ORG     0100H
 ;
@@ -45,7 +46,7 @@ DACADR  EQU     CZBASE+4        ;Bt453 address register
 DACPAL  EQU     CZBASE+5        ;Bt453 color palette RAM (R,G,B)
 ;
 ; ---- MODE register: HSPOL(0) VSPOL(1) AMODE(2) OLEN(3) ----
-; VESA 640x480@60 uses negative H and V sync; single access mode.
+; VESA 1024x768@60 uses negative H and V sync; single access mode.
 ;
 MODEVAL EQU     03H
 ;
@@ -86,8 +87,8 @@ BRIGHT  EQU     31              ;full brightness level
 ;
 ; ---- screen geometry ----
 ;
-XMAX    EQU     639
-YMAX    EQU     479
+XMAX    EQU     1023
+YMAX    EQU     767
 ;
 ;
 START:  LXI     H,0             ;keep CCP's stack, run on our own
@@ -259,7 +260,7 @@ CLS:    LXI     H,CLSTAB
 ;
 CLSTAB: DW      080CH,4000H     ;RWP: base screen, address 0 (top raster)
         DW      080DH,0000H
-        DW      5800H,0000H,319,0-479 ;CLR 320 words x 480 rasters to 0
+        DW      5800H,0000H,511,0-767 ;CLR 512 words x 768 rasters to 0
 CLSEND:
 ;
 ; SETCOL -- set drawing color to palette index A (WPR CL1). The
@@ -422,7 +423,7 @@ RAND:   LHLD    SEED
 ; ================= the demo screens =================
 ;
 ; 1  DOT -- a dotted border, stepped by RMOVE between DOTs, and a
-; field of 4000 random dots, each placed by AMOVE.
+; field of 10000 random dots, each placed by AMOVE.
 ;
 DEMDOT: LXI     H,0ACE1H
         SHLD    SEED
@@ -453,26 +454,26 @@ DDLOOP: PUSH    H
         POP     H
         JMP     DDSIDE
 ;
-DDSTAR: LXI     H,4000
+DDSTAR: LXI     H,10000
         SHLD    CNT16
-DDRX:   CALL    RAND            ;X = 16..623
+DDRX:   CALL    RAND            ;X = 16..1007
         MOV     A,H
         ANI     3
         MOV     H,A
         PUSH    H
-        LXI     D,0-608
+        LXI     D,0-992
         DAD     D
         POP     H
         JC      DDRX
         LXI     D,16
         DAD     D
         SHLD    GX
-DDRY:   CALL    RAND            ;Y = 16..463
+DDRY:   CALL    RAND            ;Y = 16..751
         MOV     A,H
-        ANI     1
+        ANI     3
         MOV     H,A
         PUSH    H
-        LXI     D,0-448
+        LXI     D,0-736
         DAD     D
         POP     H
         JC      DDRY
@@ -499,24 +500,24 @@ DDRY:   CALL    RAND            ;Y = 16..463
 ;
 DSIDES: DB      RED+BRIGHT
         DW      8,0
-        DB      78
+        DB      126
         DB      GREEN+BRIGHT
         DW      0,8
-        DB      58
+        DB      94
         DB      BLUE+BRIGHT
         DW      0-8,0
-        DB      78
+        DB      126
         DB      YELLOW+BRIGHT
         DW      0,0-8
-        DB      58
+        DB      94
         DB      0
 ;
 ; 2  ALINE -- string art: in each corner, 31 lines from a point on
 ; the side edge to a point on the top/bottom edge, sliding together.
 ;
-DEMALN: LXI     H,20
+DEMALN: LXI     H,32
         SHLD    IX
-        LXI     H,465
+        LXI     H,744
         SHLD    IY
         MVI     A,1
         STA     LEV
@@ -580,12 +581,12 @@ ALLOOP: LDA     LEV             ;bottom left
         LXI     D,YMAX
         MVI     A,OPLINE
         CALL    XYCMD
-        LHLD    IX              ;IX += 20, IY -= 15
-        LXI     D,20
+        LHLD    IX              ;IX += 32, IY -= 24
+        LXI     D,32
         DAD     D
         SHLD    IX
         LHLD    IY
-        LXI     D,0-15
+        LXI     D,0-24
         DAD     D
         SHLD    IY
         LDA     LEV
@@ -595,20 +596,20 @@ ALLOOP: LDA     LEV             ;bottom left
         JC      ALLOOP
         RET
 ;
-; 3  RLINE -- square spiral out from the center: 150 relative
-; segments turning left each time, each 3 pixels longer than the
+; 3  RLINE -- square spiral out from the center: 146 relative
+; segments turning left each time, each 5 pixels longer than the
 ; last. Each segment starts where the last one ended (CP = Pe).
 ;
-DEMRLN: LXI     H,320
-        LXI     D,240
+DEMRLN: LXI     H,512
+        LXI     D,384
         MVI     A,OPMOVE
         CALL    XYCMD
-        LXI     H,4
+        LXI     H,6
         SHLD    LEN
         XRA     A
         STA     DIR
         STA     TURN
-        MVI     A,150
+        MVI     A,146
         STA     CNT8
 RLLOOP: LDA     DIR             ;new color at the start of each turn
         ORA     A
@@ -634,9 +635,8 @@ RLHORZ: LDA     DIR
 RLGO:   MVI     A,OPRLIN
         CALL    XYCMD
         LHLD    LEN
-        INX     H
-        INX     H
-        INX     H
+        LXI     D,5
+        DAD     D
         SHLD    LEN
         LDA     DIR
         INR     A
@@ -650,13 +650,13 @@ RLGO:   MVI     A,OPRLIN
 ;
 ; 4  ARCT -- 22 concentric rectangle outlines about the center
 ;
-DEMARC: LXI     H,320
+DEMARC: LXI     H,512
         SHLD    QX
-        LXI     H,240
+        LXI     H,384
         SHLD    QY
-        LXI     H,13
+        LXI     H,21
         SHLD    HW
-        LXI     H,10
+        LXI     H,16
         SHLD    HH
         MVI     A,OPRECT
         STA     ROP
@@ -667,11 +667,11 @@ ARLOOP: LDA     CNT8
         CALL    SETCOL
         CALL    CRECT
         LHLD    HW
-        LXI     D,13
+        LXI     D,21
         DAD     D
         SHLD    HW
         LHLD    HH
-        LXI     D,10
+        LXI     D,16
         DAD     D
         SHLD    HH
         LDA     CNT8
@@ -685,29 +685,29 @@ ARLOOP: LDA     CNT8
 ; relative size, stepped along by RMOVE (the second one leftwards,
 ; with negative dX).
 ;
-DEMRRC: LXI     H,24
-        LXI     D,24
+DEMRRC: LXI     H,38
+        LXI     D,38
         MVI     A,OPMOVE
         CALL    XYCMD
         MVI     A,BLUE
         STA     HUE
-        LXI     H,160
+        LXI     H,256
         SHLD    RW
-        LXI     H,18
+        LXI     H,29
         SHLD    SX
         CALL    CASC
-        LXI     H,615
-        LXI     D,24
+        LXI     H,984
+        LXI     D,38
         MVI     A,OPMOVE
         CALL    XYCMD
         MVI     A,RED
         STA     HUE
-        LXI     H,0-160
+        LXI     H,0-256
         SHLD    RW
-        LXI     H,0-18
+        LXI     H,0-29
         SHLD    SX
 ;
-; CASC -- 24 x (RRCT RW,120 / RMOVE SX,13), levels 8..31 of HUE
+; CASC -- 24 x (RRCT RW,192 / RMOVE SX,21), levels 8..31 of HUE
 ;
 CASC:   MVI     A,8
         STA     LEV
@@ -717,11 +717,11 @@ CSLOOP: LDA     LEV
         ORA     B
         CALL    SETCOL
         LHLD    RW
-        LXI     D,120
+        LXI     D,192
         MVI     A,OPRRCT
         CALL    XYCMD
         LHLD    SX
-        LXI     D,13
+        LXI     D,21
         MVI     A,OPRMOV
         CALL    XYCMD
         LDA     LEV
@@ -772,31 +772,31 @@ BNREP:  LHLD    MOTIF
         LHLD    PTR
         JMP     BNLOOP
 ;
-; Bands: color, repeats / X0,Y0 / motif. All are 576 pixels wide.
+; Bands: color, repeats / X0,Y0 / motif. All are 864 pixels wide.
 ;
 BANDS:  DB      RED+BRIGHT,18
-        DW      32,410,CREN
+        DW      80,656,CREN
         DB      GREEN+BRIGHT,18
-        DW      32,320,TRI
+        DW      80,512,TRI
         DB      CYAN+BRIGHT,12
-        DW      32,230,STAIR
+        DW      80,368,STAIR
         DB      YELLOW+BRIGHT,18
-        DW      32,140,TRAP
+        DW      80,224,TRAP
         DB      MAGENTA+BRIGHT,36
-        DW      32,50,SAW
+        DW      80,80,SAW
         DB      0
 ;
-CREN:   DW      4               ;crenellation, 32 wide
-        DW      0,16,16,0,0,0-16,16,0
-TRI:    DW      2               ;triangle wave, 32 wide
-        DW      16,24,16,0-24
-STAIR:  DW      12              ;steps up and down, 48 wide
-        DW      0,8,8,0,0,8,8,0,0,8,8,0
-        DW      0,0-8,8,0,0,0-8,8,0,0,0-8,8,0
-TRAP:   DW      4               ;trapezoid wave, 32 wide
-        DW      8,16,8,0,8,0-16,8,0
-SAW:    DW      2               ;sawtooth, 16 wide
-        DW      16,24,0,0-24
+CREN:   DW      4               ;crenellation, 48 wide
+        DW      0,24,24,0,0,0-24,24,0
+TRI:    DW      2               ;triangle wave, 48 wide
+        DW      24,36,24,0-36
+STAIR:  DW      12              ;steps up and down, 72 wide
+        DW      0,12,12,0,0,12,12,0,0,12,12,0
+        DW      0,0-12,12,0,0,0-12,12,0,0,0-12,12,0
+TRAP:   DW      4               ;trapezoid wave, 48 wide
+        DW      12,24,12,0,12,0-24,12,0
+SAW:    DW      2               ;sawtooth, 24 wide
+        DW      24,36,0,0-36
 ;
 ; 8  APLG -- nested regular polygons and star polygons, each one
 ; APLG command that closes itself back on the starting point
@@ -808,15 +808,15 @@ DEMAPG: LXI     H,PGTAB
 ; 9  RPLG -- a honeycomb: one relative hexagon list, stamped 260
 ; times by just moving CP and resending it
 ;
-DEMRPG: LXI     H,20
+DEMRPG: LXI     H,24
         SHLD    CX
         XRA     A
         STA     COLC
-RPCOL:  LXI     H,24            ;odd columns sit half a cell higher
+RPCOL:  LXI     H,36            ;odd columns sit half a cell higher
         LDA     COLC
         ANI     1
         JZ      RPEVEN
-        LXI     H,41
+        LXI     H,64
 RPEVEN: SHLD    CY
         XRA     A
         STA     ROWR
@@ -840,7 +840,7 @@ RPROW:  LDA     ROWR            ;hue by column, dimmer going up
         MVI     A,OPRPLG
         CALL    PLYCMD
         LHLD    CY
-        LXI     D,34
+        LXI     D,56
         DAD     D
         SHLD    CY
         LDA     ROWR
@@ -849,7 +849,7 @@ RPROW:  LDA     ROWR            ;hue by column, dimmer going up
         CPI     13
         JNZ     RPROW
         LHLD    CX
-        LXI     D,30
+        LXI     D,48
         DAD     D
         SHLD    CX
         LDA     COLC
@@ -859,10 +859,10 @@ RPROW:  LDA     ROWR            ;hue by column, dimmer going up
         JNZ     RPCOL
         RET
 ;
-; Flat-topped hexagon, side 20, from its left vertex
+; Flat-topped hexagon, side 32, from its left vertex
 ;
 HEXREL: DW      5
-        DW      10,17,20,0,10,0-17,0-10,0-17,0-20,0
+        DW      16,28,32,0,16,0-28,0-16,0-28,0-32,0
 ;
 ; 10  AFRCT -- in each quarter of the screen, 16 filled rectangles
 ; shrinking toward the center and brightening: a stepped pyramid
@@ -884,9 +884,9 @@ AFQUAD: MOV     A,M
         SHLD    QY
         XCHG
         SHLD    PTR
-        LXI     H,152
+        LXI     H,243
         SHLD    HW
-        LXI     H,112
+        LXI     H,179
         SHLD    HH
         MVI     A,1
         STA     LEV
@@ -897,11 +897,11 @@ AFLOOP: LDA     LEV
         CALL    SETCOL
         CALL    CRECT
         LHLD    HW
-        LXI     D,0-9
+        LXI     D,0-14
         DAD     D
         SHLD    HW
         LHLD    HH
-        LXI     D,0-7
+        LXI     D,0-11
         DAD     D
         SHLD    HH
         LDA     LEV
@@ -915,13 +915,13 @@ AFLOOP: LDA     LEV
 ; Quarters: hue / center X,Y
 ;
 QUADS:  DB      YELLOW
-        DW      160,360
+        DW      256,576
         DB      GREEN
-        DW      480,360
+        DW      768,576
         DB      BLUE
-        DW      160,120
+        DW      256,192
         DB      RED
-        DW      480,120
+        DW      768,192
         DB      0FFH
 ;
 ; 11  RFRCT -- a stacked bar chart. After a fill, CP.Y is one past
@@ -931,19 +931,19 @@ DEMRFR: LXI     H,0ACE1H
         SHLD    SEED
         MVI     A,WHITE+20      ;base line
         CALL    SETCOL
-        LXI     H,24
-        LXI     D,38
+        LXI     H,38
+        LXI     D,61
         MVI     A,OPMOVE
         CALL    XYCMD
-        LXI     H,617
+        LXI     H,987
         MVI     A,OPLINE
         CALL    XYCMD
-        LXI     H,40
+        LXI     H,64
         SHLD    QX
         MVI     A,16
         STA     CNTB
 RFBAR:  LHLD    QX
-        LXI     D,40
+        LXI     D,64
         MVI     A,OPMOVE
         CALL    XYCMD
         LXI     H,SEGCOL
@@ -955,22 +955,25 @@ RFSEG:  LHLD    PTR
         INX     H
         SHLD    PTR
         CALL    SETCOL
-        CALL    RAND            ;segment height 24..87
+        CALL    RAND            ;segment height 38..132: b + b/2 + 37
         MOV     A,L
-        ANI     63
-        ADI     23
+        ANI     63              ;b (ANI also clears CY for the RAR)
+        MOV     E,A
+        RAR
+        ADD     E
+        ADI     37
         MOV     E,A
         MVI     D,0
-        LXI     H,27            ;28 pixels wide
+        LXI     H,44            ;45 pixels wide
         MVI     A,OPRFRC
         CALL    XYCMD
-        LXI     H,0             ;2 pixel gap before the next segment
-        LXI     D,2
+        LXI     H,0             ;3 pixel gap before the next segment
+        LXI     D,3
         MVI     A,OPRMOV
         CALL    XYCMD
         JMP     RFSEG
 RFNEXT: LHLD    QX
-        LXI     D,36
+        LXI     D,58
         DAD     D
         SHLD    QX
         LDA     CNTB
@@ -988,119 +991,119 @@ SEGCOL: DB      BLUE+BRIGHT,GREEN+BRIGHT,ORANGE+BRIGHT,MAGENTA+BRIGHT
 ; Entries: DB color / DW X0,Y0 (AMOVE) / DW n / n X,Y pairs; DB 0 ends.
 ;
 PLTAB:  DB      WHITE+20        ;plot frame
-        DW      40,40
+        DW      64,64
         DW      4
-        DW      600,40,600,440,40,440,40,40
+        DW      960,64,960,704,64,704,64,64
         DB      WHITE+12        ;zero axis
-        DW      41,240
+        DW      65,384
         DW      1
-        DW      600,240
+        DW      960,384
         DB      YELLOW+BRIGHT   ;sine, 2 cycles
-        DW      40,240
+        DW      64,384
         DW      70
-        DW      48,272,56,303,64,332,72,358
-        DW      80,381,88,399,96,411,104,418
-        DW      112,420,120,415,128,406,136,390
-        DW      144,370,152,346,160,318,168,288
-        DW      176,256,184,224,192,192,200,162
-        DW      208,134,216,110,224,90,232,74
-        DW      240,65,248,60,256,62,264,69
-        DW      272,81,280,99,288,122,296,148
-        DW      304,177,312,208,320,240,328,272
-        DW      336,303,344,332,352,358,360,381
-        DW      368,399,376,411,384,418,392,420
-        DW      400,415,408,406,416,390,424,370
-        DW      432,346,440,318,448,288,456,256
-        DW      464,224,472,192,480,162,488,134
-        DW      496,110,504,90,512,74,520,65
-        DW      528,60,536,62,544,69,552,81
-        DW      560,99,568,122,576,148,584,177
-        DW      592,208,600,240
+        DW      77,435,90,485,102,532,115,573
+        DW      128,609,141,638,154,658,166,669
+        DW      179,672,192,665,205,649,218,624
+        DW      230,592,243,553,256,509,269,461
+        DW      282,410,294,358,307,307,320,259
+        DW      333,215,346,176,358,144,371,119
+        DW      384,103,397,96,410,99,422,110
+        DW      435,130,448,159,461,195,474,236
+        DW      486,283,499,333,512,384,525,435
+        DW      538,485,550,532,563,573,576,609
+        DW      589,638,602,658,614,669,627,672
+        DW      640,665,653,649,666,624,678,592
+        DW      691,553,704,509,717,461,730,410
+        DW      742,358,755,307,768,259,781,215
+        DW      794,176,806,144,819,119,832,103
+        DW      845,96,858,99,870,110,883,130
+        DW      896,159,909,195,922,236,934,283
+        DW      947,333,960,384
         DB      CYAN+BRIGHT     ;damped cosine
-        DW      40,420
+        DW      64,672
         DW      70
-        DW      48,395,56,343,64,275,72,206
-        DW      80,149,88,115,96,107,104,125
-        DW      112,164,120,214,128,265,136,307
-        DW      144,333,152,339,160,325,168,297
-        DW      176,259,184,221,192,190,200,171
-        DW      208,167,216,177,224,198,232,226
-        DW      240,254,248,277,256,291,264,294
-        DW      272,287,280,271,288,251,296,230
-        DW      304,213,312,202,320,200,328,205
-        DW      336,217,344,232,352,248,360,260
-        DW      368,268,376,270,384,266,392,257
-        DW      400,246,408,234,416,225,424,219
-        DW      432,218,440,221,448,227,456,236
-        DW      464,244,472,251,480,255,488,256
-        DW      496,254,504,249,512,243,520,237
-        DW      528,232,536,229,544,228,552,230
-        DW      560,233,568,238,576,242,584,246
-        DW      592,248,600,249
+        DW      77,633,90,549,102,440,115,330
+        DW      128,239,141,183,154,171,166,200
+        DW      179,262,192,342,205,424,218,491
+        DW      230,533,243,542,256,521,269,475
+        DW      282,415,294,354,307,304,320,274
+        DW      333,267,346,283,358,317,371,361
+        DW      384,406,397,443,410,466,422,471
+        DW      435,459,448,434,461,401,474,368
+        DW      486,340,499,323,512,320,525,328
+        DW      538,347,550,371,563,396,576,416
+        DW      589,429,602,432,614,425,627,411
+        DW      640,393,653,375,666,360,678,351
+        DW      691,349,704,353,717,364,730,377
+        DW      742,391,755,402,768,409,781,410
+        DW      794,407,806,399,819,389,832,379
+        DW      845,371,858,366,870,365,883,367
+        DW      896,373,909,380,922,388,934,394
+        DW      947,398,960,398
         DB      0
 ;
-PGTAB:  DB      RED+BRIGHT      ;pentagram {5/2} r=105
-        DW      160,460
+PGTAB:  DB      RED+BRIGHT      ;pentagram {5/2} r=168
+        DW      256,736
         DW      4
-        DW      98,270,260,387,60,387,222,270
-        DB      ORANGE+BRIGHT   ;pentagram {5/2} r=70
-        DW      160,425
+        DW      157,432,416,619,96,619,355,432
+        DB      ORANGE+BRIGHT   ;pentagram {5/2} r=112
+        DW      256,680
         DW      4
-        DW      119,298,227,377,93,377,201,298
-        DB      YELLOW+BRIGHT   ;pentagram {5/2} r=35
-        DW      160,390
+        DW      190,477,363,603,149,603,322,477
+        DB      YELLOW+BRIGHT   ;pentagram {5/2} r=56
+        DW      256,624
         DW      4
-        DW      139,327,193,366,127,366,181,327
-        DB      CYAN+31         ;hexagon r=105
-        DW      480,460
+        DW      222,523,309,586,203,586,290,523
+        DB      CYAN+31         ;hexagon r=168
+        DW      768,736
         DW      5
-        DW      389,408,389,302,480,250,571,302
-        DW      571,408
-        DB      CYAN+27         ;hexagon r=85
-        DW      458,437
+        DW      622,653,622,483,768,400,914,483
+        DW      914,653
+        DB      CYAN+27         ;hexagon r=136
+        DW      733,699
         DW      5
-        DW      398,377,420,295,502,273,562,333
-        DW      540,415
-        DB      CYAN+23         ;hexagon r=65
-        DW      448,411
+        DW      637,603,672,472,803,437,899,533
+        DW      864,664
+        DB      CYAN+23         ;hexagon r=104
+        DW      717,658
         DW      5
-        DW      415,355,448,299,512,299,545,355
-        DW      512,411
-        DB      CYAN+19         ;hexagon r=45
-        DW      448,387
+        DW      664,568,717,478,819,478,872,568
+        DW      819,658
+        DB      CYAN+19         ;hexagon r=72
+        DW      717,619
         DW      5
-        DW      437,343,468,312,512,323,523,367
-        DW      492,398
-        DB      CYAN+15         ;hexagon r=25
-        DW      458,368
+        DW      699,549,749,499,819,517,837,587
+        DW      787,637
+        DB      CYAN+15         ;hexagon r=40
+        DW      733,589
         DW      5
-        DW      458,342,480,330,502,342,502,368
-        DW      480,380
-        DB      GREEN+31        ;octagon r=105
-        DW      160,230
+        DW      733,547,768,528,803,547,803,589
+        DW      768,608
+        DB      GREEN+31        ;octagon r=168
+        DW      256,368
         DW      7
-        DW      86,199,55,125,86,51,160,20
-        DW      234,51,265,125,234,199
-        DB      GREEN+25        ;octagon r=75
-        DW      131,194
+        DW      138,318,88,200,138,82,256,32
+        DW      374,82,424,200,374,318
+        DB      GREEN+25        ;octagon r=120
+        DW      210,310
         DW      7
-        DW      91,154,91,96,131,56,189,56
-        DW      229,96,229,154,189,194
-        DB      GREEN+19        ;octagon r=45
-        DW      160,170
+        DW      146,246,146,154,210,90,302,90
+        DW      366,154,366,246,302,310
+        DB      GREEN+19        ;octagon r=72
+        DW      256,272
         DW      7
-        DW      128,157,115,125,128,93,160,80
-        DW      192,93,205,125,192,157
-        DB      MAGENTA+BRIGHT  ;heptagram {7/3} r=105
-        DW      480,230
+        DW      205,251,184,200,205,149,256,128
+        DW      307,149,328,200,307,251
+        DB      MAGENTA+BRIGHT  ;heptagram {7/3} r=168
+        DW      768,368
         DW      6
-        DW      434,30,562,190,378,102,582,102
-        DW      398,190,526,30
-        DB      BLUE+BRIGHT     ;heptagram {7/2} r=60
-        DW      480,65
+        DW      694,48,899,304,605,163,931,163
+        DW      637,304,842,48
+        DB      BLUE+BRIGHT     ;heptagram {7/2} r=96
+        DW      768,104
         DW      6
-        DW      538,138,454,179,433,88,527,88
-        DW      506,179,422,138
+        DW      861,221,726,286,693,141,843,141
+        DW      810,286,675,221
         DB      0
 ;
 ;
@@ -1123,7 +1126,8 @@ RILOOP: MOV     A,M
         JMP     RILOOP
 ;
 ; Control register table: DB register / DW value, 0FFH ends.
-; 640x480 single access, 16 pixels per memory cycle (8 words, GAI +8).
+; 1024x768 single access, 16 pixels per memory cycle (8 words, GAI +8).
+; Timing from the board's VESA mode table (altairsim docs/boards/cadzilla.md).
 ;
 REGTAB: DB      02H             ;CCR: ABT - abort, flush FIFOs
         DW      8300H
@@ -1133,16 +1137,16 @@ REGTAB: DB      02H             ;CCR: ABT - abort, flush FIFOs
         DW      80B0H           ;  static RAM, GAI=011 +8, ACM=00 single
         DB      06H             ;DCR: all screens off while programming
         DW      0000H
-        DB      82H             ;HSR: HC=49 (50 cycles), HSW=6
-        DW      3106H
-        DB      84H             ;HDR: HDS=2, HDW=39 (40 cycles = 640 px)
-        DW      0227H
-        DB      86H             ;VSR: VC=525 rasters
-        DW      020DH
-        DB      88H             ;VDR: VDS=32, VSW=2
-        DW      2002H
-        DB      8AH             ;SP1: base screen 480 rasters
-        DW      01E0H
+        DB      82H             ;HSR: HC=83 (84 cycles), HSW=8
+        DW      5308H
+        DB      84H             ;HDR: HDS=9, HDW=63 (64 cycles = 1024 px)
+        DW      093FH
+        DB      86H             ;VSR: VC=806 rasters
+        DW      0326H
+        DB      88H             ;VDR: VDS=28, VSW=6
+        DW      1C06H
+        DB      8AH             ;SP1: base screen 768 rasters
+        DW      0300H
         DB      8CH             ;SP0: upper screen (disabled)
         DW      0000H
         DB      8EH             ;SP2: lower screen (disabled)
@@ -1163,8 +1167,8 @@ REGTAB: DB      02H             ;CCR: ABT - abort, flush FIFOs
         DW      0000H
         DB      0C8H            ;RAR1: base screen raster address
         DW      0000H
-        DB      0CAH            ;MWR1: graphic, 320 words per raster
-        DW      0140H
+        DB      0CAH            ;MWR1: graphic, 512 words per raster
+        DW      0200H
         DB      0CCH            ;SAR1: start address = 0 (high nibble)
         DW      0000H
         DB      0CEH            ;SAR1: start address = 0 (low word)
@@ -1206,8 +1210,8 @@ DPINIT: DW      1800H,32        ;WPTN PRA=0, n=32 bytes (8-bit bus)
         DW      0809H,0         ;ADR YMIN
         DW      080AH,XMAX      ;ADR XMAX
         DW      080BH,YMAX      ;ADR YMAX
-        DW      0400H,4025H,6C00H ;ORG: base screen, word 256C0H
-;                               ; = 479*320, bottom-left pixel, DPD=0
+        DW      0400H,405FH,0E000H ;ORG: base screen, word 5FE00H
+;                               ; = 767*512, bottom-left pixel, DPD=0
         DW      080CH,4000H     ;RWP: base screen, address 0 (top raster)
         DW      080DH,0000H
 DPEND:
@@ -1277,7 +1281,7 @@ LEVTAB: DB      0,8,16,25,33,41,49,58
 ;
 MSGHI:  DB      CR,LF
         DB      'CADzilla drawdemo: the ACRTC drawing '
-        DB      'commands, 640x480, 8 bpp'
+        DB      'commands, 1024x768, 8 bpp'
         DB      CR,LF,'$'
 MSG1:   DB      CR,LF
         DB      ' 1/11  DOT   - '

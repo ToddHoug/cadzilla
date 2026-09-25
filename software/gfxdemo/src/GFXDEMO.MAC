@@ -40,7 +40,7 @@ START:  LXI     H,0             ;keep CCP's stack, run on our own
 ;
         LXI     D,MSGHI
         CALL    PRINT
-        GINIT                   ;640x480, default palette, screen cleared
+        GINIT   CZM1K           ;1024x768, default palette, screen cleared
 ;
         LXI     D,MSG1
         CALL    PRINT
@@ -105,7 +105,7 @@ DNKEY:  LXI     D,MSGKEY
 ;
 ; ================= screen 1: palette & fills =================
 ;
-; 32 columns (levels) x 8 rows (hues), 17x50 pixel cells on a 20x56
+; 32 columns (levels) x 8 rows (hues), 28x80 pixel cells on a 32x90
 ; pitch, hue 0 on top. The loop keeps X in GX, Y in GY and the palette
 ; index in COLIX, and hands the macros blank arguments ("already in
 ; HL/DE") for the computed corners.
@@ -113,7 +113,7 @@ DNKEY:  LXI     D,MSGKEY
 SCR1:   GCLS
         XRA     A
         STA     COLIX
-        LXI     H,24+7*56       ;bottom Y of the top row
+        LXI     H,38+7*90       ;bottom Y of the top row
         SHLD    GY
 S1ROW:  LXI     H,2             ;left X of the first column
         SHLD    GX
@@ -123,15 +123,15 @@ S1CELL: LDA     COLIX
         XCHG                    ;DE = Y
         LHLD    GX              ;HL = X
         GMOVE
-        LXI     B,16            ;far corner: X+16, Y+49
+        LXI     B,27            ;far corner: X+27, Y+79
         DAD     B
         XCHG
-        LXI     B,49
+        LXI     B,79
         DAD     B
         XCHG
         GFRECT
         LHLD    GX              ;next column
-        LXI     B,20
+        LXI     B,32
         DAD     B
         SHLD    GX
         LDA     COLIX
@@ -140,7 +140,7 @@ S1CELL: LDA     COLIX
         ANI     31
         JNZ     S1CELL
         LHLD    GY              ;next row down
-        LXI     B,-56
+        LXI     B,-90
         DAD     B
         SHLD    GY
         LDA     COLIX           ;wraps to 0 after all 256
@@ -148,7 +148,7 @@ S1CELL: LDA     COLIX
         JNZ     S1ROW
 ;
         GCOLOR  WHITE+BRIGHT
-        GBOX    0,0,639,479
+        GBOX    0,0,1023,767
         RET
 ;
 ;
@@ -156,7 +156,7 @@ S1CELL: LDA     COLIX
 ;
 SCR2:   GCLS
 ;
-; Starburst: 36 spokes from the centre (170,240), radius 150, one
+; Starburst: 36 spokes from the centre (272,384), radius 240, one
 ; color per spoke cycling through the 8 hues.
 ;
         LXI     H,SPOKES
@@ -169,7 +169,7 @@ S2SPK:  MOV     A,C             ;color = hue*32 + BRIGHT
         ORI     BRIGHT
         GCOLOR
         PUSH    H
-        GMOVE   170,240
+        GMOVE   272,384
         POP     H
         CALL    CZLDW##         ;DE = end X (library routine, direct)
         PUSH    D
@@ -190,13 +190,13 @@ S2SPK:  MOV     A,C             ;color = hue*32 + BRIGHT
 N       SET     0
         REPT    10
         GCOLOR  <(N MOD 8)*32+BRIGHT-(N/8)*12>
-        GBOX    350+N*12,100+N*12,620-N*12,380-N*12
+        GBOX    560+N*19,160+N*19,992-N*19,608-N*19
 N       SET     N+1
         ENDM
 ;
-        GCOLOR  WHITE+BRIGHT    ;an X through the middle ones
-        GSEG    458,208,512,272
-        GSEG    458,272,512,208
+        GCOLOR  WHITE+BRIGHT    ;an X corner to corner of the innermost
+        GSEG    731,331,821,437
+        GSEG    731,437,821,331
         RET
 ;
 ;
@@ -205,10 +205,10 @@ N       SET     N+1
 SCR3:   GCLS
 ;
         GCOLOR  YELLOW+BRIGHT   ;5-point star, the points given inline
-        GPOLY   <150,440,126,372,55,371,112,328,91,259,150,300,209,259,188,328,245,371,174,372>
+        GPOLY   <240,704,202,595,88,594,179,525,146,414,240,480,334,414,301,525,392,594,278,595>
 ;
         GCOLOR  CYAN+BRIGHT     ;hexagon
-        GPOLY   <580,340,535,418,445,418,400,340,445,262,535,262>
+        GPOLY   <928,544,856,669,712,669,640,544,712,419,856,419>
 ;
         GCOLOR  MAGENTA+BRIGHT  ;triangle from a named table
         GPLG    TRI
@@ -217,27 +217,41 @@ SCR3:   GCLS
         GPLT    SINE
 ;
         GCOLOR  WHITE+16        ;axis under the wave
-        GSEG    40,95,617,95
+        GSEG    64,152,987,152
 ;
 ; 400 dots in the band between the shapes and the wave, at random
 ; positions (xorshift), colors cycling through the palette.
 ;
         LXI     B,400
-S3DOT:  CALL    RAND            ;X = 64 + (R AND 511)
+S3DOT:  CALL    RAND            ;X = 102 + a + a/2, a = R AND 511
         MOV     A,H
-        ANI     1
+        ANI     1               ;(ANI also clears CY for the RARs)
         MOV     H,A
-        PUSH    D
-        LXI     D,64
+        MOV     D,A             ;DE = a/2
+        MOV     E,L
+        MOV     A,D
+        RAR
+        MOV     D,A
+        MOV     A,E
+        RAR
+        MOV     E,A
         DAD     D
-        POP     D
+        LXI     D,102
+        DAD     D
         PUSH    H
-        CALL    RAND            ;Y = 176 + (R AND 63)
+        CALL    RAND            ;Y = 282 + b + b/2, b = R AND 63
         MOV     A,L
         ANI     63
-        ADI     176
+        MOV     E,A
+        RAR
+        ADD     E
         MOV     E,A
         MVI     D,0
+        PUSH    H
+        LXI     H,282
+        DAD     D
+        XCHG                    ;DE = Y
+        POP     H
         MOV     A,H             ;color from the high byte
         ORI     16              ;never too dark
         GCOLOR
@@ -273,34 +287,34 @@ RAND:   LHLD    SEED
 ;
 ; ================= data =================
 ;
-; Starburst end points: 36 X,Y pairs on a circle of radius 150
+; Starburst end points: 36 X,Y pairs on a circle of radius 240
 ;
-SPOKES: DW      320,240,318,266,311,291,300,315
-        DW      285,336,266,355,245,370,221,381
-        DW      196,388,170,390,144,388,119,381
-        DW      95,370,74,355,55,336,40,315
-        DW      29,291,22,266,20,240,22,214
-        DW      29,189,40,165,55,144,74,125
-        DW      95,110,119,99,144,92,170,90
-        DW      196,92,221,99,245,110,266,125
-        DW      285,144,300,165,311,189,318,214
+SPOKES: DW      512,384,508,426,498,466,480,504
+        DW      456,538,426,568,392,592,354,610
+        DW      314,620,272,624,230,620,190,610
+        DW      152,592,118,568,88,538,64,504
+        DW      46,466,36,426,32,384,36,342
+        DW      46,302,64,264,88,230,118,200
+        DW      152,176,190,158,230,148,272,144
+        DW      314,148,354,158,392,176,426,200
+        DW      456,230,480,264,498,302,508,342
 ;
-        GPTS    TRI,<300,280,360,440,250,400>
+        GPTS    TRI,<480,448,576,704,400,640>
 ;
 ; Sine wave: a point table written out by hand -- the same layout
 ; GPTS builds (DW count, then X,Y pairs), for lists too long for one
 ; macro line
 ;
 SINE:   DW      33
-        DW      40,95,58,116,76,134,94,146
-        DW      112,150,130,146,148,134,166,116
-        DW      184,95,202,74,220,56,238,44
-        DW      256,40,274,44,292,56,310,74
-        DW      328,95,346,116,364,134,382,146
-        DW      400,150,418,146,436,134,454,116
-        DW      472,95,490,74,508,56,526,44
-        DW      544,40,562,44,580,56,598,74
-        DW      616,95
+        DW      64,152,93,186,122,214,150,233
+        DW      179,240,208,233,237,214,266,186
+        DW      294,152,323,118,352,90,381,71
+        DW      410,64,438,71,467,90,496,118
+        DW      525,152,554,186,582,214,611,233
+        DW      640,240,669,233,698,214,726,186
+        DW      755,152,784,118,813,90,842,71
+        DW      870,64,899,71,928,90,957,118
+        DW      986,152
 ;
 MSGHI:  DB      'GFXDEMO -- CADzilla czgfx library demo (M80/L80)',CR,LF,'$'
 MSG1:   DB      'Screen 1: palette & fills -- 256 GFBOX cells, GBOX frame',CR,LF,'$'

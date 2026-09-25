@@ -1,17 +1,19 @@
 ;
 ; FIRSTDRW.ASM -- CADzilla first-light program
 ;
-; Initializes the CADzilla board for 640x480, 8 bits per pixel, single
+; Initializes the CADzilla board for 1024x768, 8 bits per pixel, single
 ; access mode, loads the Bt453 palette with 8 hues x 32 brightness levels,
 ; clears the base screen and draws a border and a visual test pattern.
+; The machine's monitor must be strapped for 1024x768 (cad0 mode, the
+; default in tools/altairsim/pristine/cadzilla.toml).
 ;
 ; Coordinates: the ACRTC origin is set to the bottom-left pixel, so X runs
-; 0..639 left to right and Y runs 0..479 BOTTOM to TOP. The base screen
+; 0..1023 left to right and Y runs 0..767 BOTTOM to TOP. The base screen
 ; starts at frame buffer word address 0 (the top raster).
 ;
 ; Expected picture (verify visually):
-;   - white 1-pixel border around the full 640x480 frame
-;   - dim white horizontal line across the middle (Y=240)
+;   - white 1-pixel border around the full 1024x768 frame
+;   - dim white horizontal line across the middle (Y=384)
 ;   - 8x8 corner markers: TOP-LEFT blue, TOP-RIGHT yellow,
 ;     BOTTOM-LEFT red, BOTTOM-RIGHT green (wrong corners = axis flipped)
 ;   - lower half: 32 x 8 palette grid, all 256 entries; rows top to bottom
@@ -19,7 +21,8 @@
 ;     ramps from black (left) to full brightness (right)
 ;   - upper left: 6 nested rectangles with an X through them
 ;   - upper middle: 48-line starburst (all line octants), hues cycling
-;   - upper right: 13 x 13 line grid, 16 pixel pitch
+;   - upper right: 13 x 13 line grid, 25 pixel pitch
+;   (the three upper figures are each 300 pixels square, Y 426..726)
 ;
         ORG     0100H
 ;
@@ -38,7 +41,7 @@ DACADR  EQU     CZBASE+4        ;Bt453 address register
 DACPAL  EQU     CZBASE+5        ;Bt453 color palette RAM (R,G,B)
 ;
 ; ---- MODE register: HSPOL(0) VSPOL(1) AMODE(2) OLEN(3) ----
-; VESA 640x480@60 uses negative H and V sync; single access mode.
+; VESA 1024x768@60 uses negative H and V sync; single access mode.
 ;
 MODEVAL EQU     03H
 ;
@@ -72,8 +75,9 @@ BRIGHT  EQU     31              ;full brightness level
 ;
 ; ---- screen geometry ----
 ;
-XMAX    EQU     639
-YMAX    EQU     479
+XMAX    EQU     1023
+YMAX    EQU     767
+YMID    EQU     (YMAX+1)/2      ;center line
 ;
 ;
 START:  LXI     H,0             ;keep CCP's stack, run on our own
@@ -255,7 +259,8 @@ RILOOP: MOV     A,M
         JMP     RILOOP
 ;
 ; Control register table: DB register / DW value, 0FFH ends.
-; 640x480 single access, 16 pixels per memory cycle (8 words, GAI +8).
+; 1024x768 single access, 16 pixels per memory cycle (8 words, GAI +8).
+; Timing from the board's VESA mode table (altairsim docs/boards/cadzilla.md).
 ;
 REGTAB: DB      02H             ;CCR: ABT - abort, flush FIFOs
         DW      8300H
@@ -265,16 +270,16 @@ REGTAB: DB      02H             ;CCR: ABT - abort, flush FIFOs
         DW      80B0H           ;  static RAM, GAI=011 +8, ACM=00 single
         DB      06H             ;DCR: all screens off while programming
         DW      0000H
-        DB      82H             ;HSR: HC=49 (50 cycles), HSW=6
-        DW      3106H
-        DB      84H             ;HDR: HDS=2, HDW=39 (40 cycles = 640 px)
-        DW      0227H
-        DB      86H             ;VSR: VC=525 rasters
-        DW      020DH
-        DB      88H             ;VDR: VDS=32, VSW=2
-        DW      2002H
-        DB      8AH             ;SP1: base screen 480 rasters
-        DW      01E0H
+        DB      82H             ;HSR: HC=83 (84 cycles), HSW=8
+        DW      5308H
+        DB      84H             ;HDR: HDS=9, HDW=63 (64 cycles = 1024 px)
+        DW      093FH
+        DB      86H             ;VSR: VC=806 rasters
+        DW      0326H
+        DB      88H             ;VDR: VDS=28, VSW=6
+        DW      1C06H
+        DB      8AH             ;SP1: base screen 768 rasters
+        DW      0300H
         DB      8CH             ;SP0: upper screen (disabled)
         DW      0000H
         DB      8EH             ;SP2: lower screen (disabled)
@@ -295,8 +300,8 @@ REGTAB: DB      02H             ;CCR: ABT - abort, flush FIFOs
         DW      0000H
         DB      0C8H            ;RAR1: base screen raster address
         DW      0000H
-        DB      0CAH            ;MWR1: graphic, 320 words per raster
-        DW      0140H
+        DB      0CAH            ;MWR1: graphic, 512 words per raster
+        DW      0200H
         DB      0CCH            ;SAR1: start address = 0 (high nibble)
         DW      0000H
         DB      0CEH            ;SAR1: start address = 0 (low word)
@@ -338,11 +343,11 @@ DPINIT: DW      1800H,32        ;WPTN PRA=0, n=32 bytes (8-bit bus)
         DW      0809H,0         ;ADR YMIN
         DW      080AH,XMAX      ;ADR XMAX
         DW      080BH,YMAX      ;ADR YMAX
-        DW      0400H,4025H,6C00H ;ORG: base screen, word 256C0H
-;                               ; = 479*320, bottom-left pixel, DPD=0
+        DW      0400H,405FH,0E000H ;ORG: base screen, word 5FE00H
+;                               ; = 767*512, bottom-left pixel, DPD=0
         DW      080CH,4000H     ;RWP: base screen, address 0 (top raster)
         DW      080DH,0000H
-        DW      5800H,0000H,319,0-479 ;CLR 320 words x 480 rasters to 0
+        DW      5800H,0000H,511,0-767 ;CLR 512 words x 768 rasters to 0
 DPEND:
 ;
 ; PALINIT -- load all 256 Bt453 palette entries: 8 hues of 32 levels.
@@ -408,13 +413,13 @@ LEVTAB: DB      0,8,16,25,33,41,49,58
 ; ================= test pattern =================
 ;
 ; GRID -- palette grid in the lower half: 32 columns (levels) x
-; 8 rows (hues), 14x20 pixel cells on a 16x24 pitch. Hue 0 on top.
+; 8 rows (hues), 22x32 pixel cells on a 26x38 pitch. Hue 0 on top.
 ;
 GRID:   XRA     A
         STA     COLIDX
-        LXI     H,204           ;bottom Y of the top row
+        LXI     H,326           ;bottom Y of the top row
         SHLD    GY
-GRROW:  LXI     H,64            ;left X of the first column
+GRROW:  LXI     H,98            ;left X of the first column
         SHLD    GX
 GRCELL: LDA     COLIDX
         CALL    SETCOL
@@ -423,18 +428,18 @@ GRCELL: LDA     COLIDX
         LHLD    GX
         MVI     A,OPMOVE
         CALL    XYCMD
-        LXI     B,13            ;far corner = (GX+13, GY+19)
+        LXI     B,21            ;far corner = (GX+21, GY+31)
         DAD     B
         PUSH    H
         LHLD    GY
-        LXI     B,19
+        LXI     B,31
         DAD     B
         XCHG
         POP     H
         MVI     A,OPFRCT
         CALL    XYCMD
         LHLD    GX
-        LXI     B,16
+        LXI     B,26
         DAD     B
         SHLD    GX
         LDA     COLIDX
@@ -444,16 +449,16 @@ GRCELL: LDA     COLIDX
         ANI     31
         JNZ     GRCELL          ;more cells in this row
         LHLD    GY              ;next row down
-        LXI     B,0-24
+        LXI     B,0-38
         DAD     B
         SHLD    GY
         JMP     GRROW
 ;
-; STARB -- starburst: lines from (CENX,CENY) to every 16th point
-; around a 192x192 square, one color per line.
+; STARB -- starburst: lines from (CENX,CENY) to every 25th point
+; around a 300x300 square, one color per line.
 ;
-CENX    EQU     320
-CENY    EQU     360
+CENX    EQU     512
+CENY    EQU     576
 ;
 STARB:  XRA     A
         STA     COLIDX
@@ -514,36 +519,36 @@ STLINE: LDA     COLIDX          ;hue = line number mod 8, full level
 ;
 ; Starburst sides: start X, start Y, step X, step Y
 ;
-SIDES:  DW      CENX-96,CENY+96,16,0    ;top, left to right
-        DW      CENX+96,CENY+96,0,0-16  ;right, top to bottom
-        DW      CENX+96,CENY-96,0-16,0  ;bottom, right to left
-        DW      CENX-96,CENY-96,0,16    ;left, bottom to top
+SIDES:  DW      CENX-150,CENY+150,25,0  ;top, left to right
+        DW      CENX+150,CENY+150,0,0-25 ;right, top to bottom
+        DW      CENX+150,CENY-150,0-25,0 ;bottom, right to left
+        DW      CENX-150,CENY-150,0,25  ;left, bottom to top
 ;
-; LGRID -- 13 x 13 line grid, 16 pixel pitch, upper right
+; LGRID -- 13 x 13 line grid, 25 pixel pitch, upper right
 ;
 LGRID:  MVI     A,CYAN+20
         CALL    SETCOL
-        LXI     H,432           ;vertical lines, X = 432..624
+        LXI     H,692           ;vertical lines, X = 692..992
         MVI     B,13
-LGV:    LXI     D,264
+LGV:    LXI     D,426
         MVI     A,OPMOVE
         CALL    XYCMD
-        LXI     D,457           ;end point is not drawn
+        LXI     D,727           ;end point is not drawn
         MVI     A,OPLINE
         CALL    XYCMD
-        LXI     D,16
+        LXI     D,25
         DAD     D
         DCR     B
         JNZ     LGV
-        LXI     D,264           ;horizontal lines, Y = 264..456
+        LXI     D,426           ;horizontal lines, Y = 426..726
         MVI     B,13
-LGH:    LXI     H,432
+LGH:    LXI     H,692
         MVI     A,OPMOVE
         CALL    XYCMD
-        LXI     H,625
+        LXI     H,993
         MVI     A,OPLINE
         CALL    XYCMD
-        LXI     H,16
+        LXI     H,25
         DAD     D
         XCHG
         DCR     B
@@ -559,9 +564,9 @@ DLIST:  DB      DLCOL,WHITE+BRIGHT      ;border
         DW      XMAX,YMAX
         DB      DLCOL,WHITE+15          ;center line
         DB      OPMOVE
-        DW      1,240
+        DW      1,YMID
         DB      OPLINE
-        DW      XMAX,240
+        DW      XMAX,YMID
         DB      DLCOL,RED+BRIGHT        ;bottom-left marker
         DB      OPMOVE
         DW      4,4
@@ -582,49 +587,49 @@ DLIST:  DB      DLCOL,WHITE+BRIGHT      ;border
         DW      XMAX-11,YMAX-11
         DB      OPFRCT
         DW      XMAX-4,YMAX-4
-        DB      DLCOL,RED+BRIGHT        ;nested rectangles at (112,360)
+        DB      DLCOL,RED+BRIGHT        ;nested rectangles at (180,576)
         DB      OPMOVE
-        DW      96,344
+        DW      155,551
         DB      OPRECT
-        DW      128,376
+        DW      205,601
         DB      DLCOL,ORANGE+BRIGHT
         DB      OPMOVE
-        DW      80,328
+        DW      130,526
         DB      OPRECT
-        DW      144,392
+        DW      230,626
         DB      DLCOL,YELLOW+BRIGHT
         DB      OPMOVE
-        DW      64,312
+        DW      105,501
         DB      OPRECT
-        DW      160,408
+        DW      255,651
         DB      DLCOL,GREEN+BRIGHT
         DB      OPMOVE
-        DW      48,296
+        DW      80,476
         DB      OPRECT
-        DW      176,424
+        DW      280,676
         DB      DLCOL,CYAN+BRIGHT
         DB      OPMOVE
-        DW      32,280
+        DW      55,451
         DB      OPRECT
-        DW      192,440
+        DW      305,701
         DB      DLCOL,BLUE+BRIGHT
         DB      OPMOVE
-        DW      16,264
+        DW      30,426
         DB      OPRECT
-        DW      208,456
+        DW      330,726
         DB      DLCOL,MAGENTA+BRIGHT    ;X through the rectangles
         DB      OPMOVE
-        DW      16,264
+        DW      30,426
         DB      OPLINE
-        DW      209,457
+        DW      331,727
         DB      OPMOVE
-        DW      16,456
+        DW      30,726
         DB      OPLINE
-        DW      209,263
+        DW      331,425
         DB      DLEND
 ;
 ;
-MSGHI:  DB      'CADzilla firstdraw: 640x480, 8 bpp',CR,LF,'$'
+MSGHI:  DB      'CADzilla firstdraw: 1024x768, 8 bpp',CR,LF,'$'
 MSGOK:  DB      'Test pattern drawn.',CR,LF,'$'
 MSGER:  DB      'ACRTC command error (CER set)!',CR,LF,'$'
 ;
