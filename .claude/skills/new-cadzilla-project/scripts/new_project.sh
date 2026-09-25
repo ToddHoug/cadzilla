@@ -3,7 +3,13 @@
 # plus a minimal starter assembly source file, correctly CR/LF-terminated and
 # uppercased for CP/M.
 #
-# Usage: new_project.sh <project-name> [--toolchain asm|m80] [--cpm-name NAME] [welcome-message]
+# Usage: new_project.sh <project-name> [--toolchain asm|m80] [--mode WxH] [--cpm-name NAME] [welcome-message]
+#
+# --mode is the display resolution: 640x480, 800x600 or 1024x768 (default,
+# the pristine machine's). It is written to the project's tracked
+# software/<name>/machine.toml overlay as cad0's `mode` strap, which
+# sync_pristine.sh applies to work/cadzilla.toml; an m80 stub's GINIT gets the
+# matching czgfx descriptor. An existing machine.toml is never overwritten.
 #
 # --toolchain picks the assembler (default asm):
 #   asm  DRI ASM.COM + LOAD.COM: one self-contained <NAME>.ASM, no INCLUDE,
@@ -23,9 +29,18 @@ NAME=""
 MESSAGE=""
 CPM_NAME_OVERRIDE=""
 TOOLCHAIN="asm"
+MODE="1024x768"
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --mode)
+      if [ $# -lt 2 ]; then
+        echo "error: --mode needs a value (640x480, 800x600 or 1024x768)" >&2
+        exit 1
+      fi
+      MODE="$2"
+      shift 2
+      ;;
     --toolchain)
       if [ $# -lt 2 ]; then
         echo "error: --toolchain needs a value (asm or m80)" >&2
@@ -57,9 +72,25 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$NAME" ]; then
-  echo "Usage: $0 <project-name> [--toolchain asm|m80] [--cpm-name NAME] [welcome-message]" >&2
+  echo "Usage: $0 <project-name> [--toolchain asm|m80] [--mode WxH] [--cpm-name NAME] [welcome-message]" >&2
   exit 1
 fi
+
+# The resolution: the czgfx descriptor for it, and the m80 stub's frame and a
+# centered box (an eighth of the width) in that mode's coordinates.
+set_mode() {
+  case "$1" in
+    640x480)  CZMODE="CZM640"; XMAX=639;  YMAX=479; BOX="280,200,360,280" ;;
+    800x600)  CZMODE="CZM800"; XMAX=799;  YMAX=599; BOX="350,250,450,350" ;;
+    1024x768) CZMODE="CZM1K";  XMAX=1023; YMAX=767; BOX="448,320,576,448" ;;
+    *)
+      echo "error: mode must be 640x480, 800x600 or 1024x768, not '$1'" >&2
+      exit 1
+      ;;
+  esac
+  MODE="$1"
+}
+set_mode "$MODE"
 
 case "$TOOLCHAIN" in
   asm) EXT="ASM" ;;
@@ -130,12 +161,45 @@ fi
 mkdir -p "$PROJECT_DIR/src" "$PROJECT_DIR/include" "$PROJECT_DIR/build"
 touch "$PROJECT_DIR/include/.gitkeep" "$PROJECT_DIR/build/.gitkeep"
 
+# The project's own board straps, tracked in git: above all the monitor
+# resolution, which the program's code has to agree with. Written before the
+# work/ sync below so the overlay goes straight into work/cadzilla.toml.
+OVERLAY="$PROJECT_DIR/machine.toml"
+if [ -e "$OVERLAY" ]; then
+  EXISTING="$(sed -n 's/^[[:space:]]*mode[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$OVERLAY" | tail -n1)"
+  if [ -n "$EXISTING" ]; then
+    set_mode "$EXISTING"
+  fi
+  echo "Keeping existing $OVERLAY (mode $MODE)"
+else
+  if [ "$TOOLCHAIN" = "m80" ]; then
+    AGREE="GINIT $CZMODE in src/$CPM_NAME.MAC must agree with it"
+  else
+    AGREE="if the program programs the ACRTC, its timing must agree with it"
+  fi
+  cat > "$OVERLAY" <<EOF
+# software/$NAME's own straps on top of tools/altairsim/pristine/cadzilla.toml.
+# tools/altairsim/scripts/sync_pristine.sh appends this to work/cadzilla.toml
+# (a later [[board]] block for the same id overrides pristine's). Only
+# [[board]] tables may appear here.
+#
+# The monitor resolution: 640x480, 800x600 or 1024x768 --
+# $AGREE.
+[[board]]
+id   = "cad0"
+mode = "$MODE"
+EOF
+fi
+
 # Each project gets its own altairsim work directory (gitignored) -- its own
 # persistent copy of the pristine machine + disk(s), so building this project
-# never shares (and never fills up) another project's disk. Skip it if one's
-# already there (e.g. re-running against an existing scaffold).
+# never shares (and never fills up) another project's disk. If one's already
+# there (e.g. re-running against an existing scaffold), keep its disks and just
+# refresh its machine file so the overlay above is in it.
 if [ ! -d "$PROJECT_DIR/work" ]; then
   "$REPO_ROOT/tools/altairsim/scripts/sync_pristine.sh" "$PROJECT_DIR/work"
+else
+  "$REPO_ROOT/tools/altairsim/scripts/sync_pristine.sh" --machine-only "$PROJECT_DIR/work"
 fi
 
 # An M80 project reads the czgfx library from drive B: -- point drive 1 of its
@@ -171,10 +235,10 @@ START:  LXI     H,0             ;keep CCP's stack, run on our own
         SHLD    OLDSP
         LXI     SP,STACK
 ;
-        GINIT                   ;640x480, default palette, screen cleared
+        GINIT   $CZMODE          ;$MODE (= machine.toml), screen cleared
         GCOLOR  WHITE+BRIGHT
-        GBOX    0,0,639,479     ;frame around the whole screen
-        GFBOX   280,200,360,280,BLUE+BRIGHT
+        GBOX    0,0,$XMAX,$YMAX     ;frame around the whole screen
+        GFBOX   $BOX,BLUE+BRIGHT
         GWAIT                   ;let the ACRTC finish drawing
 ;
         LXI     D,MSG
@@ -228,6 +292,7 @@ else
 fi
 echo "  include/.gitkeep"
 echo "  build/.gitkeep"
+echo "  machine.toml        (tracked: cad0 mode = $(grep -E '^mode' "$OVERLAY" | sed 's/.*"\(.*\)".*/\1/'))"
 if [ "$TOOLCHAIN" = "m80" ]; then
   echo "  work/               (this project's own altairsim machine + disk; B: = czgfx library, read-only)"
 else

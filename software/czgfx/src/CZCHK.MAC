@@ -15,6 +15,7 @@
 START:  RET                     ;nothing below is ever executed
 ;
         GINIT
+        GINIT   CZM800
         GINIT   CZM1K
         GCLS
         GCLS    BLUE+4

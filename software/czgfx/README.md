@@ -71,10 +71,10 @@ library build rather than the first consumer. The build is good when:
         INCLUDE B:CZGFX.INC     ;equates and macros
         CSEG                    ;relocatable -- no ORG
 START:  ...
-        GINIT                   ;640x480, default palette, screen cleared
+        GINIT   CZM1K           ;1024x768, default palette, screen cleared
         GCOLOR  WHITE+BRIGHT
-        GBOX    0,0,639,479
-        GFBOX   280,200,360,280,BLUE+BRIGHT
+        GBOX    0,0,1023,767
+        GFBOX   448,320,576,448,BLUE+BRIGHT
         GWAIT                   ;Z = drawn cleanly, NZ = command error
         ...
         END     START
@@ -121,6 +121,20 @@ at its `*` prompt instead of exiting, so type `/E` to finish the link.
   Don't reuse these names in a program.
 - The library never calls BDOS; console I/O is up to the program.
 
+### Display resolution
+
+The board drives a fixed-frequency VESA monitor chosen by cad0's `mode`
+strap in the project's machine file: 640x480, 800x600 or 1024x768.
+1024x768 is the default (pristine `cadzilla.toml`); a project that wants
+another one says so in its tracked `software/<project>/machine.toml` — see
+`tools/altairsim/README.md`. `GINIT` must be given the matching descriptor
+(`CZM640`, `CZM800`, `CZM1K`). The board doesn't reject a mismatch: the
+picture just lands in the wrong place in the monitor's frame, which
+`board_get cad0`'s `picture` line shows (it should read the mode's full
+size `at (0,0)`). Name the descriptor explicitly even for 640x480 —
+`GINIT` with no argument means `CZM640`, which no longer matches the
+default machine.
+
 ### Default palette
 
 Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
@@ -131,7 +145,7 @@ Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
 
 | Macro | Does | Notes |
 |---|---|---|
-| `GINIT [mode]` | set up board, palette and drawing parameters; clear to 0 | `CZM640` (default) or `CZM1K` (1024×768, monitor strapped for it); for your own descriptor use `LXI H,yours` / `CALL CZINIT##`. Clobbers all |
+| `GINIT [mode]` | set up board, palette and drawing parameters; clear to 0 | `CZM640` (640×480, the default when omitted), `CZM800` (800×600) or `CZM1K` (1024×768). Must match the monitor the project's machine is strapped for — see *Display resolution* below. For your own descriptor use `LXI H,yours` / `CALL CZINIT##`. Clobbers all |
 | `GCLS [c]` | clear the screen to color c (default 0) | |
 | `GCOLOR [c]` | set the drawing color | |
 | `GPAL i,r,g,b` | set palette entry i | clobbers BC, E |
@@ -163,7 +177,7 @@ macros are thin wrappers around them.
 
 | Module | Routines |
 |---|---|
-| `CZINIT` | `CZINIT` (HL = mode descriptor), `CZCLS` (A = color); data `CZM640`, `CZM1K`, `CZXMAX`, `CZYMAX` |
+| `CZINIT` | `CZINIT` (HL = mode descriptor), `CZCLS` (A = color); data `CZM640`, `CZM800`, `CZM1K`, `CZXMAX`, `CZYMAX` |
 | `CZDRAW` | `CZCOL`, `CZMOVE`, `CZLINE`, `CZRECT`, `CZFRCT`, `CZDOT`, `CZRMOV`, `CZRLIN`, `CZRRCT`, `CZRFRC` |
 | `CZPOLY` | `CZPLL`, `CZPLG` (HL = point table) |
 | `CZPAL` | `CZPALD` (load the default palette), `CZPALS` (A = index, B/C/E = R/G/B) |

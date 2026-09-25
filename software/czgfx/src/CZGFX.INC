@@ -87,9 +87,12 @@ CZLXY   MACRO   XV,YV
         ENDM
 ;
 ; GINIT [mode] -- set up the board and clear the screen to color 0.
-; mode is a library descriptor: CZM640 (the default) or CZM1K
-; (1024x768; the monitor must be strapped for it). For a descriptor of
-; your own, LXI H,yours / CALL CZINIT## instead. Clobbers all registers.
+; mode is a library descriptor: CZM640 (640x480, the default when
+; omitted), CZM800 (800x600) or CZM1K (1024x768). It must match the
+; monitor the project's machine is strapped for (cad0 `mode`; 1024x768
+; unless the project's machine.toml says otherwise), so name it
+; explicitly. For a descriptor of your own, LXI H,yours / CALL CZINIT##
+; instead. Clobbers all registers.
 ;
 GINIT   MACRO   MV
         IFB     <MV>

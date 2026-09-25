@@ -45,20 +45,31 @@ requirement correctly, which are easy to get wrong by hand (writing the
 which `ASM.COM` accepts silently and then assembles into nothing):
 
 ```bash
-.claude/skills/new-cadzilla-project/scripts/new_project.sh <name> [--toolchain asm|m80] [--cpm-name NAME] ["<welcome message>"]
+.claude/skills/new-cadzilla-project/scripts/new_project.sh <name> [--toolchain asm|m80] [--mode WxH] [--cpm-name NAME] ["<welcome message>"]
 ```
+
+`--mode` is the display resolution: `1024x768` (default), `800x600` or
+`640x480`. The script writes it to the project's tracked
+`software/<name>/machine.toml` overlay (cad0's `mode` strap), which
+`sync_pristine.sh` appends into `work/cadzilla.toml`. Only ask about it if
+the user mentions a resolution or it matters for what they're building;
+otherwise take the default. If the project already has a `machine.toml`,
+it's kept and its mode wins over `--mode`.
 
 With `--toolchain m80`, the script also runs
 `tools/altairsim/scripts/attach_libdisk.sh` on the new `work/`, which points
 drive 1 (B:) at the czgfx library disk `software/czgfx/libdisk/CZGFX.DSK`,
 read-only. It writes `src/<NAME>.MAC` instead of `.ASM`. The stub:
-- `INCLUDE`s `B:CZGFX.INC` and calls `GINIT`
-- draws a frame and a filled box, then waits for `GWAIT`
+- `INCLUDE`s `B:CZGFX.INC` and calls `GINIT` with the czgfx descriptor
+  for the project's mode (`CZM1K`, `CZM800` or `CZM640`)
+- draws a frame round the whole screen and a centered filled box, then
+  waits for `GWAIT`
 - prints the message and returns to CP/M
 
 This creates `software/<name>/{src,include,build,work}` (with `.gitkeep`
 in `include/` and `build/`, since build output itself is gitignored per
-the repo's existing `software/*/build/*` rule) and writes
+the repo's existing `software/*/build/*` rule), `software/<name>/machine.toml`
+(tracked), and writes
 `software/<name>/src/<NAME>.ASM`: a minimal BDOS-function-9 string-print
 stub, self-contained (no `INCLUDE` -- `ASM.COM` doesn't support it) and
 free of underscores in any symbol name (`ASM.COM` silently resolves an
@@ -98,7 +109,8 @@ steps below.** It covers:
 - unmounting both drives at the end
 
 Its first-run check: the stub's message appears on the console, and
-`board_get cad0` shows `status` with CER clear. The steps below are the
+`board_get cad0` shows `status` with CER clear and `picture` as the
+project's mode at full size `at (0,0)` (e.g. `1024x768 at (0,0)`). The steps below are the
 `asm` flow; the `cadzilla-build-asm` skill has the same steps in more depth
 for later rebuilds.
 

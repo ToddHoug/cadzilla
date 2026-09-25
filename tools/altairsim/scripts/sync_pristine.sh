@@ -15,6 +15,15 @@
 # disks (and everything built on them) alone -- for picking up a change to
 # the pristine machine definition in an existing work directory.
 #
+# Project overlay: if the directory above <dest-dir> holds a machine.toml
+# (i.e. software/<project>/machine.toml, tracked in git), it is appended to
+# the copied cadzilla.toml. That is how a project pins its own board straps --
+# above all cad0's `mode`, the monitor resolution its code programs -- so they
+# survive every sync and a fresh clone. A later [[board]] block for the same
+# id overrides the pristine one. The overlay may contain only [[board]]
+# tables (and their [[board.x]] / [board.x] sub-tables): anything before its
+# first [[board]] would otherwise attach to whatever table pristine ends with.
+#
 # Usage: sync_pristine.sh [--machine-only] <dest-dir>
 set -euo pipefail
 
@@ -56,13 +65,37 @@ fi
 # Git doesn't track write permission, so re-assert it on every sync.
 chmod a-w "$PRISTINE/cadzilla.toml" "${disks[@]}"
 
+OVERLAY="$(cd "$DEST/.." && pwd -P)/machine.toml"
+if [ -f "$OVERLAY" ]; then
+  first="$(grep -vE '^[[:space:]]*(#|$)' "$OVERLAY" | head -n1 || true)"
+  if [ -n "$first" ] && ! printf '%s\n' "$first" | grep -qE '^[[:space:]]*\[\[board\]\][[:space:]]*(#.*)?$'; then
+    echo "error: $OVERLAY must start with a [[board]] table (found: $first)" >&2
+    exit 1
+  fi
+  bad="$(grep -E '^[[:space:]]*\[' "$OVERLAY" \
+         | grep -vE '^[[:space:]]*(\[\[board(\.[A-Za-z_]+)?\]\]|\[board\.[A-Za-z_.]+\])[[:space:]]*(#.*)?$' \
+         | head -n1 || true)"
+  if [ -n "$bad" ]; then
+    echo "error: $OVERLAY may only contain [[board]] tables and their sub-tables (found: $bad)" >&2
+    exit 1
+  fi
+fi
+
 # cp carries the read-only mode over to new files -- the work copies are
 # meant to be written, so make them writable again.
 cp -f "$PRISTINE/cadzilla.toml" "$DEST/"
 chmod u+w "$DEST/cadzilla.toml"
+if [ -f "$OVERLAY" ]; then
+  {
+    printf '\n# ==== project overlay: %s ====\n' "$(realpath --relative-to="$REPO_ROOT" "$OVERLAY")"
+    printf '# (appended by tools/altairsim/scripts/sync_pristine.sh -- edit that file, not this copy)\n\n'
+    cat "$OVERLAY"
+  } >> "$DEST/cadzilla.toml"
+fi
 if [ "$MACHINE_ONLY" -eq 1 ]; then
   echo "Synced pristine machine (disks untouched) into $DEST:"
   printf '  %s\n' "$(basename "$PRISTINE/cadzilla.toml")"
+  [ -f "$OVERLAY" ] && printf '  + overlay %s\n' "$(realpath --relative-to="$REPO_ROOT" "$OVERLAY")"
   exit 0
 fi
 
@@ -73,6 +106,7 @@ done
 
 echo "Synced pristine machine + disk(s) into $DEST:"
 printf '  %s\n' "$(basename "$PRISTINE/cadzilla.toml")"
+[ -f "$OVERLAY" ] && printf '  + overlay %s\n' "$(realpath --relative-to="$REPO_ROOT" "$OVERLAY")"
 for d in "${disks[@]}"; do
   printf '  %s\n' "$(basename "$d")"
 done

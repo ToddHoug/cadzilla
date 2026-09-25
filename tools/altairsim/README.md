@@ -41,7 +41,9 @@ could never be created from the command line in the first place.
   its console, front panel, flat-out CPU, host bridge, an empty disk
   controller and 56K of RAM — adding only what CP/M needs to boot: the
   DBL boot PROM at FF00, this project's disks in drives 0 and 1, the
-  `RUN FF00` startup and the console's Backspace mapping. See the comments
+  `RUN FF00` startup and the console's Backspace mapping — plus the
+  monitor resolution (cad0 `mode = "1024x768"`), stated explicitly rather
+  than inherited from the base (see "Display resolution"). See the comments
   in the file itself for the full reasoning. `CPM22-8MB-56K-DEV.DSK` (drive 0) is an 8MB virtual hard disk
   carrying CP/M itself (`ASM.COM`, `LOAD.COM`, `DDT.COM`, Microsoft's
   `M80`/`L80`/`LIB80`/`CREF80.COM`, the host-bridge `R`/`W`/`HDIR.COM`, and
@@ -54,7 +56,10 @@ could never be created from the command line in the first place.
   work directory that's ended up in a bad state. `--machine-only` copies
   just `cadzilla.toml` and leaves the destination's disks alone — use it to
   pick up a change to the pristine machine definition in every existing
-  `software/*/work/` without losing what's been built there. It makes the
+  `software/*/work/` without losing what's been built there. Either way,
+  if the directory above `<dest-dir>` has a `machine.toml` (the project's
+  tracked overlay, `software/<project>/machine.toml`), it is appended to
+  the copied `cadzilla.toml` — see "Display resolution". It makes the
   copies writable, keeps pristine read-only, and refuses to target
   `pristine/` itself.
 - `scripts/attach_libdisk.sh [--writable] <work-dir>` — points drive 1
@@ -178,6 +183,49 @@ the same way the `new-cadzilla-project` skill does:
 ```bash
 tools/altairsim/scripts/sync_pristine.sh software/<name>/work
 ```
+
+### Display resolution — each project pins its own
+
+The CADzilla board drives a fixed-frequency VESA monitor chosen by cad0's
+`mode` strap: **640x480, 800x600 or 1024x768**. A program programs the
+ACRTC's timing for one of those, and the machine's strap has to agree. The
+board does **not** reject a mismatch: a program timed for one mode on a
+monitor strapped for another still "runs", but its picture lands in the
+wrong place in the monitor's frame. (That happened when altairsim's own
+board default moved from 640x480 to 1024x768: every project inherited the
+new strap silently.)
+
+So the resolution is stated, never inherited:
+
+- **Pristine** `cadzilla.toml` sets `mode = "1024x768"` explicitly — the
+  default for new projects.
+- **Each project** that draws pins its own in a small tracked overlay,
+  `software/<project>/machine.toml`:
+  ```toml
+  [[board]]
+  id   = "cad0"
+  mode = "1024x768"   # or 640x480 / 800x600
+  ```
+  `sync_pristine.sh` appends it to the project's `work/cadzilla.toml` on
+  every sync (a later `[[board]]` block for the same id overrides the
+  pristine one), so it survives resyncs and fresh clones. The overlay may
+  only contain `[[board]]` tables; the script refuses anything else. The
+  `new-cadzilla-project` skill writes one for every new project
+  (`--mode`, default 1024x768).
+- **The code must match.** czgfx programs pass the matching descriptor to
+  `GINIT`: `CZM640`, `CZM800` or `CZM1K` (bare `GINIT` means `CZM640`, so
+  always name it). ASM programs carry their own register table — the
+  values for each mode are in altairsim's `docs/boards/cadzilla.md`.
+
+To **change** a project's resolution: edit its `machine.toml` and its
+code, then `sync_pristine.sh --machine-only software/<name>/work` (plus
+`attach_libdisk.sh` again for an M80 project) and `CONFIG LOAD` it. To
+**check** one: `board_get cad0` after a run — `mode` is the strap, and
+`picture` should read the mode's full size `at (0,0)` with `wiring` `ok`. A
+picture anywhere else, or smaller than the mode, means program and strap
+disagree. To try another mode for one session without changing anything,
+`monitor {command: "SET cad0 mode=800x600"}` works until the next `CONFIG
+LOAD`.
 
 ### The prompt is `A0>`, not `A>`
 
@@ -377,9 +425,11 @@ using it.)
    this repo's normal lowercase directory-naming convention.
 2. Write `software/<name>/src/<NAME>.ASM` (CR/LF line endings, uppercase
    filename per the naming convention above).
-3. `tools/altairsim/scripts/sync_pristine.sh software/<name>/work` — give
-   the new project its own disk.
-4. `monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}`,
+3. If it draws, write `software/<name>/machine.toml` pinning cad0's `mode`
+   to the resolution the code programs (see "Display resolution").
+4. `tools/altairsim/scripts/sync_pristine.sh software/<name>/work` — give
+   the new project its own disk (with the overlay applied).
+5. `monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}`,
    then drive the build/run/debug loop above through the MCP tools,
    repointing `hb0` between the source directory (for `R`) and `build/`
    (for `W`). The pulled-back `<NAME>.COM`/`.HEX`/`.PRN` land in `build/`

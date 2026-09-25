@@ -32,15 +32,17 @@
 #   - cpu0: 8080, flat out (clock_hz = 0) -- real 2MHz pacing corrupts console input fed
 #     through the MCP `run` tool; `SET cpu0 clock_hz=2000000` only when timing matters
 #   - sio0: 2SIO console @ 0x10 (unit a = console, unit b = null)
-#   - cad0: the board @ 0x70 (ACRTC RS=0 70, MODE 71, ACRTC RS=1 72, Bt453 74-77),
-#     640x480 -- decodes no memory at all, so nothing below touches it
+#   - cad0: the board @ 0x70 (ACRTC RS=0 70, MODE 71, ACRTC RS=1 72, Bt453 74-77)
+#     -- decodes no memory at all, so nothing below touches it
 #   - dsk0: 88-DCDD floppy controller @ 0x08, four drives, all empty
 #   - hb0: host bridge @ 0xB0 (R/W/HDIR), hostdir = "" (the launch directory)
 #   - mem0: 56K of RAM (0000-DFFF), no boot ROM
 #
-# What this file adds is exactly what turns that bench into something CP/M boots on:
+# What this file adds is exactly what turns that bench into something CP/M boots on,
+# plus the one board strap every project has to agree with:
 #   - startup  RUN FF00, the boot PROM
 #   - console  bsdel = bs, for CP/M's line editor
+#   - cad0     MODIFIED: the monitor resolution, stated here rather than inherited
 #   - dsk0     MODIFIED: this project's disks in drives 0 and 1
 #   - mem0     REPLACED: the same 56K of RAM plus the DBL boot PROM at FF00. `type` +
 #              a base id replaces the board outright, so the RAM region is re-stated too.
@@ -60,6 +62,22 @@ startup = ["RUN FF00"]
 # A0> prompt. It is a property of the TERMINAL, so it lives on the [console].
 [console]
 bsdel = "bs"
+
+# THE MONITOR. No `type`, so this reaches into the base's own cad0 and sets its `mode`
+# strap: the fixed-frequency VESA monitor the board drives, one of 640x480, 800x600 or
+# 1024x768. The board does not reject a mismatch -- a program that programs another
+# mode's ACRTC timing just shows its picture in the wrong place in this mode's frame --
+# so a program and its machine must agree. It is stated here, not inherited, because
+# the base's own default has changed before (640x480 to 1024x768) and a project must
+# never be silently re-strapped by that.
+#
+# 1024x768 is the default for new projects. A project that wants another resolution
+# says so in its own tracked software/<project>/machine.toml overlay (a [[board]]
+# id = "cad0" block), which sync_pristine.sh appends after this file into the
+# project's work/cadzilla.toml -- a later block for the same id overrides this one.
+[[board]]
+id   = "cad0"
+mode = "1024x768"
 
 # THE DISKS. No `type`, so this reaches into the base's own 88-DCDD at 0x08 (the port
 # the boot PROM and every Altair CP/M BIOS are hard-wired to) and mounts this project's

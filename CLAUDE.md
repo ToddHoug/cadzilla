@@ -14,7 +14,11 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
 - `pld/src/` — GAL16V8 source (equations), `pld/jed/` — assembled fuse maps
 - `software/<project>/` — independent software projects targeting the board;
   each has its own `src/`, `include/`, `build/`, and `work/` (its own,
-  gitignored altairsim CP/M disk — see `tools/altairsim/README.md`)
+  gitignored altairsim CP/M disk — see `tools/altairsim/README.md`). A
+  project that draws also has a tracked `machine.toml` overlay pinning its
+  display resolution (cad0 `mode`: 640x480, 800x600 or 1024x768, default
+  1024x768); the code's timing (`GINIT CZM...` or its own register table)
+  must match it
 - `software/czgfx/` — the shared czgfx graphics-primitive library (M80
   macros + relocatable modules). It builds its own gitignored library disk,
   `software/czgfx/libdisk/CZGFX.DSK`, which M80 consumer projects (e.g.
@@ -54,7 +58,8 @@ its MCP server; `tools/altairsim/README.md`):
 - **Microsoft `M80` + `L80`** (3.44) — for new work and anything that draws:
   relocatable `.MAC` sources, macros, and the shared czgfx library linked
   from the `B:` library disk (`czgfx`, `gfxdemo`; skill `cadzilla-build-m80`).
-- New projects: skill `new-cadzilla-project` (`--toolchain asm|m80`).
+- New projects: skill `new-cadzilla-project` (`--toolchain asm|m80`,
+  `--mode WxH`).
 
 _TBD — fill in as tooling is chosen: KiCAD version, GAL assembler
 (e.g. WinCUPL/GALasm), default git branch, commit attribution._

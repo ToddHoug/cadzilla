@@ -137,18 +137,28 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 30000}
 - **Checking the run:**
   - the program's console output should appear
   - graphics draw in the altairsim window, which the user sees
-  - `board_get cad0` should show `status` with CER (80H) clear, `picture`
-    as `640x480 at (0,0)` (or whichever mode was chosen), and `wiring` as
-    `ok`
+  - `board_get cad0` should show `status` with CER (80H) clear, `mode`
+    matching the project's `machine.toml` (1024x768 unless it says
+    otherwise), `picture` as that mode's full size `at (0,0)` (e.g.
+    `1024x768 at (0,0)`), and `wiring` as `ok`. A picture that's smaller
+    or offset means the `GINIT` descriptor and the strap disagree — see
+    "Display resolution" in `tools/altairsim/README.md`
 - **Key waits.**
   - Type a key with `run {input: " "}`.
   - To stop mid-way, match `until` on unique prompt text.
   - An ESC can't be typed through the `input` string, so step to the end
     with ordinary keys instead.
-- **Checking 1024x768** (`GINIT CZM1K`): run
-  `monitor {command: "SET cad0 mode=1024x768"}` first. `board_set` may
-  report a malformed result even though the change took, so confirm it with
-  `SHOW cad0`. Afterwards run `SET cad0 mode=640x480` again.
+- **Resolution.** The monitor strap comes from the machine file: pristine's
+  1024x768, or the project's own `software/<name>/machine.toml` overlay,
+  which `sync_pristine.sh` appends to `work/cadzilla.toml`. The program's
+  `GINIT` must name the matching descriptor (`CZM640`, `CZM800`, `CZM1K`).
+  To change it for good, edit `machine.toml` and the `GINIT`, then
+  `sync_pristine.sh --machine-only software/<name>/work` and
+  `attach_libdisk.sh software/<name>/work` again before the `CONFIG LOAD`.
+  To try another mode for one session only, `monitor {command: "SET cad0
+  mode=800x600"}` (it lasts until the next `CONFIG LOAD`). `board_set` may
+  report a malformed result even though the change took, so confirm it
+  with `SHOW cad0`.
 - Pull the artifacts back:
   ```
   monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/build"}

@@ -68,7 +68,11 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
 - Graphics programs draw in the altairsim video window, which the user can
   see. Also check `board_get cad0`:
   - `status` should have CER (80H) clear
-  - `picture` should be the programmed size
+  - `mode` should match the project's `machine.toml` (1024x768 unless it
+    says otherwise), and `picture` should be that mode's full size
+    `at (0,0)` -- smaller or offset means the program's register table and
+    the strap disagree (see "Display resolution" in
+    `tools/altairsim/README.md`)
   - `wiring` should be `ok`
 - If a program waits for a key, type one with `run {input: " "}`. To stop
   mid-way, match `until` on a unique piece of its prompt text.
