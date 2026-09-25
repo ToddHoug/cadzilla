@@ -1,0 +1,122 @@
+;
+; CZMODE.MAC -- czgfx: drawing mode, CL0/CCMP, the area, reading CP
+;
+; The drawing mode byte CZDM (in CZCORE) is the low byte of every
+; drawing command: AREA (bits 7-5), COL (4-3), OPM (2-0), with the
+; values OM..., CM... and AM... of CZGFX.INC. GMODE writes all of it;
+; these routines change one field and keep the others.
+;
+        INCLUDE CZGFX.INC
+;
+        PUBLIC  CZOPM,CZCMOD,CZAMOD,CZCOL0,CZCCMP
+        PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP
+        EXTRN   CZDM,CZWPR,CZPUTW,CZXMAX,CZYMAX
+;
+        CSEG
+;
+; CZOPM -- operation mode A (OM...: 0-7)
+; CZCMOD -- color mode A (CM...: 00H, 08H, 10H, 18H)
+; CZAMOD -- area mode A (AM...: 00H, 20H .. 0E0H)
+;
+CZOPM:  PUSH    B
+        MVI     B,0F8H          ;keep AREA and COL
+        JMP     SETF
+CZCMOD: PUSH    B
+        MVI     B,0E7H          ;keep AREA and OPM
+        JMP     SETF
+CZAMOD: PUSH    B
+        MVI     B,1FH           ;keep COL and OPM
+SETF:   MOV     C,A             ;C = the new field, B = the rest
+        MOV     A,B
+        CMA
+        ANA     C
+        MOV     C,A
+        LDA     CZDM
+        ANA     B
+        ORA     C
+        STA     CZDM
+        POP     B
+        RET
+;
+; CZCOL0 -- set CL0 to palette index A (the color of a pattern's 0 bits)
+; CZCCMP -- set CCMP to palette index A (the OMEQ/OMNE compare color)
+; As CZCOL, the index goes in both bytes: two pixels per word at 8 bpp.
+;
+CZCOL0: PUSH    B
+        MVI     B,00H           ;WPR CL0
+        JMP     WPRC
+CZCCMP: PUSH    B
+        MVI     B,02H           ;WPR CCMP
+WPRC:   PUSH    H
+        MOV     H,A
+        MOV     L,A
+        MOV     A,B
+        CALL    CZWPR
+        POP     H
+        POP     B
+        RET
+;
+; CZAMIN -- area low corner: X min = HL, Y min = DE
+; CZAMAX -- area high corner: X max = HL, Y max = DE
+; Both corners are inside the area.
+;
+CZAMIN: MVI     A,08H           ;WPR XMIN
+        CALL    CZWPR
+        XCHG
+        MVI     A,09H           ;WPR YMIN
+        CALL    CZWPR
+        XCHG
+        RET
+CZAMAX: MVI     A,0AH           ;WPR XMAX
+        CALL    CZWPR
+        XCHG
+        MVI     A,0BH           ;WPR YMAX
+        CALL    CZWPR
+        XCHG
+        RET
+;
+; CZAFUL -- the area is the whole screen, 0,0 .. CZXMAX,CZYMAX
+;
+CZAFUL: PUSH    D
+        PUSH    H
+        LXI     H,0
+        LXI     D,0
+        CALL    CZAMIN
+        LHLD    CZYMAX
+        XCHG
+        LHLD    CZXMAX
+        CALL    CZAMAX
+        POP     H
+        POP     D
+        RET
+;
+; CZGCP -- read the drawing pointer back: HL = X, DE = Y (RPR CPX,
+; CPY through the read FIFO). RPR also clears ARD in the status.
+; Preserves BC.
+;
+CZGCP:  LXI     H,0C12H         ;RPR CPX
+        CALL    CZPUTW
+        CALL    RDW
+        PUSH    H
+        LXI     H,0C13H         ;RPR CPY
+        CALL    CZPUTW
+        CALL    RDW
+        XCHG
+        POP     H
+        RET
+;
+; RDW -- HL = the next word from the read FIFO, high byte first
+; (AR is r00, as CZPUTW needs it too)
+;
+RDW:    CALL    RDB
+        MOV     H,A
+        CALL    RDB
+        MOV     L,A
+        RET
+RDB:    IN      ACRSR
+        ANI     SRRFR
+        JZ      RDB
+        IN      ACRDAT
+        RET
+;
+        END

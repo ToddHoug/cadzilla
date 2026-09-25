@@ -8,12 +8,13 @@
 ;       DW      X0,Y0           ;start point (AMOVE here first)
 ;       DW      X1,Y1 .. Xn-1,Yn-1
 ;
-; Both preserve BC and DE and return HL just past the table.
+; Both preserve BC and DE and return HL just past the table, and draw
+; in the current drawing mode (CZDM).
 ;
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZPLL,CZPLG
-        EXTRN   CZPUTW,CZXY,CZSEND,CZLDW
+        EXTRN   CZPUTW,CZXY,CZSEND,CZLDW,CZCMD
 ;
         CSEG
 ;
@@ -41,9 +42,8 @@ POLY:   PUSH    B
         POP     H               ;HL = table at X1
         POP     D               ;DE = n-1
         PUSH    H
-        MOV     H,B             ;command word
-        MVI     L,0
-        CALL    CZPUTW
+        MOV     A,B             ;command word, with the drawing mode
+        CALL    CZCMD
         XCHG                    ;parameter: n-1 points
         CALL    CZPUTW
         DAD     H               ;BC = 2(n-1) words of points

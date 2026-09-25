@@ -4,6 +4,7 @@
 ; Color, move, line, rectangle, filled rectangle and dot, in absolute
 ; (X = HL, Y = DE) and relative (dX = HL, dY = DE, from the current
 ; drawing pointer, CP) forms. Every entry preserves BC, DE and HL.
+; Everything but the moves is drawn in the current drawing mode (CZDM).
 ;
 ; The ACRTC does not draw a line's end point, so a closed shape drawn
 ; from lines lights each corner exactly once.
@@ -12,12 +13,12 @@
 ;
         PUBLIC  CZCOL,CZMOVE,CZLINE,CZRECT,CZFRCT,CZDOT
         PUBLIC  CZRMOV,CZRLIN,CZRRCT,CZRFRC
-        EXTRN   CZPUTW,CZXY
+        EXTRN   CZPUTW,CZXY,CZXYM,CZCMD
 ;
         CSEG
 ;
-; CZCOL -- set the drawing color to palette index A (WPR CL1). The
-; pattern RAM is all ones, so COL=00 always draws with CL1. At 8 bpp
+; CZCOL -- set the drawing color to palette index A (WPR CL1). With
+; GINIT's pattern RAM, all ones, every pixel draws with CL1. At 8 bpp
 ; the index is replicated into both bytes of the color register.
 ;
 CZCOL:  PUSH    H
@@ -36,31 +37,28 @@ CZCOL:  PUSH    H
 CZMOVE: MVI     A,OPMOVE        ;CP = X,Y
         JMP     CZXY
 CZLINE: MVI     A,OPLINE        ;line CP to X,Y; CP = X,Y
-        JMP     CZXY
+        JMP     CZXYM
 CZRECT: MVI     A,OPRECT        ;rectangle, corners CP and X,Y
-        JMP     CZXY
+        JMP     CZXYM
 CZFRCT: MVI     A,OPFRCT        ;filled rectangle, corners CP and X,Y
-        JMP     CZXY
+        JMP     CZXYM
 ;
 ; Relative: dX = HL, dY = DE
 ;
 CZRMOV: MVI     A,OPRMOV
         JMP     CZXY
 CZRLIN: MVI     A,OPRLIN
-        JMP     CZXY
+        JMP     CZXYM
 CZRRCT: MVI     A,OPRRCT
-        JMP     CZXY
+        JMP     CZXYM
 CZRFRC: MVI     A,OPRFRC
-        JMP     CZXY
+        JMP     CZXYM
 ;
 ; CZDOT -- set the pixel at X = HL, Y = DE (CP = X,Y)
 ;
 CZDOT:  MVI     A,OPMOVE
         CALL    CZXY
-        PUSH    H
-        LXI     H,CMDDOT
-        CALL    CZPUTW
-        POP     H
-        RET
+        MVI     A,OPDOT
+        JMP     CZCMD
 ;
         END

@@ -353,7 +353,7 @@ a shared library possible:
 - **`software/czgfx/`** is the CADzilla graphics-primitive library. It has
   three parts:
   - the `CZGFX.INC` header: board equates and the `G...` drawing macros
-  - `CZGFX.REL`, a LIB80 library of its five modules
+  - `CZGFX.REL`, a LIB80 library of its nine modules
   - `CZLINK.SUB`, the link script (`L80 $1,B:CZGFX/S,$1/N$2/E`)
 
   API reference: `software/czgfx/README.md`.

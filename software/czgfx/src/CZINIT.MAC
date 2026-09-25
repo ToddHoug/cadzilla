@@ -24,16 +24,19 @@
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZINIT,CZM640,CZM800,CZM1K,CZXMAX,CZYMAX,CZCLS
-        EXTRN   CZRTAB,CZSEND,CZPUTW,CZLDW,CZPALD
+        EXTRN   CZRTAB,CZSEND,CZPUTW,CZLDW,CZPALD,CZDM
 ;
 DPMLEN  EQU     7               ;words in a mode drawing parameter block
 ;
         CSEG
 ;
 ; CZINIT -- set up the board for the mode descriptor at HL and clear
-; the screen to color 0. Clobbers all registers.
+; the screen to color 0. The drawing mode, colors, pattern RAM and area
+; go back to their defaults. Clobbers all registers.
 ;
-CZINIT: MOV     A,M             ;MODE: sync polarity, access mode
+CZINIT: XRA     A               ;drawing mode: replace, CMSEL, no area
+        STA     CZDM
+        MOV     A,M             ;MODE: sync polarity, access mode
         INX     H
         OUT     MODEREG
         CALL    CZLDW           ;DE = mode control register table

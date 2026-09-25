@@ -10,7 +10,7 @@ toolchain", and in `software/czgfx/README.md`):
 
 - **`software/czgfx/`** is the graphics library. Its sources are in `src/`
   (`CZGFX.INC`, `CZ*.MAC`, `CZBUILD.SUB`, `CZLINK.SUB`, `CZCHK.MAC`). Its
-  five modules are combined with **LIB80** into one library, `CZGFX.REL`.
+  nine modules are combined with **LIB80** into one library, `CZGFX.REL`.
   That library, the header and `CZLINK.SUB` go onto the **library disk**
   `software/czgfx/libdisk/CZGFX.DSK`, which czgfx's own `work/` mounts
   **writable** as drive 1 (B:).

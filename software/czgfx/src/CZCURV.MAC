@@ -1,0 +1,156 @@
+;
+; CZCURV.MAC -- czgfx: circles, ellipses and arcs
+;
+; The ACRTC's curve commands, drawn in the current drawing mode. The
+; chip takes a size as 13 bits (up to 8191) and a coordinate as 13 bits
+; signed. A circle or ellipse is centred on CP and leaves CP there; an
+; arc starts at CP and leaves CP on its end point, which it doesn't
+; draw.
+;
+        INCLUDE CZGFX.INC
+;
+        PUBLIC  CZCRCL,CZELPS,CZARC
+        EXTRN   CZPUTW,CZSEND,CZCMD
+;
+        CSEG
+;
+; CZCRCL -- circle of radius HL centred on CP
+;
+CZCRCL: MVI     A,OPCRCL
+        CALL    CZCMD
+        JMP     CZPUTW
+;
+; CZELPS -- ellipse centred on CP with semi-axes HL (along X) and DE
+; (along Y), each 0-4095.
+;
+; ELPS doesn't take the Y semi-axis: it takes a and b with
+; a : b = dX^2 : dY^2, and dX. So a = HL^2 and b = DE^2, halved
+; together until both fit 13 bits (a ratio, so halving both keeps it,
+; to within the bits shifted out), and at least 1.
+;
+CZELPS: PUSH    B
+        PUSH    D
+        PUSH    H
+        PUSH    D
+        MOV     B,H             ;ESQA = HL^2
+        MOV     C,L
+        XCHG
+        CALL    MUL
+        SHLD    ESQA+2
+        XCHG
+        SHLD    ESQA
+        POP     D               ;ESQB = DE^2
+        MOV     B,D
+        MOV     C,E
+        CALL    MUL
+        SHLD    ESQB+2
+        XCHG
+        SHLD    ESQB
+ELFIT:  LXI     H,ESQA          ;both under 2000H yet?
+        CALL    FITS
+        JNZ     ELSHR
+        LXI     H,ESQB
+        CALL    FITS
+        JZ      ELSEND
+ELSHR:  LXI     H,ESQA          ;no: halve both
+        CALL    SHR32
+        LXI     H,ESQB
+        CALL    SHR32
+        JMP     ELFIT
+ELSEND: MVI     A,OPELPS
+        CALL    CZCMD
+        LHLD    ESQA
+        CALL    NOT0
+        CALL    CZPUTW          ;a
+        LHLD    ESQB
+        CALL    NOT0
+        CALL    CZPUTW          ;b
+        POP     H
+        CALL    CZPUTW          ;dX
+        POP     D
+        POP     B
+        RET
+;
+; MUL -- HL:DE = BC * DE (unsigned 16 x 16 -> 32, HL the high word)
+;
+MUL:    LXI     H,0
+        MVI     A,16
+MULLP:  PUSH    PSW
+        MOV     A,E             ;low bit of the multiplier
+        RAR
+        JNC     MULSH           ;(CY = 0 then)
+        DAD     B               ;(CY = the carry out)
+MULSH:  MOV     A,H             ;CY:HL:DE >>= 1
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        MOV     A,D
+        RAR
+        MOV     D,A
+        MOV     A,E
+        RAR
+        MOV     E,A
+        POP     PSW
+        DCR     A
+        JNZ     MULLP
+        RET
+;
+; FITS -- Z if the 32-bit value at HL (low byte first) is under 2000H
+;
+FITS:   INX     H
+        MOV     A,M
+        ANI     0E0H
+        INX     H
+        ORA     M
+        INX     H
+        ORA     M
+        RET
+;
+; SHR32 -- halve the 32-bit value at HL (low byte first)
+;
+SHR32:  INX     H
+        INX     H
+        INX     H
+        MVI     C,4
+        ORA     A               ;CY = 0 into the top
+SHRLP:  MOV     A,M
+        RAR
+        MOV     M,A
+        DCX     H
+        DCR     C
+        JNZ     SHRLP
+        RET
+;
+; NOT0 -- HL = 1 if it was 0
+;
+NOT0:   MOV     A,H
+        ORA     L
+        RNZ
+        INR     L
+        RET
+;
+; CZARC -- arc from CP. A = command high byte: OPAARC, OPRARC, OPAEAR
+; or OPREAR, +DIRCW for clockwise. HL = its parameter table: Xc,Yc,
+; Xe,Ye, preceded by a,b for the elliptical ones (a : b = rx^2 : ry^2).
+; Returns HL just past the table.
+;
+CZARC:  PUSH    B
+        PUSH    D
+        MOV     B,A
+        CALL    CZCMD
+        MOV     A,B
+        LXI     B,4             ;circular: 4 words
+        ANI     08H             ;elliptical?
+        JZ      ARCSND
+        LXI     B,6
+ARCSND: CALL    CZSEND
+        POP     D
+        POP     B
+        RET
+;
+ESQA:   DS      4               ;rx^2, then a
+ESQB:   DS      4               ;ry^2, then b
+;
+        END

@@ -1,13 +1,14 @@
 ;
 ; CZCORE.MAC -- czgfx: ACRTC low-level access
 ;
-; Control register writes, the write FIFO, and the end-of-drawing wait.
-; Every other czgfx module is built on these. See CZGFX.INC for the
-; register conventions.
+; Control register writes, the write FIFO, the drawing mode byte, and
+; the end-of-drawing wait. Every other czgfx module is built on these.
+; See CZGFX.INC for the register conventions.
 ;
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZWREG,CZPUTW,CZWAIT,CZXY,CZSEND,CZRTAB,CZLDW,CZABT
+        PUBLIC  CZDM,CZCMD,CZXYM,CZWPR
 ;
         CSEG
 ;
@@ -93,6 +94,42 @@ CZXY:   PUSH    H
         CALL    CZPUTW
         XCHG
         RET
+;
+; CZCMD -- send the drawing command with high byte A and the current
+; drawing mode (CZDM) as its low byte
+;
+CZCMD:  PUSH    H
+        MOV     H,A
+        LDA     CZDM
+        MOV     L,A
+        CALL    CZPUTW
+        POP     H
+        RET
+;
+; CZXYM -- as CZXY, the command carrying the drawing mode
+;
+CZXYM:  CALL    CZCMD
+        CALL    CZPUTW
+        XCHG
+        CALL    CZPUTW
+        XCHG
+        RET
+;
+; CZWPR -- write drawing parameter register A (WPR: 0 CL0, 1 CL1,
+; 2 CCMP, 3 EDG, 4 MASK, 5-7 PRC, 8-0BH area, 0CH-0DH RWP) with HL
+;
+CZWPR:  PUSH    H
+        MVI     H,08H
+        MOV     L,A
+        CALL    CZPUTW
+        POP     H
+        JMP     CZPUTW
+;
+; CZDM -- the drawing mode, AREA (bits 7-5) COL (4-3) OPM (2-0), the
+; low byte of every drawing command. GINIT sets 0 (replace, CMSEL,
+; no area checking); GMODE and CZMODE.MAC's routines change it.
+;
+CZDM:   DB      0
 ;
 ; CZRTAB -- load ACRTC control registers from the table at HL.
 ; Entries: DB register / DW value; DB 0FFH ends. Returns HL past it.
