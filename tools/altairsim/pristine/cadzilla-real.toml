@@ -1,0 +1,40 @@
+# The REAL-TIME variant of a project's machine: the same machine, run at the speed of the
+# hardware. Load it instead of cadzilla.toml to see how a program behaves on a real CADzilla
+# in a real 2 MHz Altair -- a game's speed, an animation's pacing, how long a big fill takes.
+#
+# THIS FILE IS A DELTA on `base = "cadzilla.toml"` -- the cadzilla.toml lying beside it, so in
+# a project's work/ it is THAT project's machine: its disks, its host bridge, and its own
+# monitor resolution from software/<project>/machine.toml. It changes exactly two straps:
+#
+#   - cpu0  clock_hz = 2000000. The Altair's 2 MHz 8080, in wall-clock time: the host waits,
+#           so one emulated second takes one real second. (Flat out, clock_hz = 0, the
+#           program already runs the right number of instructions for each delay -- it just
+#           runs them as fast as the host can. This makes the result watchable in real time.)
+#   - cad0  draw_rate = "real". Each ACRTC command takes the time the HD63484 data sheet gives
+#           it, in the memory cycles the display leaves free: the write FIFO fills and CED
+#           comes late, as on the board. cadzilla.toml keeps `full`, where every command is
+#           done the moment it lands.
+#
+# FOR RUNNING, NOT FOR BUILDING. Build with cadzilla.toml: at 2 MHz, console input fed through
+# the MCP `run` tool is paced like a real terminal (see cadzilla.toml's cpu0 note), and ASM,
+# M80 and L80 take their real 1970s time. Build there, then CONFIG LOAD this file to run the
+# .COM. Both files mount the same disks, so the program you just built is already on A:.
+#
+# Needs an altairsim that has cad0's `draw_rate` strap. An older binary refuses the file
+# ("draw_rate" is not a cadzilla property) rather than run it untimed.
+#
+# Never load this file from tools/altairsim/pristine/ -- as with cadzilla.toml, its base would
+# be pristine's own machine and CP/M would write into the master disks. Use a project's
+# work/cadzilla-real.toml, which sync_pristine.sh puts there.
+
+[machine]
+name = "cadzilla-real"
+base = "cadzilla.toml"
+
+[[board]]
+id       = "cpu0"
+clock_hz = 2000000
+
+[[board]]
+id        = "cad0"
+draw_rate = "real"

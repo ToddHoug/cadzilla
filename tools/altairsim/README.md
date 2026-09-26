@@ -49,12 +49,14 @@ could never be created from the command line in the first place.
   `M80`/`L80`/`LIB80`/`CREF80.COM`, the host-bridge `R`/`W`/`HDIR.COM`, and
   more disk tools than the old 8" floppy image had room for) — the "56K" in its name is the CP/M memory footprint (RAM
   0000-DFFF), not the disk capacity; `BLANK-8MB.DSK` (drive 1) is a second,
-  empty 8MB volume for scratch space.
+  empty 8MB volume for scratch space. `cadzilla-real.toml` is the
+  real-time variant — a delta on the `cadzilla.toml` beside it that sets a
+  2 MHz CPU and cad0 `draw_rate = "real"` (see "Running in real time").
 - `scripts/sync_pristine.sh [--machine-only] <dest-dir>` — copies the
   pristine machine + disk(s) into any destination directory, creating it
   if needed. Used to set up a new project's own `work/`, and to recover a
   work directory that's ended up in a bad state. `--machine-only` copies
-  just `cadzilla.toml` and leaves the destination's disks alone — use it to
+  just the machine files (`cadzilla.toml`, `cadzilla-real.toml`) and leaves the destination's disks alone — use it to
   pick up a change to the pristine machine definition in every existing
   `software/*/work/` without losing what's been built there. Either way,
   if the directory above `<dest-dir>` has a `machine.toml` (the project's
@@ -226,6 +228,37 @@ picture anywhere else, or smaller than the mode, means program and strap
 disagree. To try another mode for one session without changing anything,
 `monitor {command: "SET cad0 mode=800x600"}` works until the next `CONFIG
 LOAD`.
+
+### Running in real time — `work/cadzilla-real.toml`
+
+`work/cadzilla.toml` runs flat out: the 8080 at host speed (`clock_hz = 0`)
+and every ACRTC command done the moment it lands (cad0 `draw_rate =
+"full"`). That is right for building and for most testing. For anything
+timing-sensitive — a game, an animation, how long a big fill really takes —
+load the project's `work/cadzilla-real.toml` instead. It is the same
+machine (it has `base = "cadzilla.toml"`, so the project's disks, library
+disk and resolution all carry over) with two straps changed:
+
+- `cpu0` `clock_hz = 2000000` — a real 2 MHz Altair in wall-clock time.
+- `cad0` `draw_rate = "real"` — each drawing command takes the time the
+  HD63484 data sheet gives it, in the memory cycles the display leaves
+  free, so the write FIFO fills and CED comes late, as on the board.
+
+Build with `cadzilla.toml`, then switch to run:
+
+```
+monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla-real.toml"}
+run {from: 0xFF00, until: "A0>"}
+run {input: "<NAME>\r", until: "A0>", timeout_ms: 120000}
+```
+
+Don't build under it: at 2 MHz the assemblers take their real time, and
+console input through `run` is paced (see pristine `cadzilla.toml`'s
+`cpu0` note). It needs an altairsim with cad0's `draw_rate` strap; an
+older binary refuses the file instead of running it untimed.
+`sync_pristine.sh` copies it into every `work/`, so a new project gets it
+with the rest; an existing `work/` gets it (or a changed version) from
+`sync_pristine.sh --machine-only`.
 
 ### The prompt is `A0>`, not `A>`
 

@@ -11,9 +11,14 @@
 #     tools/altairsim/README.md). This discards everything built there
 #     since the last sync, so only do it deliberately.
 #
-# --machine-only copies just cadzilla.toml and leaves the destination's
-# disks (and everything built on them) alone -- for picking up a change to
-# the pristine machine definition in an existing work directory.
+# --machine-only copies just the machine files (cadzilla.toml and
+# cadzilla-real.toml) and leaves the destination's disks (and everything built
+# on them) alone -- for picking up a change to the pristine machine definition
+# in an existing work directory.
+#
+# cadzilla-real.toml is copied as is: it is a delta with base = "cadzilla.toml",
+# so in <dest-dir> it builds on the cadzilla.toml beside it (overlay included)
+# and only switches the CPU to 2 MHz and cad0 to draw_rate = "real".
 #
 # Project overlay: if the directory above <dest-dir> holds a machine.toml
 # (i.e. software/<project>/machine.toml, tracked in git), it is appended to
@@ -63,7 +68,9 @@ fi
 # Pristine is never written: keep it read-only on the host so altairsim can
 # only ever mount it WRITE-PROTECTED if something points at it by mistake.
 # Git doesn't track write permission, so re-assert it on every sync.
-chmod a-w "$PRISTINE/cadzilla.toml" "${disks[@]}"
+machines=("$PRISTINE/cadzilla.toml")
+[ -f "$PRISTINE/cadzilla-real.toml" ] && machines+=("$PRISTINE/cadzilla-real.toml")
+chmod a-w "${machines[@]}" "${disks[@]}"
 
 OVERLAY="$(cd "$DEST/.." && pwd -P)/machine.toml"
 if [ -f "$OVERLAY" ]; then
@@ -83,8 +90,10 @@ fi
 
 # cp carries the read-only mode over to new files -- the work copies are
 # meant to be written, so make them writable again.
-cp -f "$PRISTINE/cadzilla.toml" "$DEST/"
-chmod u+w "$DEST/cadzilla.toml"
+cp -f "${machines[@]}" "$DEST/"
+for m in "${machines[@]}"; do
+  chmod u+w "$DEST/$(basename "$m")"
+done
 if [ -f "$OVERLAY" ]; then
   {
     printf '\n# ==== project overlay: %s ====\n' "$(realpath --relative-to="$REPO_ROOT" "$OVERLAY")"
@@ -96,6 +105,7 @@ if [ "$MACHINE_ONLY" -eq 1 ]; then
   echo "Synced pristine machine (disks untouched) into $DEST:"
   printf '  %s\n' "$(basename "$PRISTINE/cadzilla.toml")"
   [ -f "$OVERLAY" ] && printf '  + overlay %s\n' "$(realpath --relative-to="$REPO_ROOT" "$OVERLAY")"
+  for m in "${machines[@]:1}"; do printf '  %s\n' "$(basename "$m")"; done
   exit 0
 fi
 
@@ -107,6 +117,7 @@ done
 echo "Synced pristine machine + disk(s) into $DEST:"
 printf '  %s\n' "$(basename "$PRISTINE/cadzilla.toml")"
 [ -f "$OVERLAY" ] && printf '  + overlay %s\n' "$(realpath --relative-to="$REPO_ROOT" "$OVERLAY")"
+for m in "${machines[@]:1}"; do printf '  %s\n' "$(basename "$m")"; done
 for d in "${disks[@]}"; do
   printf '  %s\n' "$(basename "$d")"
 done
