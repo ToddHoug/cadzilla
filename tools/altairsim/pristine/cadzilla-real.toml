@@ -21,7 +21,7 @@
 # .COM. Both files mount the same disks, so the program you just built is already on A:.
 #
 # Needs an altairsim that has cad0's `draw_rate` strap. An older binary refuses the file
-# ("draw_rate" is not a cadzilla property) rather than run it untimed.
+# (cad0 has no draw_rate property) rather than run it untimed.
 #
 # Never load this file from tools/altairsim/pristine/ -- as with cadzilla.toml, its base would
 # be pristine's own machine and CP/M would write into the master disks. Use a project's
