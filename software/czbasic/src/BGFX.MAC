@@ -1,0 +1,756 @@
+;
+; BGFX.MAC -- CZBASIC: the CADzilla statements and functions
+;
+; Each CZ keyword is 0FEH plus a token (BASIC.INC). The statements
+; take integer arguments, read into GARG, and call the czgfx library
+; (B:CZGFX.REL, linked with /S so only the routines used come in).
+; Coordinates are czgfx's: 0,0 is the bottom-left pixel, Y goes up.
+; An optional color c at the end of a drawing statement is used for
+; that statement only; CZCOLOR sets the color that stays.
+;
+;   CZINIT [640|800|1024]        CZCLS [c]          CZCOLOR fg[,bg]
+;   CZPAL i,r,g,b | CZPAL        CZMODE op[,cm[,am]]
+;   CZAREA x1,y1,x2,y2 | CZAREA  CZMOVE x,y         CZRMOVE dx,dy
+;   CZDOT x,y[,c]                CZLINE x1,y1,x2,y2[,c] | CZLINE TO x,y[,c]
+;   CZRLINE dx,dy[,c]            CZRECT/CZFRECT x1,y1,x2,y2[,c]
+;   CZCIRCLE x,y,r[,c]           CZELLIPSE x,y,rx,ry[,c]
+;   CZARC xc,yc,xs,ys,xe,ye[,c[,dir]]
+;   CZEARC xc,yc,rx,ry,xs,ys,xe,ye[,c[,dir]]
+;   CZPOLY a%(i),n[,c]           CZPLINE a%(i),n[,c]
+;   CZPAINT x,y,edge[,c]         CZFLOOD x,y,region[,c]
+;   CZCOPY x1,y1,x2,y2,xd,yd[,t] CZPAT start,w0[,w1..w15]
+;   CZLSTYLE pat[,zoom]          CZPSCAN x0,y0,x1,y1[,zx,zy]
+;   CZPTN x,y,w,h[,dir]          CZTEXT x,y,s$[,c[,scale[,dir]]]
+;   CZWAIT
+;   CZPOINT(x,y)  CZXMAX  CZYMAX  CZXPOS  CZYPOS
+;
+        INCLUDE BASIC.INC
+        INCLUDE B:CZGFX.INC     ;(ports, opcodes, modes: the library's)
+;
+        PUBLIC  XSTMT,XFUNC,GNUM,GTXT,GCOLR,GWCOL,GRCOL
+        PUBLIC  GPARSE,GFXBEG
+;
+        EXTRN   GETINT,GETBYT,FACLO,VALTYP,PTRGET,SNERR,FCERR,TMERR
+        EXTRN   XTEXT
+        EXTRN   GARG,GTAB       ;(BINIT.MAC)
+        EXTRN   SUBDE
+        EXTRN   LHLI
+;
+;
+        CSEG
+;
+; ================= dispatch =================
+;
+GFXBEG:                         ;(the first byte of the graphics)
+XSTMT: INX     H               ;0FEH, token
+        MOV     A,M
+        SUI     XKINIT
+        JC      SNERR
+        CPI     XKSLST-XKINIT+1
+        JNC     SNERR
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        PUSH    H
+        LXI     H,GSTAB
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        POP     H
+        PUSH    D
+        CHRGET
+        RET
+;
+XFUNC: INX     H
+        MOV     A,M
+        SUI     XKFUN0
+        JC      SNERR
+        CPI     XKFLST-XKFUN0+1
+        JNC     SNERR
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        PUSH    H
+        LXI     H,GFTAB
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        POP     H
+        PUSH    D
+        CHRGET
+        RET
+;
+GSTAB:  DW      ZINIT,ZCLS,ZCOLOR,ZPAL,ZMODE,ZAREA,ZMOVE,ZRMOVE
+        DW      ZDOT,ZLINE,ZRLINE,ZRECT,ZFRECT,ZCIRC,ZELLI,ZARC
+        DW      ZEARC,ZPOLY,ZPLINE,ZPAINT,ZFLOOD,ZCOPY,ZPAT,ZLSTY
+        DW      ZPSCAN,ZPTN,XTEXT,ZWAIT
+GFTAB:  DW      ZPOINT,ZXMAX,ZYMAX,ZXPOS,ZYPOS
+;
+; ================= arguments =================
+;
+; GPARSE -- up to C integer arguments separated by commas into GARG;
+; at least B of them (the text must end there). GNUM = the count.
+; HL -> GTXT at the end.
+;
+GPARSE: XRA     A
+        STA     GNUM
+        PUSH    H
+        LXI     H,GARG
+        SHLD    GAP
+        POP     H
+        MOV     A,M             ;none at all?
+        ORA     A
+        JZ      GPA3
+        CPI     ':'
+        JZ      GPA3
+GPA1:   PUSH    B
+        CALL    GETINT          ;DE = the next
+        PUSH    H
+        LHLD    GAP
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        SHLD    GAP
+        POP     H
+        POP     B
+        LDA     GNUM
+        INR     A
+        STA     GNUM
+        CMP     C               ;all it takes
+        JZ      GPA3
+        MOV     A,M
+        CPI     ','
+        JNZ     GPA3
+        CHRGET
+        JMP     GPA1
+GPA3:   SHLD    GTXT
+        LDA     GNUM
+        CMP     B
+        JC      SNERR           ;too few
+        RET
+;
+; GA -- HL = GARG[A], DE = GARG[A+1]
+;
+GA:     ADD     A
+        PUSH    B
+        MOV     C,A
+        MVI     B,0
+        LXI     H,GARG
+        DAD     B
+        POP     B
+        CALL    CZLDW##
+        PUSH    D
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        POP     H
+        RET
+;
+; GWCOL -- the color argument n (A), if given: draw in it for now
+; GRCOL -- back to the lasting color
+;
+GWCOL:  MOV     B,A
+        LDA     GNUM
+        CMP     B
+        RC
+        RZ
+        MOV     A,B
+        CALL    GA
+        MOV     A,L
+        STA     GTMPC
+        MVI     A,1
+        STA     GCSET
+        LDA     GTMPC
+        JMP     CZCOL##
+GRCOL:  LDA     GCSET
+        ORA     A
+        RZ
+        XRA     A
+        STA     GCSET
+        LDA     GCOLR
+        JMP     CZCOL##
+;
+; GDONE -- back to NEWSTT: HL = GTXT
+;
+GDONE:  LHLD    GTXT
+        RET
+;
+; ================= the statements =================
+;
+; CZINIT [640|800|1024] (default 1024: the board's strap)
+;
+ZINIT:  LXI     B,0001H
+        CALL    GPARSE
+        LXI     H,CZM1K##
+        LDA     GNUM
+        ORA     A
+        JZ      GIN2
+        LHLD    GARG
+        LXI     D,640
+        COMPAR
+        LXI     H,CZM640##
+        JZ      GIN2
+        LHLD    GARG
+        LXI     D,800
+        COMPAR
+        LXI     H,CZM800##
+        JZ      GIN2
+        LHLD    GARG
+        LXI     D,1024
+        COMPAR
+        LXI     H,CZM1K##
+        JNZ     FCERR
+GIN2:   CALL    CZINIT##
+        MVI     A,0FFH
+        STA     GCOLR
+        XRA     A
+        STA     GBCOL
+        JMP     GDONE
+;
+; CZCLS [c]
+;
+ZCLS:   LXI     B,0001H
+        CALL    GPARSE
+        XRA     A
+        CALL    GA
+        LDA     GNUM
+        ORA     A
+        MOV     A,L
+        JNZ     GCLS1
+        XRA     A
+GCLS1:  CALL    CZCLS##
+        JMP     GDONE
+;
+; CZCOLOR fg[,bg]
+;
+ZCOLOR: LXI     B,0102H
+        CALL    GPARSE
+        XRA     A
+        CALL    GA
+        MOV     A,L
+        STA     GCOLR
+        CALL    CZCOL##
+        LDA     GNUM
+        CPI     2
+        JC      GDONE
+        MOV     A,E
+        STA     GBCOL
+        CALL    CZCOL0##
+        JMP     GDONE
+;
+; CZPAL i,r,g,b | CZPAL (the default palette)
+;
+ZPAL:   LXI     B,0004H
+        CALL    GPARSE
+        LDA     GNUM
+        ORA     A
+        JNZ     GPAL1
+        CALL    CZPALD##
+        JMP     GDONE
+GPAL1:  CPI     4
+        JNZ     SNERR
+        MVI     A,2             ;g, b
+        CALL    GA
+        MOV     C,L
+        PUSH    D
+        XRA     A               ;i, r
+        CALL    GA
+        MOV     B,E
+        MOV     A,L
+        POP     D
+        CALL    CZPALS##        ;A = i, B = r, C = g, E = b
+        JMP     GDONE
+;
+; CZMODE op[,cm[,am]] -- op 0-7, cm 0-3, am 0-7: the drawing mode
+; op + cm*8 + am*32
+;
+ZMODE:  PUSH    H
+        LXI     H,0             ;(missing ones are 0)
+        SHLD    GARG+2
+        SHLD    GARG+4
+        POP     H
+        LXI     B,0103H
+        CALL    GPARSE
+        LDA     GARG+4          ;am
+        ANI     7
+        RRC
+        RRC
+        RRC
+        MOV     B,A
+        LDA     GARG+2          ;cm
+        ANI     3
+        RLC
+        RLC
+        RLC
+        ORA     B
+        MOV     B,A
+        LDA     GARG            ;op
+        ANI     7
+        ORA     B
+        STA     CZDM##
+        JMP     GDONE
+;
+; CZAREA x1,y1,x2,y2 | CZAREA (the whole screen)
+;
+ZAREA:  LXI     B,0004H
+        CALL    GPARSE
+        LDA     GNUM
+        ORA     A
+        JNZ     GAR1
+        CALL    CZAFUL##
+        JMP     GDONE
+GAR1:   CPI     4
+        JNZ     SNERR
+        XRA     A
+        CALL    GA
+        CALL    CZAMIN##
+        MVI     A,2
+        CALL    GA
+        CALL    CZAMAX##
+        JMP     GDONE
+;
+; CZMOVE x,y / CZRMOVE dx,dy
+;
+ZMOVE:  CALL    GSTD
+        DW      0202H
+        DB      2
+        DW      CZMOVE##
+GMV0:   XRA     A               ;move to arguments 0,1
+        CALL    GA
+        JMP     CZMOVE##
+ZRMOVE: CALL    GSTD
+        DW      0202H
+        DB      2
+        DW      CZRMOV##
+;
+; CZDOT x,y[,c]
+;
+ZDOT:   CALL    GSTD
+        DW      0203H
+        DB      2
+        DW      CZDOT##
+;
+; GSTD -- a drawing statement described by the bytes after the CALL:
+; DW its argument counts (as for GPARSE), DB the index of its color
+; argument, DW the czgfx routine. With 3 or more arguments before the
+; color: move to arguments 0,1 and call the routine with HL, DE =
+; arguments 2,3; else HL, DE = arguments 0,1. Then GEND.
+;
+GSTD:   XTHL                    ;HL = the description, stack = text
+        MOV     C,M
+        INX     H
+        MOV     B,M
+        INX     H
+        MOV     A,M
+        STA     GTMPC
+        CALL    LHLI
+        SHLD    GPEL            ;(the routine)
+        POP     H
+        CALL    GPARSE
+        LDA     GTMPC
+        PUSH    PSW
+        CALL    GWCOL
+        POP     PSW
+        CPI     3
+        MVI     A,0
+        JC      GST1
+        CALL    GMV0
+        MVI     A,2
+GST1:   CALL    GA
+        LXI     B,GEND          ;call it, back to GEND
+        PUSH    B
+        PUSH    H
+        LHLD    GPEL
+        XTHL
+        RET
+;
+; GEND -- the color back, then back to NEWSTT
+;
+GEND:   CALL    GRCOL
+        JMP     GDONE
+;
+; CZLINE x1,y1,x2,y2[,c] | CZLINE TO x,y[,c] -- both ends drawn
+;
+ZLINE:  CPI     TKTO
+        JZ      GLTO
+        CALL    GSTD
+        DW      0405H
+        DB      4
+        DW      GLNX
+GLTO:   CHRGET
+        CALL    GSTD
+        DW      0203H
+        DB      2
+        DW      GLNX
+;
+; CZRLINE dx,dy[,c]
+;
+ZRLINE: CALL    GSTD
+        DW      0203H
+        DB      2
+        DW      GRLX
+GRLX:   CALL    CZRLIN##
+        JMP     GLDOT
+GLNX:   CALL    CZLINE##
+GLDOT:  MVI     A,OPDOT         ;ALINE leaves out Pe: BASIC draws it
+        JMP     CZCMD##
+;
+; CZRECT / CZFRECT x1,y1,x2,y2[,c]
+;
+ZRECT:  CALL    GSTD
+        DW      0405H
+        DB      4
+        DW      CZRECT##
+ZFRECT: CALL    GSTD
+        DW      0405H
+        DB      4
+        DW      CZFRCT##
+;
+; CZCIRCLE x,y,r[,c] / CZELLIPSE x,y,rx,ry[,c]
+;
+ZCIRC:  CALL    GSTD
+        DW      0304H
+        DB      3
+        DW      CZCRCL##
+ZELLI:  CALL    GSTD
+        DW      0405H
+        DB      4
+        DW      CZELPS##
+;
+; CZARC xc,yc,xs,ys,xe,ye[,c[,dir]] -- from xs,ys round xc,yc (radius
+; its distance) counter-clockwise (dir 1: clockwise) to the ray
+; through xe,ye
+;
+ZARC:   LXI     B,0608H
+        CALL    GPARSE
+        MVI     A,6
+        CALL    GWCOL
+        MVI     A,2             ;start at xs,ys
+        CALL    GA
+        CALL    CZMOVE##
+        LHLD    GARG            ;the table: xc,yc,xe,ye
+        SHLD    GTAB
+        LHLD    GARG+2
+        SHLD    GTAB+2
+        LHLD    GARG+8
+        SHLD    GTAB+4
+        LHLD    GARG+10
+        SHLD    GTAB+6
+        MVI     B,OPAARC
+        MVI     C,7             ;(dir is argument 7)
+        JMP     GARCX
+;
+; CZEARC xc,yc,rx,ry,xs,ys,xe,ye[,c[,dir]] -- the same on an ellipse
+; whose semi-axes are in the ratio rx:ry (each at most 90)
+;
+ZEARC:  LXI     B,080AH
+        CALL    GPARSE
+        MVI     A,8
+        CALL    GWCOL
+        MVI     A,4             ;start at xs,ys
+        CALL    GA
+        CALL    CZMOVE##
+        LDA     GARG+4          ;a = rx*rx, b = ry*ry
+        CALL    GSQR
+        SHLD    GTAB
+        LDA     GARG+6
+        CALL    GSQR
+        SHLD    GTAB+2
+        LHLD    GARG            ;xc, yc, xe, ye
+        SHLD    GTAB+4
+        LHLD    GARG+2
+        SHLD    GTAB+6
+        LHLD    GARG+12
+        SHLD    GTAB+8
+        LHLD    GARG+14
+        SHLD    GTAB+10
+        MVI     B,OPAEAR
+        MVI     C,9
+GARCX:  LDA     GNUM            ;dir given?
+        CMP     C
+        JC      GARC2
+        JZ      GARC2
+        MOV     A,C
+        CALL    GA
+        MOV     A,L
+        ORA     H
+        JZ      GARC2
+        INR     B               ;(DIRCW)
+GARC2:  MOV     A,B
+        LXI     H,GTAB
+        CALL    CZARC##
+        JMP     GEND
+;
+; GSQR -- HL = A*A (A = 0..90)
+;
+GSQR:   CPI     91
+        JNC     FCERR
+        MOV     E,A
+        MVI     D,0
+        LXI     H,0
+        MOV     B,A
+        ORA     A
+        RZ
+GSQ1:   DAD     D
+        DCR     B
+        JNZ     GSQ1
+        RET
+;
+; CZPOLY a%(i),n[,c] / CZPLINE a%(i),n[,c] -- n points x,y from an
+; integer array, from element i on
+;
+ZPOLY:  MVI     A,1
+        JMP     GPL0
+ZPLINE: XRA     A
+GPL0:   STA     GCLOSE
+        CALL    PTRGET          ;DE = the first element
+        LDA     VALTYP
+        CPI     VTINT
+        JNZ     TMERR
+        XCHG
+        SHLD    GPEL
+        XCHG
+        SYNCHK  ','
+        LXI     B,0102H         ;n[,c]
+        CALL    GPARSE
+        LHLD    GARG            ;n >= 2
+        MOV     A,H
+        ORA     A
+        JNZ     GPL1
+        MOV     A,L
+        CPI     2
+        JC      FCERR
+GPL1:   MVI     A,1
+        CALL    GWCOL
+        LHLD    GPEL            ;the word before the points: n, a
+        DCX     H               ;moment
+        MOV     D,M
+        DCX     H
+        MOV     E,M
+        PUSH    D
+        PUSH    H
+        XCHG
+        LHLD    GARG
+        XCHG
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        DCX     H
+        LDA     GCLOSE
+        ORA     A
+        JZ      GPL2
+        CALL    CZPLG##
+        JMP     GPL3
+GPL2:   CALL    CZPLL##
+GPL3:   POP     H               ;put that word back
+        POP     D
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        JMP     GEND
+;
+; CZPAINT x,y,edge[,c] / CZFLOOD x,y,region[,c]
+;
+ZPAINT: MVI     A,0
+        JMP     GPN0
+ZFLOOD: MVI     A,1
+GPN0:   STA     GCLOSE
+        LXI     B,0304H
+        CALL    GPARSE
+        MVI     A,3
+        CALL    GWCOL
+        CALL    GMV0
+        MVI     A,2
+        CALL    GA
+        PUSH    H               ;PAINT stops at CL0 too: CL0 = the fill
+        LDA     GCSET
+        ORA     A
+        LDA     GTMPC
+        JNZ     GPN3
+        LDA     GCOLR
+GPN3:   CALL    CZCOL0##
+        POP     H
+        MOV     A,L
+        MOV     B,A
+        LDA     GCLOSE
+        ORA     A
+        MOV     A,B
+        JNZ     GPN1
+        CALL    CZPANT##
+        JMP     GPN2
+GPN1:   CALL    CZFLOD##
+GPN2:   LDA     GBCOL           ;CL0 back to the background
+        CALL    CZCOL0##
+        JMP     GEND
+;
+; CZCOPY x1,y1,x2,y2,xd,yd[,t]
+;
+ZCOPY:  LXI     B,0607H
+        CALL    GPARSE
+        MVI     A,4             ;to xd,yd
+        CALL    GA
+        CALL    CZMOVE##
+        LHLD    GARG            ;Xs, Ys, x2-x1, y2-y1
+        SHLD    GTAB
+        XCHG
+        LHLD    GARG+4
+        CALL    SUBDE
+        SHLD    GTAB+4
+        LHLD    GARG+2
+        SHLD    GTAB+2
+        XCHG
+        LHLD    GARG+6
+        CALL    SUBDE
+        SHLD    GTAB+6
+        XRA     A               ;transform
+        STA     GTMPC
+        LDA     GNUM
+        CPI     7
+        JC      GCP1
+        LDA     GARG+12
+        ANI     7
+        STA     GTMPC
+GCP1:   LDA     GTMPC
+        LXI     H,GTAB
+        CALL    CZGCPY##
+        JMP     GDONE
+;
+; CZPAT start,w0[,w1..] -- load words into the pattern RAM
+;
+ZPAT:   LXI     B,0211H
+        CALL    GPARSE
+        LDA     GARG            ;start, then the count in its place:
+        ANI     0FH             ;the table is DW n, the words
+        MOV     B,A
+        LDA     GNUM
+        DCR     A
+        MOV     L,A
+        MVI     H,0
+        SHLD    GARG
+        MOV     A,B
+        LXI     H,GARG
+        CALL    CZLPAT##
+        JMP     GDONE
+;
+; CZLSTYLE pat[,zoom]
+;
+ZLSTY:  LXI     B,0102H
+        CALL    GPARSE
+        MVI     A,0
+        CALL    GA
+        LDA     GNUM
+        CPI     2
+        MVI     A,0
+        JC      GLS1
+        MOV     A,E
+GLS1:   CALL    CZLSTY##
+        JMP     GDONE
+;
+; CZPSCAN x0,y0,x1,y1[,zx,zy] -- the pattern scan window and zoom
+;
+ZPSCAN: PUSH    H               ;(no zoom unless given)
+        LXI     H,0
+        SHLD    GARG+8
+        SHLD    GARG+10
+        POP     H
+        LXI     B,0406H
+        CALL    GPARSE
+        LXI     H,GARG          ;the six, a byte each, for CZPSCN
+        LXI     D,GTAB
+        MVI     B,6
+ZPS1:   MOV     A,M
+        STAX    D
+        INX     H
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     ZPS1
+        LXI     H,GTAB
+        CALL    CZPSCN##
+        JMP     GDONE
+;
+; CZPTN x,y,w,h[,dir]
+;
+ZPTN:   LXI     B,0405H
+        CALL    GPARSE
+        CALL    GMV0
+        LDA     GARG+6          ;H = h-1, L = w-1
+        DCR     A
+        MOV     H,A
+        LDA     GARG+4
+        DCR     A
+        MOV     L,A
+        XRA     A
+        STA     GTMPC
+        LDA     GNUM
+        CPI     5
+        JC      GPT1
+        LDA     GARG+8
+        ANI     0FH
+        STA     GTMPC
+GPT1:   LDA     GTMPC
+        CALL    CZPTN##
+        JMP     GDONE
+;
+; CZWAIT
+;
+ZWAIT:  SHLD    GTXT
+        CALL    CZWAIT##
+        JMP     GDONE
+;
+; ================= the functions =================
+;
+; CZPOINT(x,y) -- the color of pixel x,y, or -1 off the screen
+;
+ZPOINT: SYNCHK  '('
+        LXI     B,0202H
+        CALL    GPARSE
+        LHLD    GTXT
+        SYNCHK  ')'
+        SHLD    GTXT
+        XRA     A
+        CALL    GA              ;HL = x, DE = y
+        CALL    CZRDOT##
+        MOV     L,A
+        MVI     H,0
+        JNC     GFRET
+        LXI     H,-1
+        JMP     GFRET
+;
+; CZXMAX, CZYMAX -- the screen's largest X and Y
+; CZXPOS, CZYPOS -- where the drawing pointer is
+;
+ZXMAX:  SHLD    GTXT
+        LHLD    CZXMAX##
+        JMP     GFRET
+ZYMAX:  SHLD    GTXT
+        LHLD    CZYMAX##
+        JMP     GFRET
+ZXPOS:  SHLD    GTXT
+        CALL    CZGCP##
+        JMP     GFRET
+ZYPOS:  SHLD    GTXT
+        CALL    CZGCP##
+        XCHG
+GFRET:  SHLD    FACLO           ;an integer result
+        MVI     A,VTINT
+        STA     VALTYP
+        LHLD    GTXT
+        RET
+;
+; ================= data =================
+;
+GCOLR:  DB      0FFH            ;the lasting drawing color
+GBCOL:  DB      0               ;the background, CL0 (CZCOLOR ,bg)
+GCSET:  DB      0               ;a statement's own color is in use
+GTMPC:  DB      0
+GCLOSE: DB      0
+GNUM:   DB      0
+GTXT:   DW      0
+GPEL:   DW      0
+GAP:    DW      0               ;GPARSE: where the next argument goes
+;
+        END

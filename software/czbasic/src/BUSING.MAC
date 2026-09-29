@@ -1,0 +1,720 @@
+;
+; BUSING.MAC -- CZBASIC: PRINT USING
+;
+; PRINT USING f$; list [;|,]
+;   string fields:  !  first character   \  \  2+n characters   &  all
+;   numeric fields: # digits, . point, , thousands (left of the point),
+;       ** leading asterisks, $$ floating dollar, **$ both, a leading
+;       or trailing + for the sign, a trailing - for a minus after it,
+;       ^^^^ exponent form
+;   _ prints the next character as it is; anything else is literal
+; A number too wide for its field is printed in full after a %. The
+; format is used again from its start while values remain; the
+; literal text after the last field used is printed too.
+;
+; Rounding: half a unit in the last place is added, then the digits
+; beyond it dropped (single: 7 digits at most, double: 16).
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  USING
+;
+        EXTRN   FACLO,FACHI,FAC,VALTYP,FRMEVL,FRMSTR,FRESTR,CHKNUM
+        EXTRN   CHKSTR,FRCDBL,FNEG,FADD,MOVAM,MOVMF,MOVFM,POW10
+        EXTRN   FDIGIT,FDIGS,FDEXP,FOUTD,CRLF,FCERR,TMERR,SNERR
+        EXTRN   DFAC
+        EXTRN   UBUF            ;(BINIT.MAC)
+        EXTRN   HALF            ;(BFIO.MAC)
+;
+        CSEG
+;
+USING:  CHRGET                  ;the format
+        CALL    FRMSTR
+        PUSH    H
+        LHLD    FACLO           ;its descriptor (a GC keeps it right)
+        SHLD    UFMT
+        XRA     A
+        STA     UPOS
+        STA     UFOUND
+        POP     H
+        MOV     A,M             ;; (or ,) before the list
+        CPI     ';'
+        JZ      US0
+        CPI     ','
+        JNZ     SNERR
+US0:    CHRGET
+        JZ      USEND           ;(no values)
+US1:    PUSH    H               ;print literals up to the next field
+        CALL    USLIT
+        POP     H
+        JNC     US2
+        LDA     UFOUND          ;end of the format: no field at all?
+        ORA     A
+        JZ      FCERR
+        XRA     A               ;from its start again
+        STA     UPOS
+        JMP     US1
+US2:    MVI     A,1
+        STA     UFOUND
+        CALL    FRMEVL          ;the value for it
+        PUSH    H
+        LDA     UKIND
+        ORA     A
+        JZ      US3
+        CALL    CHKSTR          ;a string field
+        CALL    USSTR
+        JMP     US4
+US3:    CALL    CHKNUM
+        CALL    USNUM
+US4:    POP     H
+        MOV     A,M             ;; , or the end
+        CPI     ';'
+        JZ      US5
+        CPI     ','
+        JNZ     USEND
+US5:    CHRGET
+        JNZ     US1             ;more values
+        PUSH    H               ;ends with ; or , : the literals, no
+        CALL    USLIT           ;new line
+        POP     H
+        RET
+USEND:  PUSH    H               ;the literals after it, then a new line
+        CALL    USLIT
+        POP     H
+        JMP     CRLF
+;
+; ================= the format =================
+;
+; USCH -- A = format character UPOS (C at the end); USNX -- UPOS += 1
+;
+USCH:   PUSH    H
+        LHLD    UFMT
+        LDA     UPOS
+        CMP     M               ;at the length: the end
+        JNC     USCH1
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        XCHG
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        MOV     A,M
+        POP     H
+        ORA     A               ;(NC)
+        RET
+USCH1:  POP     H
+        STC
+        RET
+USNX:   PUSH    H
+        LXI     H,UPOS
+        INR     M
+        POP     H
+        RET
+;
+; USLIT -- print literal characters until a field starts (NC, UKIND
+; and the field's shape set) or the format ends (C)
+;
+USLIT:  CALL    USCH
+        RC
+        CALL    ISFLD
+        RNC                     ;a field starts here
+        CPI     '_'             ;_x: x literally
+        JNZ     USL1
+        CALL    USNX
+        CALL    USCH
+        RC
+USL1:   OUTCHR
+        CALL    USNX
+        JMP     USLIT
+;
+; ISFLD -- does a field start at UPOS (its first character A)? NC if
+; so, with the field read (UPOS past it); C if not (UPOS unchanged)
+;
+ISFLD:  PUSH    PSW
+        LDA     UPOS
+        STA     USTART
+        POP     PSW
+        CPI     '!'
+        JZ      FSTR1
+        CPI     '&'
+        JZ      FSTRA
+        CPI     '\'
+        JZ      FSTRB
+        XRA     A               ;numeric: clear the shape
+        STA     USGN            ;1 leading +, 2 trailing +, 3 trailing -
+        STA     UAST
+        STA     UDOL
+        STA     UCOMMA
+        STA     ULD
+        STA     URD
+        STA     UEXP
+        STA     UPT
+        CALL    USCH
+        CPI     '+'
+        JNZ     IF1
+        CALL    USNX
+        MVI     A,1
+        STA     USGN
+        CALL    USCH
+        JC      IFNO
+IF1:    CPI     '*'             ;** or **$
+        JNZ     IF2
+        CALL    PEEK1
+        CPI     '*'
+        JNZ     IF2A
+        CALL    USNX
+        CALL    USNX
+        MVI     A,1
+        STA     UAST
+        LDA     ULD
+        ADI     2
+        STA     ULD
+        CALL    USCH
+        JC      IFOK
+        CPI     '$'
+        JNZ     IF3
+        CALL    USNX
+        MVI     A,1
+        STA     UDOL
+        LDA     ULD
+        INR     A
+        STA     ULD
+        JMP     IF3
+IF2A:   CALL    USCH            ;(a single *: not a field)
+        JMP     IFNO
+IF2:    CPI     '$'             ;$$
+        JNZ     IF3
+        CALL    PEEK1
+        CPI     '$'
+        JNZ     IFNO
+        CALL    USNX
+        CALL    USNX
+        MVI     A,1
+        STA     UDOL
+        LDA     ULD
+        ADI     2
+        STA     ULD
+IF3:    CALL    USCH            ;# and , before the point
+        JC      IF5
+        CPI     '#'
+        JZ      IF4
+        CPI     ','
+        JNZ     IF5
+        MVI     A,1
+        STA     UCOMMA
+IF4:    LDA     ULD
+        INR     A
+        STA     ULD
+        CALL    USNX
+        JMP     IF3
+IF5:    JC      IF8
+        CPI     '.'             ;the point and # after it
+        JNZ     IF7
+        CALL    PEEK1           ;('.' alone isn't a field)
+        CPI     '#'
+        JZ      IF5A
+        LDA     ULD
+        ORA     A
+        JZ      IFNO
+IF5A:   CALL    USNX
+        MVI     A,1
+        STA     UPT
+IF6:    CALL    USCH
+        JC      IF8
+        CPI     '#'
+        JNZ     IF7
+        LDA     URD
+        INR     A
+        STA     URD
+        CALL    USNX
+        JMP     IF6
+IF7:    CPI     '^'             ;^^^^
+        JNZ     IF7A
+        CALL    PEEK1
+        CPI     '^'
+        JNZ     IF7A
+        MVI     B,4
+IF7B:   CALL    USNX
+        DCR     B
+        JNZ     IF7B
+        MVI     A,1
+        STA     UEXP
+IF7A:   CALL    USCH            ;trailing + or -
+        JC      IF8
+        MOV     B,A
+        LDA     USGN
+        ORA     A
+        JNZ     IF8
+        MOV     A,B
+        CPI     '+'
+        MVI     C,2
+        JZ      IF7C
+        CPI     '-'
+        MVI     C,3
+        JNZ     IF8
+IF7C:   MOV     A,C
+        STA     USGN
+        CALL    USNX
+IF8:    LDA     ULD             ;a field needs a digit position
+        MOV     B,A
+        LDA     URD
+        ORA     B
+        JZ      IFNO
+IFOK:   XRA     A
+        STA     UKIND
+        RET                     ;(NC)
+IFNO:   LDA     USTART          ;not a field: back
+        STA     UPOS
+        CALL    USCH
+        STC
+        RET
+;
+FSTR1:  MVI     A,1             ;! : one character
+        JMP     FSTRX
+FSTRA:  MVI     A,255           ;& : all of it
+        JMP     FSTRX
+FSTRB:  MVI     B,2             ;\ spaces \ : 2 + n
+FSB1:   CALL    USNX
+        CALL    USCH
+        JC      IFNO
+        CPI     '\'
+        JZ      FSB2
+        CPI     ' '
+        JNZ     IFNO
+        INR     B
+        JMP     FSB1
+FSB2:   MOV     A,B
+FSTRX:  STA     UWID
+        CALL    USNX
+        MVI     A,1
+        STA     UKIND
+        ORA     A
+        RET
+;
+; PEEK1 -- A = the character after UPOS (0 at the end)
+;
+PEEK1:  CALL    USNX
+        CALL    USCH
+        PUSH    PSW
+        LDA     UPOS
+        DCR     A
+        STA     UPOS
+        POP     PSW
+        RNC
+        XRA     A
+        RET
+;
+; ================= strings =================
+;
+USSTR:  CALL    FRESTR          ;B = length, DE = text
+        LDA     UWID
+        MOV     C,A
+        CPI     255
+        JNZ     USS1
+        MOV     C,B             ;& : its own length
+USS1:   MOV     A,C
+        ORA     A
+        RZ
+        MOV     A,B             ;a character or a blank
+        ORA     A
+        MVI     A,' '
+        JZ      USS2
+        LDAX    D
+        INX     D
+        DCR     B
+USS2:   OUTCHR
+        DCR     C
+        JMP     USS1
+;
+; ================= numbers =================
+;
+USNUM:  LDA     VALTYP          ;digits: 7 single, 16 double
+        CPI     VTDBL
+        MVI     A,7
+        JNZ     USN0
+        MVI     A,16
+USN0:   STA     UMAX
+        CALL    FRCDBL
+        LDA     FACHI           ;the sign, then |x|
+        ANI     80H
+        STA     UNEG
+        LDA     FAC
+        ORA     A
+        JNZ     USN0A
+        XRA     A
+        STA     UNEG
+USN0A:  LDA     FACHI
+        ANI     7FH
+        STA     FACHI
+        LDA     UEXP
+        ORA     A
+        JNZ     USEXP
+;
+; fixed point: + 5*10^-(rd+1), then the digits, truncated at rd
+;
+        LDA     FAC
+        ORA     A
+        JZ      USF0
+        LXI     H,UVAL
+        CALL    MOVMF
+        LXI     H,HALF          ;0.5 * 10^-rd
+        CALL    MOVFM
+        LDA     URD
+        CMA
+        INR     A
+        MOV     E,A
+        MVI     D,0FFH
+        ORA     A
+        JNZ     USF1
+        MVI     D,0
+USF1:   CALL    POW10
+        LXI     H,UVAL
+        CALL    MOVAM
+        CALL    FADD
+        LDA     UMAX
+        STA     FOUTD
+        CALL    FDIGIT          ;FDIGS, FDEXP = K
+        JMP     USF2
+USF0:   LXI     H,FDIGS         ;0: "0" with K = 0
+        MVI     M,'0'
+        XRA     A
+        STA     FDEXP
+        MVI     A,1
+        STA     FOUTD
+;
+; USF2 -- lay out: the whole part's digits (with commas), then rd
+; fraction digits. The text is built in UBUF from the right.
+;
+USF2:   LXI     H,UBUF          ;left to right into UBUF
+        SHLD    UPTR
+        LDA     FDEXP           ;K
+        ORA     A
+        JM      USF5            ;no whole digits: "0" (if room)
+        INR     A               ;K+1 whole digits
+        MOV     C,A
+        MVI     B,0             ;digit index
+USF3:   CALL    UDIG            ;digit B (0 past the end)
+        CALL    UPUT
+        INR     B
+        DCR     C
+        JZ      USF6
+        LDA     UCOMMA          ;a comma every three from the right
+        ORA     A
+        JZ      USF3
+        MOV     A,C
+USF4:   SUI     3
+        JZ      USF4A
+        JNC     USF4
+        JMP     USF3
+USF4A:  MVI     A,','
+        CALL    UPUT
+        JMP     USF3
+USF5:   MVI     A,1             ;(a 0 before the point, droppable)
+        STA     UZERO
+        MVI     A,'0'
+        CALL    UPUT
+        LDA     FDEXP           ;fraction digits start at -K-1 zeros
+        INR     A
+        MOV     B,A             ;(B = digit index, negative)
+        JMP     USF7
+USF6:   XRA     A
+        STA     UZERO
+USF7:   LDA     UPT             ;the point and rd digits
+        ORA     A
+        JZ      USF9
+        MVI     A,'.'
+        CALL    UPUT
+        LDA     URD
+        MOV     C,A
+USF8:   MOV     A,C
+        ORA     A
+        JZ      USF9
+        CALL    UDIG
+        CALL    UPUT
+        INR     B
+        DCR     C
+        JMP     USF8
+USF9:   JMP     USOUT
+;
+; UDIG -- A = significant digit B ('0' outside 0..FOUTD-1)
+;
+UDIG:   MOV     A,B
+        ORA     A
+        JM      UDIG0
+        PUSH    H
+        LXI     H,FOUTD
+        CMP     M
+        POP     H
+        JNC     UDIG0
+        PUSH    H
+        LXI     H,FDIGS
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        MOV     A,M
+        POP     H
+        RET
+UDIG0:  MVI     A,'0'
+        RET
+;
+UPUT:   PUSH    H
+        LHLD    UPTR
+        MOV     M,A
+        INX     H
+        SHLD    UPTR
+        POP     H
+        RET
+;
+; exponent form: digits before the point = ld (less one for the sign
+; unless + or - is in the field), then rd after; E+nn
+;
+USEXP:  LDA     ULD
+        MOV     B,A
+        LDA     USGN
+        ORA     A
+        JNZ     USE1
+        DCR     B               ;(a place for the sign)
+        JP      USE1
+        MVI     B,0
+USE1:   MOV     A,B
+        STA     UEB
+        LDA     URD
+        ADD     B
+        JNZ     USE2
+        INR     A
+USE2:   STA     FOUTD
+        LDA     FAC
+        ORA     A
+        JZ      USE3
+        CALL    FDIGIT
+        JMP     USE4
+USE3:   LXI     H,FDIGS         ;0
+        LDA     FOUTD
+        MOV     B,A
+USE3A:  MVI     M,'0'
+        INX     H
+        DCR     B
+        JNZ     USE3A
+        LDA     UEB             ;(so the exponent comes out 0)
+        DCR     A
+        STA     FDEXP
+USE4:   LXI     H,UBUF
+        SHLD    UPTR
+        XRA     A
+        STA     UZERO
+        MVI     B,0
+        LDA     UEB
+        MOV     C,A
+        ORA     A
+        JZ      USE6
+USE5:   CALL    UDIG
+        CALL    UPUT
+        INR     B
+        DCR     C
+        JNZ     USE5
+USE6:   LDA     UPT
+        ORA     A
+        JZ      USE8
+        MVI     A,'.'
+        CALL    UPUT
+        LDA     URD
+        MOV     C,A
+USE7:   MOV     A,C
+        ORA     A
+        JZ      USE8
+        CALL    UDIG
+        CALL    UPUT
+        INR     B
+        DCR     C
+        JMP     USE7
+USE8:   MVI     A,'E'           ;E+nn: K - (digits before - 1)
+        CALL    UPUT
+        LDA     UEB
+        DCR     A
+        MOV     B,A
+        LDA     FDEXP
+        SUB     B
+        MVI     B,'+'
+        JP      USE9
+        MVI     B,'-'
+        CMA
+        INR     A
+USE9:   PUSH    PSW
+        MOV     A,B
+        CALL    UPUT
+        POP     PSW
+        MVI     B,'0'-1
+USE10:  INR     B
+        SUI     10
+        JNC     USE10
+        ADI     10+'0'
+        PUSH    PSW
+        MOV     A,B
+        CALL    UPUT
+        POP     PSW
+        CALL    UPUT
+;
+; USOUT -- UBUF..UPTR is the number: pad it to the field (blanks or
+; *), with the sign and $; or % and all of it if it doesn't fit
+;
+USOUT:  LHLD    UPTR            ;C = its length
+        XCHG
+        LXI     H,UBUF
+        SHLD    UFROM
+        MOV     A,E
+        SUB     L
+        MOV     C,A
+        MVI     B,0             ;B = sign and $ places
+        LDA     UDOL
+        ORA     A
+        JZ      UO1
+        INR     B
+UO1:    CALL    LEADSG
+        JZ      UO2
+        INR     B
+UO2:    LDA     UEXP
+        ORA     A
+        JNZ     UOX
+        LDA     URD             ;D = whole width: C - fraction + B
+        MOV     E,A
+        LDA     UPT
+        ORA     A
+        JZ      UO3
+        INR     E
+UO3:    MOV     A,C
+        SUB     E
+        ADD     B
+        MOV     D,A
+        LDA     USGN            ;E = the room: ULD (+1 for a leading +)
+        CPI     1
+        LDA     ULD
+        JNZ     UO4
+        INR     A
+UO4:    MOV     E,A
+        MOV     A,E
+        CMP     D
+        JNC     UO6             ;fits
+        LDA     UZERO           ;drop a leading 0?
+        ORA     A
+        JZ      UOVF
+        LHLD    UFROM
+        INX     H
+        SHLD    UFROM
+        DCR     C
+        DCR     D
+        MOV     A,E
+        CMP     D
+        JNC     UO6
+UOVF:   MVI     A,'%'
+        OUTCHR
+        JMP     USSIGN
+UO6:    SUB     D               ;pad
+UO7:    ORA     A
+        JZ      USSIGN
+        MOV     D,A
+        LDA     UAST
+        ORA     A
+        MVI     A,' '
+        JZ      UO8
+        MVI     A,'*'
+UO8:    OUTCHR
+        MOV     A,D
+        DCR     A
+        JMP     UO7
+UOX:    LDA     USGN            ;exponent form: the sign's place
+        ORA     A
+        JNZ     USSIGN
+        LDA     UNEG
+        ORA     A
+        JNZ     USSIGN
+        MVI     A,' '
+        OUTCHR
+        JMP     USSIGN
+;
+; LEADSG -- NZ if a sign is printed in front: a leading + in the
+; field, or - for a negative with no sign in the field
+;
+LEADSG: LDA     USGN
+        CPI     1
+        JZ      LSG1
+        ORA     A
+        JNZ     LSG0
+        LDA     UNEG
+        ORA     A
+        RET
+LSG0:   XRA     A
+        RET
+LSG1:   ORA     A               ;(A = 1: NZ)
+        RET
+;
+; USSIGN -- print the leading sign, $, the text (C chars from UFROM)
+; and a trailing sign
+;
+USSIGN: CALL    LEADSG
+        JZ      USG2
+        LDA     UNEG
+        ORA     A
+        MVI     A,'+'
+        JZ      USG1A
+        MVI     A,'-'
+USG1A:  OUTCHR
+USG2:   LDA     UDOL
+        ORA     A
+        JZ      USG3
+        MVI     A,'$'
+        OUTCHR
+USG3:   LHLD    UFROM
+USG4:   MOV     A,C
+        ORA     A
+        JZ      USG5
+        MOV     A,M
+        OUTCHR
+        INX     H
+        DCR     C
+        JMP     USG4
+USG5:   LDA     USGN            ;trailing
+        CPI     2
+        JZ      USG6
+        CPI     3
+        RNZ
+        LDA     UNEG
+        ORA     A
+        MVI     A,' '
+        JZ      USG7
+        MVI     A,'-'
+        JMP     USG7
+USG6:   LDA     UNEG
+        ORA     A
+        MVI     A,'+'
+        JZ      USG7
+        MVI     A,'-'
+USG7:   OUTCHR
+        RET
+;
+; ================= data =================
+;
+UFMT:   DW      0               ;the format's descriptor
+UPOS:   DB      0
+USTART: DB      0
+UFOUND: DB      0
+UKIND:  DB      0               ;1 string field, 0 numeric
+UWID:   DB      0
+USGN:   DB      0
+UAST:   DB      0
+UDOL:   DB      0
+UCOMMA: DB      0
+ULD:    DB      0
+URD:    DB      0
+UEXP:   DB      0
+UPT:    DB      0
+UMAX:   DB      0
+UNEG:   DB      0
+UZERO:  DB      0
+UEB:    DB      0
+UPTR:   DW      0
+UFROM:  DW      0
+UVAL:   DS      8
+;
+        END

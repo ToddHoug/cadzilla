@@ -1,0 +1,260 @@
+;
+; BINIT.MAC -- CZBASIC: start-up, and the buffers laid over it
+;
+; Linked first: START runs once, and then the memory it took (this
+; code, the page-zero template and the banner, and the space reserved
+; after them) becomes the run-time buffers below. Nothing here may use
+; them while START runs -- LINPRT's FOUT buffer and the string
+; temporaries stay in their own modules for that reason. The graphics
+; (from GFXBEG) are linked last, so /X can give their memory to
+; programs: the file blocks and the program follow the image ($MEMRY),
+; or with /X start at GFXBEG.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  BUF,KBUF,VSTK,VSTKE,EDBUF,DFCB2,DSKBUF,NMFCB,FDIR
+        PUBLIC  UBUF,CALARG,ASUBS,ADIMS,GARG,GTAB
+;
+        EXTRN   MEMTOP,CSTS,CIN,COUT,LOUT,$MEMRY,FILINI,TXTTAB,STKSIZ
+        EXTRN   STKINI,NEWC,STROUT,MEMSIZ,LINPRT,FILNAM,RUNFIL,READY
+        EXTRN   NFILES,RECSIZ,SYNCH,CHRGT2,OUTDO,GETYP,SIGN
+        EXTRN   NOGFX,GFXBEG
+        EXTRN   MOVB
+        EXTRN   SUBDE
+;
+        CSEG
+;
+; ================= start-up =================
+;
+START:  LHLD    BDOS+1          ;top of the TPA, a page boundary
+        MVI     L,0
+        SHLD    MEMTOP
+        SPHL
+        LXI     H,RSTCOD        ;page-zero helpers, RST 1..6
+        LXI     D,0008H
+        MVI     B,RSTEND-RSTCOD
+        CALL    MOVB
+        LHLD    WBOOT+1         ;BIOS jump table (+3 = WBOOT)
+        LXI     D,3
+        DAD     D
+        SHLD    CSTS+1          ;CONST
+        DAD     D
+        SHLD    CIN+1           ;CONIN
+        DAD     D
+        SHLD    COUT+1          ;CONOUT
+        DAD     D
+        SHLD    LOUT+1          ;LIST
+        CALL    SWITCH          ;command line: file name and /M: /F: /S:
+        LHLD    $MEMRY          ;the file blocks, then the program: after
+        LDA     NOGFX           ;the image, or with /X over the graphics
+        ORA     A
+        JZ      ST1
+        LXI     H,GFXBEG
+ST1:    CALL    FILINI
+        XRA     A
+        MOV     M,A             ;(TXTTAB-1) = 0
+        INX     H
+        SHLD    TXTTAB
+        LXI     H,512           ;default stack size
+        SHLD    STKSIZ
+        CALL    STKINI          ;MEMSIZ, STKTOP from MEMTOP, STKSIZ
+        CALL    NEWC            ;empty program, CLEAR
+        LXI     H,BANNER
+        CALL    STROUT
+        LHLD    TXTTAB          ;bytes free = MEMSIZ - TXTTAB - 2
+        XCHG
+        LHLD    MEMSIZ
+        CALL    SUBDE
+        DCX     H
+        DCX     H
+        CALL    LINPRT
+        LXI     H,FREMSG
+        CALL    STROUT
+        LDA     FILNAM          ;a program named on the command line?
+        ORA     A
+        JNZ     RUNFIL          ;yes: RUN it (BDISK.MAC)
+        JMP     READY
+;
+; SWITCH -- parse the CP/M command tail at DBUFF: an optional program
+; name, then /F:files /M:top /S:recsize /X. /F: and /S: are kept for
+; the file module; /M: lowers MEMTOP; /X sets NOGFX.
+;
+SWITCH: LXI     H,DBUFF
+        MOV     C,M             ;length
+        INX     H
+        MOV     E,L             ;terminate the tail
+        MOV     D,H
+        MOV     A,C
+        ADD     E
+        MOV     E,A
+        XRA     A
+        STAX    D
+        LXI     D,FILNAM
+SWBLK:  MOV     A,M
+        ORA     A
+        RZ
+        CPI     ' '
+        INX     H
+        JZ      SWBLK
+        CPI     '/'
+        JZ      SWOPT
+        MVI     B,14            ;the program name, up to a blank or /
+SWNAM:  STAX    D
+        INX     D
+        MOV     A,M
+        ORA     A
+        JZ      SWNEND
+        CPI     ' '
+        JZ      SWNEND
+        CPI     '/'
+        JZ      SWNEND
+        INX     H
+        DCR     B
+        JNZ     SWNAM
+SWNEND: XRA     A
+        STAX    D
+        JMP     SWBLK
+SWOPT:  MOV     B,M             ;option letter
+        INX     H
+        MOV     A,B             ;/X: no graphics
+        CPI     'X'
+        JNZ     SWOP1
+        STA     NOGFX
+        JMP     SWBLK
+SWOP1:  MOV     A,M
+        CPI     ':'
+        RNZ                     ;malformed: ignore the rest
+        INX     H
+        PUSH    B
+        CALL    SWNUM           ;DE = value
+        POP     B
+        MOV     A,B
+        CPI     'M'
+        JNZ     SWOF
+        XCHG                    ;/M: highest address used, +1
+        INX     H
+        SHLD    MEMTOP
+        SPHL
+        XCHG
+        JMP     SWBLK
+SWOF:   CPI     'F'
+        JNZ     SWOS
+        MOV     A,E
+        STA     NFILES
+        JMP     SWBLK
+SWOS:   CPI     'S'
+        JNZ     SWBLK
+        XCHG
+        SHLD    RECSIZ
+        XCHG
+        JMP     SWBLK
+;
+; SWNUM -- DE = decimal or &H hex number at HL
+;
+SWNUM:  LXI     D,0
+        MOV     A,M
+        CPI     '&'
+        JNZ     SWDEC
+        INX     H
+        INX     H               ;(the H)
+SWHEX:  MOV     A,M
+        SUI     '0'
+        RC
+        CPI     10
+        JC      SWHX1
+        SUI     'A'-'0'-10
+        CPI     10
+        RC
+        CPI     16
+        RNC
+SWHX1:  XCHG
+        DAD     H
+        DAD     H
+        DAD     H
+        DAD     H
+        ADD     L
+        MOV     L,A
+        XCHG
+        INX     H
+        JMP     SWHEX
+SWDEC:  MOV     A,M
+        SUI     '0'
+        RC
+        CPI     10
+        RNC
+        PUSH    H
+        MOV     H,D             ;DE = DE*10 + digit
+        MOV     L,E
+        DAD     H
+        DAD     H
+        DAD     D
+        DAD     H
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        XCHG
+        POP     H
+        INX     H
+        JMP     SWDEC
+;
+BANNER: DB      'CZBASIC 1.0 for CADzilla',CR,LF
+        DB      '[MBASIC 5.21 compatible, CP/M]',CR,LF,0
+FREMSG: DB      ' Bytes free',CR,LF,0
+;
+; ================= page-zero helpers (copied to 0008H) =================
+;
+RSTCOD:
+; RST 1 (08H): SYNCHK
+        JMP     SYNCH
+        DB      0,0,0,0,0
+; RST 2 (10H): CHRGET -- the fast path for tokens and letters
+        INX     H
+        MOV     A,M
+        CPI     ':'
+        RNC
+        JMP     CHRGT2
+; RST 3 (18H): COMPAR -- HL:DE, Z if equal, C if HL < DE
+        MOV     A,H
+        SUB     D
+        RNZ
+        MOV     A,L
+        SUB     E
+        RET
+        DB      0,0
+; RST 4 (20H): OUTCHR
+        JMP     OUTDO
+        DB      0,0,0,0,0
+; RST 5 (28H): GETYPE
+        JMP     GETYP
+        DB      0,0,0,0,0
+; RST 6 (30H): FSIGN
+        JMP     SIGN
+        DB      0,0,0,0,0
+RSTEND:
+;
+; ================= the run-time buffers, over all of the above =================
+;
+; EDIT works in BUF itself (it takes the text from there); LOAD/SAVE's
+; record and the directory record for FILES, NAME and KILL use CP/M's
+; own buffer at DBUFF (both set the DMA before every BDOS call).
+;
+BUF     EQU     START+1         ;console line (BUF-1 is read)    BUFLEN+32
+KBUF    EQU     BUF+256+32      ;a crunched line                 320+8
+VSTK    EQU     KBUF+328        ;the value stack (BEVAL)         256
+VSTKE   EQU     VSTK+256
+DFCB2   EQU     VSTKE           ;LOAD/SAVE FCB (BDISK)           36
+NMFCB   EQU     DFCB2+36        ;NAME/FILES FCB (BFILE)          36
+UBUF    EQU     NMFCB+36        ;PRINT USING's field (BUSING)    48
+CALARG  EQU     UBUF+48         ;CALL's arguments (BMISC)        32
+ASUBS   EQU     CALARG+32       ;subscripts (BVAR)               32
+ADIMS   EQU     ASUBS+32        ;dimensions                      32
+GARG    EQU     ADIMS+32        ;CZ arguments (BGFX)             34
+GTAB    EQU     GARG+34         ;CZ parameter tables             12
+EDBUF   EQU     BUF             ;EDIT's line (BEDIT)
+DSKBUF  EQU     DBUFF           ;LOAD/SAVE's record (BDISK)
+FDIR    EQU     DBUFF           ;directory record (BFILE)
+OVLEND  EQU     GTAB+12
+;
+        DS      OVLEND-$        ;(the rest of the buffers' space)
+;
+        END     START

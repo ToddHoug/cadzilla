@@ -1,0 +1,716 @@
+;
+; BEDIT.MAC -- CZBASIC: EDIT, AUTO, RENUM
+;
+; EDIT n shows the line number and works on the line's text with
+; MBASIC's subcommands (n = an optional repeat count):
+;   space    n characters on          DEL/BS  n characters back
+;   I        insert until ESC         X       to the end, then insert
+;   H        delete the rest, insert  nD      delete n (shown \like\)
+;   nSc      on to the n-th c         nKc     delete up to the n-th c
+;   nC       change n characters      L       list, start again
+;   A        start again unchanged    Q       quit unchanged
+;   E        keep it (quietly)        CR      keep it (showing the rest)
+; A Syntax error in a program line starts EDIT on that line.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  EDIT,EDERR,AUTO,RENUM
+;
+        EXTRN   BUF,KBUF,DOTLIN,AUTFLG,AUTLIN,AUTINC,TXTTAB,ERRLIN
+        EXTRN   FNDLIN,DETOK,CRUNCH,INSLIN,UNLINK,SKPITM,CLEARC
+        EXTRN   LINREF,LINPRT,STROUT,CRLF,OUTCON,CONIN,READY,MAIN
+        EXTRN   ULERR,FCERR,SNERR,LINGET,UPPER
+        EXTRN   EDBUF           ;(BINIT.MAC)
+        EXTRN   LHLI,LHLM
+;
+        CSEG
+;
+; ================= EDIT =================
+;
+EDIT:   CALL    LINREF          ;DE = the line number
+        XCHG
+        SHLD    EDNUM
+EDIT0:  LHLD    EDNUM
+        XCHG
+        CALL    FNDLIN
+        JNC     ULERR
+        XCHG
+        SHLD    DOTLIN
+        XCHG
+        CALL    DETOK           ;BUF = "nnnn text"
+        LXI     H,BUF           ;skip "nnnn " -- the text to edit
+EDSK:   MOV     A,M
+        INX     H
+        CPI     ' '
+        JNZ     EDSK
+        LXI     D,EDBUF         ;EDBUF = the text, EDLEN its length
+        MVI     B,0
+EDCP:   MOV     A,M
+        STAX    D
+        ORA     A
+        JZ      EDCP1
+        INX     H
+        INX     D
+        INR     B
+        JMP     EDCP
+EDCP1:  MOV     A,B
+        STA     EDLEN
+EDREST: XRA     A               ;cursor at the start
+        STA     EDPOS
+        CALL    EDNUMP          ;"nnnn "
+;
+; the command loop
+;
+EDCMD:  MVI     C,0             ;a count
+EDC1:   CALL    CONIN
+        CPI     '0'
+        JC      EDC2
+        CPI     '9'+1
+        JNC     EDC2
+        SUI     '0'             ;C = C*10 + digit
+        MOV     B,A
+        MOV     A,C
+        ADD     A
+        ADD     A
+        ADD     C
+        ADD     A
+        ADD     B
+        MOV     C,A
+        JMP     EDC1
+EDC2:   MOV     B,A
+        MOV     A,C             ;(no count: 1)
+        ORA     A
+        JNZ     EDC3
+        INR     C
+EDC3:   MOV     A,B
+        CALL    UPPER
+        CPI     ' '
+        JZ      EDSPC
+        CPI     CR
+        JZ      EDCR
+        CPI     BS
+        JZ      EDBACK
+        CPI     DEL
+        JZ      EDBACK
+        CPI     'I'
+        JZ      EDINS
+        CPI     'X'
+        JZ      EDXX
+        CPI     'H'
+        JZ      EDHH
+        CPI     'D'
+        JZ      EDDEL
+        CPI     'S'
+        JZ      EDSRCH
+        CPI     'K'
+        JZ      EDKILL
+        CPI     'C'
+        JZ      EDCHG
+        CPI     'L'
+        JZ      EDLIST
+        CPI     'A'
+        JZ      EDIT0
+        CPI     'Q'
+        JZ      EDQUIT
+        CPI     'E'
+        JZ      EDEND
+        MVI     A,7             ;anything else: the bell
+        CALL    OUTCON
+        JMP     EDCMD
+;
+; space: show and pass n characters
+;
+EDSPC:  CALL    EDFWD
+        DCR     C
+        JNZ     EDSPC
+        JMP     EDCMD
+;
+; EDFWD -- show the character at the cursor and pass it (not past
+; the end). Keeps C.
+;
+EDFWD:  CALL    EDAT
+        RZ
+        CALL    OUTCON
+        LXI     H,EDPOS
+        INR     M
+        RET
+;
+; EDAT -- A = the character at the cursor, Z at the end; HL at it
+;
+EDAT:   LDA     EDPOS
+        MOV     B,A
+        LDA     EDLEN
+        CMP     B
+        RZ
+        CALL    EDPTR
+        MOV     A,M
+        ORA     A               ;(characters aren't 0: NZ)
+        RET
+EDPTR:  LDA     EDPOS
+        LXI     H,EDBUF
+        ADD     L
+        MOV     L,A
+        RNC
+        INR     H
+        RET
+;
+; DEL/BS: n back (the passed characters shown again, backwards)
+;
+EDBACK: LDA     EDPOS
+        ORA     A
+        JZ      EDCMD
+        DCR     A
+        STA     EDPOS
+        CALL    EDPTR
+        MOV     A,M
+        CALL    OUTCON
+        DCR     C
+        JNZ     EDBACK
+        JMP     EDCMD
+;
+; I: insert until ESC (CR ends the edit)
+;
+EDINS:  CALL    CONIN
+        CPI     ESC
+        JZ      EDCMD
+        CPI     CR
+        JZ      EDCR
+        CPI     BS
+        JZ      EDIBS
+        CPI     DEL
+        JZ      EDIBS
+        MOV     B,A
+        LDA     EDLEN           ;room?
+        CPI     250
+        JNC     EDIFUL
+        CALL    EDOPEN          ;insert B at the cursor
+        MOV     A,B
+        CALL    OUTCON
+        JMP     EDINS
+EDIFUL: MVI     A,7
+        CALL    OUTCON
+        JMP     EDINS
+EDIBS:  LDA     EDPOS           ;erase back while inserting
+        ORA     A
+        JZ      EDINS
+        DCR     A
+        STA     EDPOS
+        CALL    EDPTR
+        MOV     A,M
+        PUSH    PSW
+        MVI     C,1
+        CALL    EDCUT
+        POP     PSW
+        MVI     A,BS
+        CALL    OUTCON
+        JMP     EDINS
+;
+; EDOPEN -- insert character B at the cursor, cursor after it
+;
+EDOPEN: LDA     EDLEN
+        LXI     H,EDPOS
+        SUB     M               ;characters to move
+        MOV     C,A
+        LXI     H,EDBUF         ;from the end down
+        LDA     EDLEN
+        ADD     L
+        MOV     L,A
+        JNC     EDO1
+        INR     H
+EDO1:   MOV     A,C
+        ORA     A
+        JZ      EDO2
+        DCX     H
+        MOV     A,M
+        INX     H
+        MOV     M,A
+        DCX     H
+        DCR     C
+        JMP     EDO1
+EDO2:   CALL    EDPTR
+        MOV     M,B
+        LXI     H,EDLEN
+        INR     M
+        LXI     H,EDPOS
+        INR     M
+        RET
+;
+; EDCUT -- remove C characters at the cursor
+;
+EDCUT:  LDA     EDLEN           ;(not past the end)
+        LXI     H,EDPOS
+        SUB     M
+        CMP     C
+        JNC     EDCU1
+        MOV     C,A
+EDCU1:  MOV     A,C
+        ORA     A
+        RZ
+        LDA     EDLEN
+        SUB     C
+        STA     EDLEN
+        LXI     H,EDPOS
+        SUB     M               ;characters after the cut
+        MOV     B,A
+        CALL    EDPTR
+        MOV     E,L
+        MOV     D,H
+        MOV     A,C
+        ADD     L
+        MOV     L,A
+        JNC     EDCU2
+        INR     H
+EDCU2:  MOV     A,B
+        ORA     A
+        RZ
+        MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     B
+        JMP     EDCU2
+;
+; X: to the end, then insert. H: delete the rest, then insert.
+;
+EDXX:   CALL    EDAT
+        JZ      EDINS
+        CALL    EDFWD
+        JMP     EDXX
+EDHH:   LDA     EDPOS
+        STA     EDLEN
+        JMP     EDINS
+;
+; nD: delete n, shown between backslashes
+;
+EDDEL:  MVI     A,'\'
+        CALL    OUTCON
+EDD1:   CALL    EDAT
+        JZ      EDD2
+        CALL    OUTCON
+        PUSH    B
+        MVI     C,1
+        CALL    EDCUT
+        POP     B
+        DCR     C
+        JNZ     EDD1
+EDD2:   MVI     A,'\'
+        CALL    OUTCON
+        JMP     EDCMD
+;
+; nSc: on to (just before) the n-th c after the cursor
+;
+EDSRCH: CALL    CONIN
+        STA     EDCHR
+        LDA     EDPOS           ;(the character here doesn't count)
+        STA     EDSAVE
+EDS1:   CALL    EDAT
+        JZ      EDS3
+        LDA     EDPOS           ;(not the first one: we're on it)
+        PUSH    H
+        LXI     H,EDSAVE
+        CMP     M
+        POP     H
+        MOV     A,M
+        JZ      EDS2
+        LXI     H,EDCHR
+        CMP     M
+        JNZ     EDS2
+        DCR     C
+        JZ      EDCMD
+EDS2:   CALL    EDFWD
+        JMP     EDS1
+EDS3:   JMP     EDCMD
+;
+; nKc: delete up to the n-th c (shown between backslashes)
+;
+EDKILL: CALL    CONIN
+        STA     EDCHR
+        MVI     A,'\'
+        CALL    OUTCON
+        LDA     EDPOS
+        STA     EDSAVE
+EDK1:   CALL    EDAT
+        JZ      EDK3
+        PUSH    H
+        LXI     H,EDSAVE
+        LDA     EDPOS
+        CMP     M
+        POP     H
+        MOV     A,M
+        JZ      EDK2
+        PUSH    H
+        LXI     H,EDCHR
+        CMP     M
+        POP     H
+        JNZ     EDK2
+        DCR     C
+        JZ      EDK3
+EDK2:   CALL    OUTCON
+        PUSH    B
+        MVI     C,1
+        CALL    EDCUT
+        POP     B
+        JMP     EDK1
+EDK3:   MVI     A,'\'
+        CALL    OUTCON
+        JMP     EDCMD
+;
+; nC: change the next n characters to what's typed
+;
+EDCHG:  CALL    EDAT
+        JZ      EDCMD
+        CALL    CONIN
+        CPI     ESC
+        JZ      EDCMD
+        MOV     M,A
+        CALL    EDFWD
+        DCR     C
+        JNZ     EDCHG
+        JMP     EDCMD
+;
+; L: show the rest, a new line, and start again at the front
+;
+EDLIST: CALL    EDAT
+        JZ      EDL1
+        CALL    EDFWD
+        JMP     EDLIST
+EDL1:   CALL    CRLF
+        JMP     EDREST
+;
+; Q: leave it unchanged
+;
+EDQUIT: CALL    CRLF
+        JMP     READY
+;
+; CR: show the rest, then keep it. E: keep it.
+;
+EDCR:   CALL    EDAT
+        JZ      EDEND
+        CALL    EDFWD
+        JMP     EDCR
+EDEND:  CALL    CRLF
+        CALL    EDPTR           ;the new text: crunch it and replace
+        LDA     EDLEN           ;the line
+        LXI     H,EDBUF
+        ADD     L
+        MOV     L,A
+        JNC     EDE1
+        INR     H
+EDE1:   MVI     M,0
+        LXI     H,EDBUF
+        CALL    CRUNCH
+        LHLD    EDNUM
+        XCHG
+        CALL    INSLIN
+        JMP     MAIN
+;
+; EDNUMP -- print "nnnn "
+;
+EDNUMP: LHLD    EDNUM
+        CALL    LINPRT
+        MVI     A,' '
+        JMP     OUTCON
+;
+; EDERR -- a Syntax error in line ERRLIN: EDIT it
+;
+EDERR:  LHLD    ERRLIN
+        SHLD    EDNUM
+        JMP     EDIT0
+;
+; ================= AUTO =================
+;
+; AUTO [start][,inc] -- number the lines typed (".": the current line)
+;
+AUTO:   LXI     D,10
+        JZ      AUT2            ;AUTO alone: 10,10
+        CPI     ','
+        JZ      AUT2
+        CALL    LINREF          ;the start
+AUT2:   XCHG
+        SHLD    AUTLIN
+        XCHG
+        LXI     D,10
+        MOV     A,M
+        CPI     ','
+        JNZ     AUT3
+        CHRGET
+        CALL    LINREF          ;the increment
+        MOV     A,D
+        ORA     E
+        JZ      FCERR
+AUT3:   XCHG
+        SHLD    AUTINC
+        MVI     A,1
+        STA     AUTFLG
+        JMP     MAIN
+;
+; ================= RENUM =================
+;
+; RENUM [new][,[old][,inc]] -- lines from old on get numbers new,
+; new+inc, ... and every line-number reference follows them
+;
+RENUM:  LXI     D,10            ;defaults: 10, the first line, 10
+        XCHG
+        SHLD    RNNEW
+        SHLD    RNINC
+        LXI     H,0
+        SHLD    RNOLD
+        XCHG
+        JZ      RN4
+        CPI     ','
+        JZ      RN1
+        CALL    LINREF          ;new
+        XCHG
+        SHLD    RNNEW
+        XCHG
+        MOV     A,M
+        CPI     ','
+        JNZ     RN4
+RN1:    CHRGET
+        JZ      RN4
+        CPI     ','
+        JZ      RN2
+        CALL    LINREF          ;old
+        XCHG
+        SHLD    RNOLD
+        XCHG
+        MOV     A,M
+        CPI     ','
+        JNZ     RN4
+RN2:    CHRGET
+        CALL    LINREF          ;increment
+        MOV     A,D
+        ORA     E
+        JZ      FCERR
+        XCHG
+        SHLD    RNINC
+RN4:    CALL    UNLINK          ;numbers, not pointers
+        ; the new numbers must stay above every line before old and
+        ; below 65530
+        LHLD    RNOLD
+        XCHG
+        CALL    FNDLIN          ;HL = the first line renumbered
+        SHLD    RNFST
+        LHLD    TXTTAB          ;the last line before it
+        XCHG
+        LXI     B,0             ;(its number, 0 if none)
+        LHLD    RNFST
+        XCHG
+        LHLD    TXTTAB
+RN5:    MOV     A,L
+        CMP     E
+        JNZ     RN6
+        MOV     A,H
+        CMP     D
+        JZ      RN7
+RN6:    INX     H
+        INX     H
+        MOV     C,M
+        INX     H
+        MOV     B,M
+        DCX     H
+        DCX     H
+        DCX     H
+        CALL    LHLM
+        JMP     RN5
+RN7:    LHLD    RNNEW           ;new must be above it
+        MOV     A,B
+        ORA     C
+        JZ      RN8
+        MOV     A,C
+        SUB     L
+        MOV     A,B
+        SBB     H
+        JNC     FCERR
+RN8:    LHLD    RNFST           ;and the last new number < 65530
+        CALL    RNCNT           ;DE = lines from RNFST on
+        MOV     A,D
+        ORA     E
+        JZ      RNDONE
+        DCX     D
+        LHLD    RNINC
+        CALL    RNMUL           ;HL = (lines-1)*inc, C on overflow
+        JC      FCERR
+        XCHG
+        LHLD    RNNEW
+        DAD     D
+        JC      FCERR
+        LXI     D,-65530
+        DAD     D
+        JC      FCERR
+        ; every reference: to its new number
+        LHLD    TXTTAB
+RN10:   MOV     A,M             ;link 0: done
+        INX     H
+        ORA     M
+        JZ      RN20
+        INX     H
+        MOV     E,M             ;(this line's number, for messages)
+        INX     H
+        MOV     D,M
+        XCHG
+        SHLD    RNTHIS
+        XCHG
+        INX     H
+RN11:   MOV     A,M
+        ORA     A
+        JZ      RN14
+        CPI     TCLIN
+        JNZ     RN13
+        PUSH    H
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        CALL    RNMAP           ;DE = its new number (or the same)
+        POP     H
+        INX     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        JMP     RN11
+RN13:   CALL    SKPITM
+        JMP     RN11
+RN14:   INX     H               ;the next line
+        JMP     RN10
+RN20:   LHLD    RNFST           ;then the lines themselves
+        XCHG
+        LHLD    RNNEW
+RN21:   XCHG                    ;HL = a line, DE = its new number
+        MOV     A,M
+        INX     H
+        ORA     M
+        JZ      RNDONE
+        INX     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        DCX     H
+        DCX     H
+        DCX     H
+        CALL    LHLM            ;next line
+        XCHG
+        PUSH    D
+        XCHG
+        LHLD    RNINC
+        DAD     D
+        POP     D
+        JMP     RN21
+RNDONE: CALL    CLEARC
+        JMP     READY
+;
+; RNMAP -- DE = a referenced number: its new one if it is a line from
+; RNFST on; unchanged below it; "Undefined line n in m" if missing
+;
+RNMAP:  PUSH    H
+        LHLD    RNFST
+        LXI     B,0             ;index
+RNM1:   MOV     A,M
+        INX     H
+        ORA     M
+        JZ      RNM4            ;not there
+        INX     H
+        MOV     A,M
+        INX     H
+        CMP     E
+        JNZ     RNM2
+        MOV     A,M
+        CMP     D
+        JZ      RNM3
+RNM2:   DCX     H               ;next line
+        DCX     H
+        DCX     H
+        CALL    LHLM
+        INX     B
+        JMP     RNM1
+RNM3:   MOV     D,B             ;new = RNNEW + index * RNINC
+        MOV     E,C
+        LHLD    RNINC
+        CALL    RNMUL
+        XCHG
+        LHLD    RNNEW
+        DAD     D
+        XCHG
+        POP     H
+        RET
+RNM4:   PUSH    D               ;a line before RNFST is fine
+        LHLD    RNFST
+        INX     H
+        CALL    LHLI
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        POP     D
+        JC      RNM5
+        PUSH    D               ;"Undefined line n in m"
+        LXI     H,RNUMSG
+        CALL    STROUT
+        POP     H
+        PUSH    H
+        CALL    LINPRT
+        LXI     H,RNINM
+        CALL    STROUT
+        LHLD    RNTHIS
+        CALL    LINPRT
+        CALL    CRLF
+        POP     D
+RNM5:   POP     H
+        RET
+;
+; RNCNT -- DE = the lines from HL to the end
+;
+RNCNT:  LXI     D,0
+RNC1:   MOV     A,M
+        INX     H
+        ORA     M
+        RZ
+        DCX     H
+        CALL    LHLM
+        INX     D
+        JMP     RNC1
+;
+; RNMUL -- HL = DE * HL (unsigned), C on overflow
+;
+RNMUL:  MOV     B,H
+        MOV     C,L
+        LXI     H,0
+        MVI     A,16
+RNML1:  DAD     H
+        RC
+        PUSH    PSW
+        MOV     A,E
+        ADD     A
+        MOV     E,A
+        MOV     A,D
+        RAL
+        MOV     D,A
+        JNC     RNML2
+        DAD     B
+        JC      RNML3
+RNML2:  POP     PSW
+        DCR     A
+        JNZ     RNML1
+        ORA     A
+        RET
+RNML3:  POP     PSW
+        STC
+        RET
+;
+; ================= data =================
+;
+RNUMSG: DB      'Undefined line ',0
+RNINM:  DB      ' in ',0
+EDNUM:  DW      0
+EDPOS:  DB      0
+EDLEN:  DB      0
+EDSAVE: DB      0
+EDCHR:  DB      0
+RNNEW:  DW      0
+RNOLD:  DW      0
+RNINC:  DW      0
+RNFST:  DW      0
+RNTHIS: DW      0
+;
+        END

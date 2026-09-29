@@ -1,0 +1,1214 @@
+;
+; BFLT.MAC -- CZBASIC: floating point (single and double) and type
+; conversion
+;
+; Numbers are in Microsoft Binary Format, as MBASIC keeps them: a
+; mantissa, low byte first, with the sign in bit 7 of its top byte
+; (where the always-1 top bit would be), then an exponent byte biased
+; by 128 (0 means the number is 0). Single: 3 mantissa bytes, double:
+; 7. In FAC they end at the same place (FACHI, FAC), so a single's
+; bytes are the top half of a double's:
+;
+;       FACOV DFAC+0..3 FACLO FACLO+1 FACHI FAC
+;       |-- double mantissa ----------------| exp
+;                       |-- single ---------| exp
+;
+; One set of routines serves both: they work on NB = VALTYP bytes
+; below the exponent (4 or 8), the lowest of which is a guard byte
+; for rounding (FACOV for a double, DFAC+3 for a single). ARG has the
+; same layout. The operation's sign is kept apart (FACSGN, ARGSGN)
+; while the mantissas carry their top bit.
+;
+; Binary operations: FAC = ARG op FAC, both of type VALTYP.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  FADD,FSUB,FMUL,FDIV,FCMP,FNEG,FNORM,FZERO
+        PUBLIC  MOVFM,MOVMF,MOVAM,MOVAF,MOVFA,FACADR,SWAPFA
+        PUBLIC  FRCINT,FRCSNG,FRCDBL,FRCTYP,FLTINT,FLTUNS,FIXFLT
+        PUBLIC  INTFLT,FSUBS,GUARD,FSUB1,UNPKF,UNPKA,FROUND,FPACK
+;
+        EXTRN   DFAC,FACLO,FACHI,FAC,FACOV,ARG,ARGLO,ARGHI,ARGX
+        EXTRN   VALTYP,FACSGN,ARGSGN,WARN,OVERR,TMERR
+        EXTRN   MOVB
+        EXTRN   NEGHL,SUBDE
+;
+        CSEG
+;
+; ================= moving values =================
+;
+; FACADR -- HL = the first byte of a value of type VALTYP in FAC
+; (ARGADR: in ARG). B = the byte count.
+;
+FACADR: LXI     H,FACLO
+        LDA     VALTYP
+        MOV     B,A
+        CPI     VTDBL
+        RNZ
+        LXI     H,DFAC
+        RET
+ARGADR: LXI     H,ARGLO
+        LDA     VALTYP
+        MOV     B,A
+        CPI     VTDBL
+        RNZ
+        LXI     H,ARG
+        RET
+;
+; MOVFM -- FAC = the value at HL. MOVMF -- the value at HL = FAC.
+; MOVAM -- ARG = the value at HL. MOVAF -- ARG = FAC. MOVFA -- FAC =
+; ARG. All by VALTYP; keep HL.
+;
+MOVFM:  PUSH    H
+        PUSH    D
+        XCHG
+        CALL    FACADR
+        XCHG
+        JMP     MOVE
+MOVMF:  PUSH    H
+        PUSH    D
+        XCHG
+        CALL    FACADR
+        JMP     MOVE
+MOVAM:  PUSH    H
+        PUSH    D
+        XCHG
+        CALL    ARGADR
+        XCHG
+        JMP     MOVE
+MOVAF:  PUSH    H
+        PUSH    D
+        CALL    ARGADR
+        XCHG
+        CALL    FACADR
+        JMP     MOVE
+MOVFA:  PUSH    H
+        PUSH    D
+        CALL    FACADR
+        XCHG
+        CALL    ARGADR
+MOVE:   CALL    MOVB            ;B bytes from HL to DE
+        POP     D
+        POP     H
+        RET
+;
+; SWAPFA -- exchange FAC and ARG (all 9 bytes with the guard) and
+; their signs
+;
+SWAPFA: PUSH    H
+        PUSH    D
+        LXI     H,FACOV
+        LXI     D,ARG-1         ;(ARGOV)
+        MVI     B,9
+SWP1:   LDAX    D
+        MOV     C,M
+        MOV     M,A
+        MOV     A,C
+        STAX    D
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     SWP1
+        LHLD    FACSGN          ;(FACSGN, ARGSGN adjacent)
+        MOV     A,L
+        MOV     L,H
+        MOV     H,A
+        SHLD    FACSGN
+        POP     D
+        POP     H
+        RET
+;
+; ================= mantissa helpers (NB = VALTYP bytes) =================
+;
+; GFACG / GARGG -- HL = FAC's / ARG's guard byte (the exponent - NB)
+;
+GFACG:  LXI     H,FAC
+        JMP     GG
+GARGG:  LXI     H,ARGX
+GG:     LDA     VALTYP
+        CMA
+        INR     A
+        ADD     L
+        MOV     L,A
+        MVI     A,0FFH
+        ADC     H
+        MOV     H,A
+        RET
+;
+; ADDMAN -- FAC mantissa += ARG mantissa (NB bytes): C = carry out
+; SUBMAN -- FAC mantissa -= ARG mantissa: C = borrow
+;
+ADDMAN: CALL    GARGG
+        XCHG
+        CALL    GFACG
+        LDA     VALTYP
+        MOV     B,A
+        ORA     A
+ADM1:   LDAX    D
+        ADC     M
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     ADM1
+        RET
+SUBMAN: CALL    GARGG
+        XCHG
+        CALL    GFACG
+        LDA     VALTYP
+        MOV     B,A
+        ORA     A
+SBM1:   LDAX    D
+        MOV     C,A
+        MOV     A,M
+        SBB     C
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     SBM1
+        RET
+;
+; NEGMAN -- FAC mantissa = 0 - FAC mantissa
+;
+NEGMAN: CALL    GFACG
+        LDA     VALTYP
+        MOV     B,A
+        ORA     A
+NGM1:   MVI     A,0
+        SBB     M
+        MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     NGM1
+        RET
+;
+; SHRFAC -- FAC mantissa >>= 1, C into the top bit; C = the bit out
+; SHLFAC -- FAC mantissa <<= 1, C into the guard's low bit; C = out
+;
+SHRFAC: LXI     H,FACHI
+        LDA     VALTYP
+        MOV     B,A
+SHR1:   MOV     A,M
+        RAR
+        MOV     M,A
+        DCX     H
+        DCR     B
+        JNZ     SHR1
+        RET
+SHLFAC: PUSH    PSW
+        CALL    GFACG
+        LDA     VALTYP
+        MOV     B,A
+        POP     PSW
+SHL1:   MOV     A,M
+        RAL
+        MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     SHL1
+        RET
+;
+; SHRARG -- ARG mantissa >>= A bits (zeros in at the top)
+;
+SHRARG: ORA     A
+        RZ
+        MOV     C,A
+SHRA1:  MOV     A,C             ;whole bytes first
+        CPI     8
+        JC      SHRA4
+        SUI     8
+        MOV     C,A
+        CALL    GARGG           ;move each byte down one
+        LDA     VALTYP
+        DCR     A
+        MOV     B,A
+SHRA2:  INX     H
+        MOV     A,M
+        DCX     H
+        MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     SHRA2
+        MVI     M,0             ;(top = 0)
+        JMP     SHRA1
+SHRA4:  ORA     A
+        RZ
+SHRA5:  PUSH    B               ;then single bits
+        LXI     H,ARGHI
+        LDA     VALTYP
+        MOV     B,A
+        ORA     A
+SHRA6:  MOV     A,M
+        RAR
+        MOV     M,A
+        DCX     H
+        DCR     B
+        JNZ     SHRA6
+        POP     B
+        DCR     C
+        JNZ     SHRA5
+        RET
+;
+; UNPKF / UNPKA -- sign aside, the top bit restored, the guard 0
+;
+UNPKF:  LXI     H,FACHI
+        LXI     D,FACSGN
+        CALL    UNPK1
+        CALL    GFACG
+        MVI     M,0
+        RET
+UNPKA:  LXI     H,ARGHI
+        LXI     D,ARGSGN
+        CALL    UNPK1
+        CALL    GARGG
+        MVI     M,0
+        RET
+UNPK1:  MOV     A,M
+        ANI     80H
+        STAX    D
+        MOV     A,M
+        ORI     80H
+        MOV     M,A
+        RET
+;
+; ================= normalize, round, pack =================
+;
+; FNORM -- normalize the unpacked FAC mantissa (exponent in FAC), round
+; on the guard, pack with FACSGN. Underflow gives 0, overflow the
+; largest number (with the Overflow warning).
+;
+FNORM:  LDA     VALTYP          ;whole bytes while the top is 0
+        MOV     C,A
+NRM1:   LDA     FACHI
+        ORA     A
+        JNZ     NRM3
+        DCR     C
+        JZ      FZERO           ;all zero
+        LDA     FAC             ;exponent -= 8
+        SUI     8
+        JC      FZERO
+        JZ      FZERO
+        STA     FAC
+        CALL    GFACG           ;move the bytes up one
+        LDA     VALTYP
+        DCR     A
+        MOV     B,A
+        LXI     H,FACHI
+NRM2:   DCX     H
+        MOV     A,M
+        INX     H
+        MOV     M,A
+        DCX     H
+        DCR     B
+        JNZ     NRM2
+        MVI     M,0             ;(guard = 0)
+        JMP     NRM1
+NRM3:   ORA     A               ;then bits
+        JM      FROUND
+        ORA     A
+        CALL    SHLFAC
+        LXI     H,FAC
+        DCR     M
+        JZ      FZERO
+        LDA     FACHI
+        JMP     NRM3
+;
+; FROUND -- round on the guard byte, then pack
+;
+FROUND: CALL    GFACG
+        MOV     A,M
+        ORA     A
+        JP      FPACK
+        LDA     VALTYP          ;+1 in the lowest mantissa byte
+        DCR     A
+        MOV     B,A
+FRND1:  INX     H
+        INR     M
+        JNZ     FPACK
+        DCR     B
+        JNZ     FRND1
+        LDA     FAC             ;carried out of the top: 1.0 * 2 --
+        INR     A               ;unless already the largest number
+        JZ      FRND2
+        STA     FAC
+        MVI     M,80H
+        JMP     FPACK
+FRND2:  CALL    GFACG           ;(it stays all ones)
+        LDA     VALTYP
+        MOV     B,A
+FRND3:  MVI     M,0FFH
+        INX     H
+        DCR     B
+        JNZ     FRND3
+FPACK:  LDA     FACSGN          ;sign into the top bit
+        ORI     7FH
+        MOV     B,A
+        LDA     FACHI
+        ORI     80H
+        ANA     B
+        STA     FACHI
+        RET
+;
+; FZERO -- FAC = 0
+;
+FZERO:  XRA     A
+        STA     FAC
+        STA     FACHI
+        RET
+;
+; FOVER -- overflow: the Overflow warning, FAC = the largest number
+; with sign FACSGN. FDZERO: the same for division by zero.
+;
+FOVER:  MVI     E,EOV
+        JMP     FBIG
+FDZERO: MVI     E,EDZ
+FBIG:   PUSH    D               ;largest: all ones, exponent 0FFH
+        CALL    GFACG
+        LDA     VALTYP
+        MOV     B,A
+FBIG1:  MVI     M,0FFH
+        INX     H
+        DCR     B
+        JNZ     FBIG1
+        MVI     M,0FFH          ;(the exponent)
+        CALL    FPACK
+        POP     D
+        JMP     WARN            ;(BERR.MAC) prints, or traps
+;
+; ================= add, subtract =================
+;
+; FSUB -- FAC = ARG - FAC. FSUBS -- FAC = FAC - ARG.
+;
+FSUB:   CALL    FNEG
+        JMP     FADD
+FSUBS:  LDA     ARGX            ;negate ARG
+        ORA     A
+        JZ      FADD
+        LDA     ARGHI
+        XRI     80H
+        STA     ARGHI
+;
+; FADD -- FAC = ARG + FAC
+;
+FADD:   LDA     ARGX            ;ARG = 0: FAC is the sum
+        ORA     A
+        RZ
+        LDA     FAC             ;FAC = 0: ARG is
+        ORA     A
+        JZ      MOVFA
+        CALL    UNPKF
+        CALL    UNPKA
+        LDA     ARGX            ;FAC must have the bigger exponent
+        MOV     B,A
+        LDA     FAC
+        SUB     B
+        JNC     FADD1
+        CALL    SWAPFA
+        LDA     ARGX
+        MOV     B,A
+        LDA     FAC
+        SUB     B
+FADD1:  MOV     C,A             ;ARG much smaller: FAC alone
+        LDA     VALTYP
+        ADD     A
+        ADD     A
+        ADD     A
+        CMP     C
+        JC      FROUND
+        LDA     VALTYP          ;single: in registers (FADDS)
+        CPI     VTSNG
+        JZ      FADDS
+        MOV     A,C
+        CALL    SHRARG          ;line the binary points up
+        LDA     FACSGN
+        MOV     B,A
+        LDA     ARGSGN
+        XRA     B
+        JM      FADD3
+        CALL    ADDMAN          ;same signs: add
+FADDA:  JNC     FNORM
+        CALL    SHRFAC          ;(C: the carry out goes in the top)
+        LXI     H,FAC
+        INR     M
+        JZ      FOVER
+        JMP     FNORM
+FADD3:  CALL    SUBMAN          ;different: subtract
+FADDB:  JNC     FNORM
+        CALL    NEGMAN          ;went negative: flip it
+        LDA     FACSGN
+        XRI     80H
+        STA     FACSGN
+        JMP     FNORM
+;
+; FADDS -- the single case of FADD from the shift on: ARG (guard to
+; top: E D L H) shifted right C bits in registers, then added to or
+; subtracted from FAC's mantissa (LDA/STA keep the carry), back into
+; FADD at the same place as after ADDMAN / SUBMAN
+;
+FADDS:  LHLD    ARGLO-1
+        XCHG
+        LHLD    ARGLO+1
+FAS1:   MOV     A,C             ;whole bytes
+        CPI     8
+        JC      FAS2
+        MOV     E,D
+        MOV     D,L
+        MOV     L,H
+        MVI     H,0
+        SUI     8
+        MOV     C,A
+        JMP     FAS1
+FAS2:   ORA     A               ;then bits
+        JZ      FAS4
+FAS3:   MOV     A,H
+        ORA     A
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        MOV     A,D
+        RAR
+        MOV     D,A
+        MOV     A,E
+        RAR
+        MOV     E,A
+        DCR     C
+        JNZ     FAS3
+FAS4:   LDA     FACSGN
+        MOV     B,A
+        LDA     ARGSGN
+        XRA     B
+        JM      FAS5
+        LDA     FACLO-1         ;same signs: add
+        ADD     E
+        STA     FACLO-1
+        LDA     FACLO
+        ADC     D
+        STA     FACLO
+        LDA     FACLO+1
+        ADC     L
+        STA     FACLO+1
+        LDA     FACHI
+        ADC     H
+        STA     FACHI
+        JMP     FADDA
+FAS5:   LDA     FACLO-1         ;different: subtract
+        SUB     E
+        STA     FACLO-1
+        LDA     FACLO
+        SBB     D
+        STA     FACLO
+        LDA     FACLO+1
+        SBB     L
+        STA     FACLO+1
+        LDA     FACHI
+        SBB     H
+        STA     FACHI
+        JMP     FADDB
+;
+; FNEG -- FAC = -FAC (single/double)
+;
+FNEG:   LDA     FAC
+        ORA     A
+        RZ
+        LDA     FACHI
+        XRI     80H
+        STA     FACHI
+        RET
+;
+; ================= multiply =================
+;
+; FMUL -- FAC = ARG * FAC. Shift-and-add: for each bit of FAC's
+; mantissa, lowest first, R = (R + bit * ARG) / 2; R ends as the
+; product's top NB bytes. Zero multiplier bytes shift a byte at once.
+;
+FMUL:   LDA     FAC
+        ORA     A
+        RZ                      ;0 * x
+        LDA     ARGX
+        ORA     A
+        JZ      FZERO
+        CALL    FEXPS           ;HL = ARG exp + FAC exp
+        LXI     D,-128
+        DAD     D
+        SHLD    FEXP            ;(the product's exponent, 16-bit)
+        CALL    UNPKF
+        CALL    UNPKA
+        LDA     FACSGN          ;the sign
+        MOV     B,A
+        LDA     ARGSGN
+        XRA     B
+        STA     FACSGN
+        LDA     VALTYP          ;single: in registers (FMULS)
+        CPI     VTSNG
+        JZ      FMULS
+        CALL    GFACG           ;the multiplier (NB-1 bytes) to FMQ,
+        INX     H               ;and R = 0
+        LXI     D,FMQ
+        LDA     VALTYP
+        DCR     A
+        MOV     B,A
+FMUL1:  MOV     A,M
+        STAX    D
+        MVI     M,0
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     FMUL1
+        CALL    GFACG
+        MVI     M,0
+        LXI     H,FMQ           ;multiplier bytes, lowest first
+        LDA     VALTYP
+        DCR     A
+        MOV     C,A
+FMUL2:  MOV     A,M
+        ORA     A
+        JZ      FMUL5
+        MVI     B,8
+FMUL3:  RAR                     ;next bit
+        PUSH    PSW
+        PUSH    B
+        PUSH    H
+        JNC     FMUL4
+        CALL    ADDMAN          ;R += ARG (C = carry out)
+FMUL4:  CALL    SHRFAC          ;R >>= 1, carry in at the top
+        POP     H
+        POP     B
+        POP     PSW
+        ORA     A               ;(clear C for the next RAR: A's bits
+        DCR     B               ;already shifted, RAR brings them)
+        JNZ     FMUL3
+        JMP     FMUL6
+FMUL5:  PUSH    B               ;a zero byte: R >>= 8
+        PUSH    H
+        CALL    GFACG
+        LDA     VALTYP
+        DCR     A
+        MOV     B,A
+FMUL5A: INX     H
+        MOV     A,M
+        DCX     H
+        MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     FMUL5A
+        MVI     M,0
+        POP     H
+        POP     B
+FMUL6:  INX     H
+        DCR     C
+        JNZ     FMUL2
+FMEXP:  LDA     FACHI           ;R in [0.25,1): at most one shift
+        ORA     A
+        JM      FMEXP1
+        CALL    SHLFAC          ;(C = 0 from ORA)
+        LHLD    FEXP
+        DCX     H
+        SHLD    FEXP
+FMEXP1: LHLD    FEXP            ;the exponent must be 1..255
+        MOV     A,H
+        ORA     A
+        JM      FZERO           ;underflow
+        JNZ     FOVER
+        MOV     A,L
+        ORA     A
+        JZ      FZERO
+        STA     FAC
+        JMP     FROUND
+;
+; FEXPS -- HL = ARG's exponent + FAC's exponent
+;
+FEXPS:  LDA     ARGX
+        MOV     L,A
+        MVI     H,0
+        LDA     FAC
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        RET
+;
+; ================= divide =================
+;
+; FDIV -- FAC = ARG / FAC. Restoring division: quotient bits, the
+; integer bit first, are shifted into FAC's mantissa; the dividend
+; (ARG) is shifted left, with FDXT holding the bit shifted out.
+;
+FDIV:   LDA     FAC
+        ORA     A
+        JZ      FDIV0
+        LDA     ARGX
+        ORA     A
+        JZ      FZERO           ;0 / x
+        LDA     FAC             ;exponent: ARG - FAC + 129
+        MOV     E,A
+        MVI     D,0
+        LDA     ARGX
+        MOV     L,A
+        MVI     H,0
+        CALL    SUBDE
+        LXI     D,129
+        DAD     D
+        SHLD    FEXP
+        CALL    UNPKF
+        CALL    UNPKA
+        LDA     FACSGN
+        MOV     B,A
+        LDA     ARGSGN
+        XRA     B
+        STA     FACSGN
+        LDA     VALTYP          ;single: in registers (FDIVS)
+        CPI     VTSNG
+        JZ      FDIVS
+        CALL    GFACG           ;the divisor to FMQ; the quotient = 0
+        LXI     D,FMQ
+        LDA     VALTYP
+        MOV     B,A
+FDIV1:  MOV     A,M
+        STAX    D
+        MVI     M,0
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     FDIV1
+        XRA     A
+        STA     FDXT
+        LDA     VALTYP          ;NB*8 quotient bits
+        ADD     A
+        ADD     A
+        ADD     A
+        MOV     C,A
+FDIV2:  PUSH    B
+        CALL    GARGG           ;dividend -= divisor
+        LXI     D,FMQ
+        LDA     VALTYP
+        MOV     B,A
+        ORA     A
+FDIV3:  LDAX    D
+        MOV     C,A
+        MOV     A,M
+        SBB     C
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     FDIV3
+        JNC     FDIV5           ;no borrow: a 1
+        LDA     FDXT            ;a borrow, but the bit out covers it
+        ORA     A
+        JNZ     FDIV5
+        CALL    GARGG           ;else put it back: a 0
+        LXI     D,FMQ
+        LDA     VALTYP
+        MOV     B,A
+        ORA     A
+FDIV4:  LDAX    D
+        ADC     M
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     FDIV4
+        ORA     A
+        JMP     FDIV6
+FDIV5:  STC
+FDIV6:  CALL    SHLFAC          ;the bit into the quotient
+        CALL    GARGG           ;dividend <<= 1
+        LDA     VALTYP
+        MOV     B,A
+        ORA     A
+FDIV7:  MOV     A,M
+        RAL
+        MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     FDIV7
+        SBB     A               ;the bit shifted out
+        STA     FDXT
+        POP     B
+        DCR     C
+        JNZ     FDIV2
+        JMP     FMEXP           ;at most one shift, exponent, round
+FDIV0:  LDA     ARGHI           ;x / 0: the largest, with x's sign
+        ANI     80H
+        STA     FACSGN
+        JMP     FDZERO
+;
+; FMULS -- FMUL for singles, as the loop above does it but in
+; registers: R (C D E B, top first) = 0; for each of FAC's 24 mantissa
+; bits, lowest first, R = (R + bit * ARG) / 2 (a zero byte: R >>= 8).
+; ARG's mantissa is patched into the ADI/ACI.
+;
+FMULS:  LHLD    ARGLO
+        MOV     A,L
+        STA     FMS0+1
+        MOV     A,H
+        STA     FMS1+1
+        LDA     ARGHI
+        STA     FMS2+1
+        LXI     B,0
+        LXI     D,0
+        LXI     H,FACLO         ;the multiplier's bytes
+        MVI     A,3
+FMSY:   PUSH    PSW
+        MOV     A,M
+        INX     H
+        PUSH    H
+        ORA     A
+        JZ      FMSZ
+        MOV     L,A
+        MVI     H,8
+FMSB:   MOV     A,L             ;the next bit
+        RAR
+        MOV     L,A
+        JNC     FMSS
+        MOV     A,E             ;R += ARG
+FMS0:   ADI     0
+        MOV     E,A
+        MOV     A,D
+FMS1:   ACI     0
+        MOV     D,A
+        MOV     A,C
+FMS2:   ACI     0
+        MOV     C,A
+FMSS:   MOV     A,C             ;R >>= 1, the carry in at the top
+        RAR
+        MOV     C,A
+        MOV     A,D
+        RAR
+        MOV     D,A
+        MOV     A,E
+        RAR
+        MOV     E,A
+        MOV     A,B
+        RAR
+        MOV     B,A
+        DCR     H
+        JNZ     FMSB
+        JMP     FMSN
+FMSZ:   MOV     B,E
+        MOV     E,D
+        MOV     D,C
+        MVI     C,0
+FMSN:   POP     H
+        POP     PSW
+        DCR     A
+        JNZ     FMSY
+        MOV     A,B             ;R: FAC's guard and mantissa
+        STA     FACLO-1
+        XCHG
+        SHLD    FACLO
+        MOV     A,C
+        STA     FACHI
+        JMP     FMEXP
+;
+; FDIVS -- FDIV for singles in registers: the dividend (ARG) in C D E
+; (its guard byte only ever takes in zeros), FAC's mantissa patched
+; into the SUI/SBI and the ADI/ACI that puts it back; the quotient
+; bits in HL, 16 then 10 (the last 6 of the 32 are zeros).
+;
+FDIVS:  LHLD    FACLO
+        MOV     A,L
+        STA     FDS0+1
+        STA     FDA0+1
+        MOV     A,H
+        STA     FDS1+1
+        STA     FDA1+1
+        LDA     FACHI
+        STA     FDS2+1
+        STA     FDA2+1
+        LHLD    ARGLO
+        XCHG
+        LDA     ARGHI
+        MOV     C,A
+        XRA     A
+        STA     FDXT
+        MVI     B,16
+        CALL    FDSN
+        PUSH    H
+        MVI     B,10            ;(26 bits are all FROUND can see, even
+        CALL    FDSN            ;after FMEXP's one shift: zeros for the
+        DAD     H               ;last 6)
+        DAD     H
+        DAD     H
+        DAD     H
+        DAD     H
+        DAD     H
+        MOV     A,L             ;the quotient: FAC's guard and mantissa
+        STA     FACLO-1
+        MOV     A,H
+        STA     FACLO
+        POP     H
+        SHLD    FACLO+1
+        JMP     FMEXP
+FDSN:                           ;(B bits)
+FDSB:   MOV     A,E             ;dividend -= divisor
+FDS0:   SUI     0
+        MOV     E,A
+        MOV     A,D
+FDS1:   SBI     0
+        MOV     D,A
+        MOV     A,C
+FDS2:   SBI     0
+        MOV     C,A
+        JNC     FDSO            ;no borrow: a 1
+        LDA     FDXT            ;a borrow the bit out covers: a 1
+        ORA     A
+        JNZ     FDSO
+        MOV     A,E             ;else put it back: a 0
+FDA0:   ADI     0
+        MOV     E,A
+        MOV     A,D
+FDA1:   ACI     0
+        MOV     D,A
+        MOV     A,C
+FDA2:   ACI     0
+        MOV     C,A
+        ORA     A
+        JMP     FDSQ
+FDSO:   STC
+FDSQ:   MOV     A,L             ;the bit into the quotient
+        RAL
+        MOV     L,A
+        MOV     A,H
+        RAL
+        MOV     H,A
+        MOV     A,E             ;dividend <<= 1
+        ADD     A
+        MOV     E,A
+        MOV     A,D
+        RAL
+        MOV     D,A
+        MOV     A,C
+        RAL
+        MOV     C,A
+        SBB     A               ;the bit shifted out
+        STA     FDXT
+        DCR     B
+        JNZ     FDSB
+        RET
+;
+; ================= compare =================
+;
+; FCMP -- A = sign(ARG - FAC): 1, 0 or 0FFH (Z if equal)
+;
+FCMP:   LDA     ARGX
+        ORA     A
+        JZ      FCMPA0          ;ARG = 0
+        LDA     FAC
+        ORA     A
+        JZ      FCMPS           ;FAC = 0: ARG's sign
+        LDA     ARGHI           ;signs differ: ARG's sign
+        MOV     B,A
+        LDA     FACHI
+        XRA     B
+        JM      FCMPS
+        LDA     FAC             ;exponents, then mantissas, top down
+        MOV     B,A
+        LDA     ARGX
+        CMP     B
+        JNZ     FCMPD
+        PUSH    H
+        PUSH    D
+        LXI     H,ARGHI
+        LXI     D,FACHI
+        LDA     VALTYP
+        DCR     A
+        MOV     B,A
+FCMP1:  LDAX    D
+        MOV     C,A
+        MOV     A,M
+        CMP     C
+        JNZ     FCMP2
+        DCX     H
+        DCX     D
+        DCR     B
+        JNZ     FCMP1
+        POP     D
+        POP     H
+        XRA     A               ;equal
+        RET
+FCMP2:  POP     D
+        POP     H
+FCMPD:  SBB     A               ;magnitude: FF if |ARG| < |FAC|, else 0
+        ORI     1
+        MOV     B,A
+        LDA     ARGHI           ;both negative: the other way round
+        ORA     A
+        MOV     A,B
+        RP
+        CMA
+        INR     A
+        RET
+FCMPS:  LDA     ARGHI           ;ARG's sign
+        RAL
+        SBB     A
+        ORI     1
+        RET
+FCMPA0: LDA     FAC             ;0 - FAC
+        ORA     A
+        RZ
+        LDA     FACHI
+        RAL
+        CMC
+        SBB     A
+        ORI     1
+        RET
+;
+; ================= conversions =================
+;
+; FRCTYP -- convert FAC to type A (numeric types only). Keeps HL.
+;
+FRCTYP: PUSH    H
+        CALL    FRCTY1
+        POP     H
+        RET
+FRCTY1: MOV     B,A
+        LDA     VALTYP
+        CMP     B
+        RZ
+        CPI     VTSTR
+        JZ      TMERR
+        MOV     A,B
+        CPI     VTSTR
+        JZ      TMERR
+        CPI     VTINT
+        JZ      FRCINT
+        CPI     VTSNG
+        JZ      FRCSNG
+;
+; FRCDBL -- FAC to double
+;
+FRCDBL: GETYPE
+        RNC                     ;already double
+        JZ      TMERR
+        CALL    FRCSNG          ;int -> single first
+        LXI     H,0             ;then 4 zero bytes below
+        SHLD    DFAC
+        SHLD    DFAC+2
+        XRA     A
+        STA     FACOV
+        MVI     A,VTDBL
+        STA     VALTYP
+        RET
+;
+; FRCSNG -- FAC to single
+;
+FRCSNG: GETYPE
+        JZ      TMERR
+        JM      FLTINT          ;integer
+        RC                      ;already single
+        MVI     A,VTSNG         ;double: round on its 4th byte
+        STA     VALTYP
+        LDA     FAC
+        ORA     A
+        RZ
+        CALL    UNPKF1
+        JMP     FROUND
+UNPKF1: LXI     H,FACHI         ;unpack, keeping the guard as it is
+        LXI     D,FACSGN
+        JMP     UNPK1
+;
+; FLTINT -- the integer in FACLO to single. FLTUNS -- the same, but
+; unsigned (0..65535).
+;
+FLTUNS: XRA     A
+        JMP     FLTI1
+FLTINT: LDA     FACLO+1         ;the sign
+        ANI     80H
+FLTI1:  STA     FACSGN
+        LHLD    FACLO
+        ORA     A
+        JP      FLTI2
+        CALL    NEGHL           ;magnitude
+FLTI2:  MVI     A,VTSNG
+        STA     VALTYP
+        MOV     A,H             ;mantissa = H L 0, exponent 128+16
+        STA     FACHI
+        MOV     A,L
+        STA     FACLO+1
+        XRA     A
+        STA     FACLO
+        STA     DFAC+3          ;(guard)
+        MVI     A,128+16
+        STA     FAC
+        JMP     FNORM
+;
+; FRCINT -- FAC to an integer, rounded (half away from 0), Overflow
+; outside -32768..32767. Returns it in HL too.
+;
+FRCINT: GETYPE
+        JZ      TMERR
+        LHLD    FACLO
+        RM                      ;already
+        LDA     FAC             ;|x| < 0.5: 0
+        CPI     128
+        JC      FRCI0
+        SUI     128             ;e = integer bits, 0..16
+        CPI     17
+        JNC     OVERR
+        MOV     B,A
+        LDA     FACHI           ;C D E = the top 24 mantissa bits
+        ORI     80H
+        MOV     C,A
+        LHLD    FACLO
+        MOV     D,H
+        MOV     E,L
+        MVI     A,23            ;shift right 23-e: then E0 is the
+        SUB     B               ;half bit, the rest the integer
+FRCIB:  CPI     8               ;whole bytes first
+        JC      FRCIC
+        MOV     E,D
+        MOV     D,C
+        MVI     C,0
+        SUI     8
+        JMP     FRCIB
+FRCIC:  ORA     A               ;then bits, B of them
+        JZ      FRCI2
+        MOV     B,A
+FRCI1:  MOV     A,C
+        ORA     A
+        RAR
+        MOV     C,A
+        MOV     A,D
+        RAR
+        MOV     D,A
+        MOV     A,E
+        RAR
+        MOV     E,A
+        DCR     B
+        JNZ     FRCI1
+FRCI2:  XCHG                    ;(C HL) + 1, >> 1: rounded
+        INX     H
+        MOV     A,H
+        ORA     L
+        JNZ     FRCI3
+        INR     C
+FRCI3:  MOV     A,C             ;(65535.5 and up: too big)
+        ANI     2
+        JNZ     OVERR
+        MOV     A,C
+        RAR
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        LDA     FACHI           ;sign
+        ORA     A
+        JM      FRCIN
+        MOV     A,H             ;positive: <= 32767
+        ORA     A
+        JM      OVERR
+        JMP     FRCIX
+FRCIN:  MOV     A,H             ;negative: <= 32768
+        ORA     A
+        JP      FRCIN1
+        ANI     7FH
+        ORA     L
+        JNZ     OVERR
+FRCIN1: CALL    NEGHL
+        JMP     FRCIX
+FRCI0:  LXI     H,0
+FRCIX:  SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        RET
+;
+; INTFLT -- FAC (single/double) = INT(FAC): the largest whole number
+; not above it. FIXFLT -- FIX(FAC): the whole part (towards 0). The
+; type is kept.
+;
+INTFLT: MVI     A,1
+        JMP     FIX0
+FIXFLT: XRA     A
+FIX0:   STA     FIXINT
+        LDA     FAC
+        ORA     A
+        RZ                      ;0
+        CPI     129
+        JC      FIXSML          ;|x| < 1
+        SUI     128             ;e = whole bits
+        MOV     C,A
+        LDA     VALTYP          ;mantissa bits = (NB-1)*8
+        DCR     A
+        ADD     A
+        ADD     A
+        ADD     A
+        SUB     C               ;bits to clear
+        RC                      ;none: already whole
+        RZ
+        MOV     C,A
+        CALL    UNPKF
+        MVI     D,0             ;D: a 1 bit was cleared
+        CALL    GFACG
+FIX1:   INX     H               ;whole bytes, lowest first
+        MOV     A,C
+        CPI     8
+        JC      FIX2
+        MOV     A,M
+        ORA     D
+        MOV     D,A
+        MVI     M,0
+        MOV     A,C
+        SUI     8
+        MOV     C,A
+        JMP     FIX1
+FIX2:   ORA     A               ;then C bits of this byte
+        JZ      FIX4
+        MVI     A,0FFH          ;mask = 0FFH << C
+FIX3:   ADD     A
+        DCR     C
+        JNZ     FIX3
+        MOV     B,A
+        CMA
+        ANA     M
+        ORA     D
+        MOV     D,A
+        MOV     A,M
+        ANA     B
+        MOV     M,A
+FIX4:   CALL    FPACK
+        LDA     FIXINT          ;INT of a negative with a fraction:
+        ORA     A               ;one less
+        RZ
+        MOV     A,D
+        ORA     A
+        RZ
+        LDA     FACHI
+        ORA     A
+        RP
+        JMP     FSUB1
+FIXSML: LDA     FIXINT          ;|x| < 1: 0, or -1 for INT(negative)
+        ORA     A
+        JZ      FZERO
+        LDA     FACHI
+        ORA     A
+        JP      FZERO
+        CALL    FZERO
+;
+; FSUB1 -- FAC = FAC - 1
+;
+FSUB1:  CALL    GARGG           ;ARG = -1.0
+        LDA     VALTYP
+        MOV     B,A
+FSB1:   MVI     M,0
+        INX     H
+        DCR     B
+        JNZ     FSB1
+        MVI     M,81H           ;(exponent)
+        DCX     H
+        MVI     M,80H           ;(top byte: the sign; the mantissa's
+        JMP     FADD            ;top 1 is implied)
+;
+; ================= data =================
+;
+FEXP:   DW      0               ;FMUL/FDIV: the result's exponent
+FDXT:   DB      0               ;FDIV: the bit shifted out
+FIXINT: DB      0               ;INT (1) or FIX (0)
+FMQ:    DS      8               ;FMUL multiplier / FDIV divisor
+GUARD:  DB      0
+;
+        END

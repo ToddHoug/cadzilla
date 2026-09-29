@@ -1,0 +1,496 @@
+;
+; BDISK.MAC -- CZBASIC: program files -- LOAD, SAVE, MERGE, RUN "file"
+;
+; A program file is either binary (0FFH, then the text as it is in
+; memory, line numbers not pointers -- MBASIC's format, so the files
+; are interchangeable), protected (0FEH, the same; it can't be LISTed
+; or EDITed... CZBASIC loads it like binary) or ASCII (lines of text,
+; CR LF, to the end or a ^Z). The name's type defaults to .BAS.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  LOAD,SAVE,MERGE,RUNFIL,DSKNAM,DSKGET,DSKPUT
+        PUBLIC  DSKOPN,DSKMAK,DSKCLS,DSKEOF,FCBNAM
+        PUBLIC  LDOPEN,LDPROG,LDMRG,RUNTOP
+;
+        EXTRN   TXTTAB,VARTAB,MEMSIZ,FILNAM,BUF,KBUF,CURLIN
+        EXTRN   FRMSTR,FRESTR,NEWC,CLEARC,INSLIN,CRUNCH,LINGET,RELINK
+        EXTRN   UNLINK,DETOK,READY,RUNC,NEWSTT,UPPER,STKBAS
+        EXTRN   SNERR,OMERR,ERRORE,FCERR
+        EXTRN   DFCB2,DSKBUF    ;(BINIT.MAC)
+;
+        CSEG
+;
+; ================= the file name =================
+;
+; DSKNAM -- the string expression at HL is a file name: into DFCB2 (a
+; drive, 8 + 3 name, .BAS if no type). HL after it.
+;
+DSKNAM: CALL    FRMSTR
+        PUSH    H
+        CALL    FRESTR          ;B = length, DE = text
+        XCHG
+        CALL    FCBNAM
+        POP     H
+        RET
+;
+; FCBNAM -- the name at HL (B characters) into DFCB2
+;
+FCBNAM: PUSH    H               ;clear the FCB: drive 0, blanks, zeros
+        LXI     H,DFCB2
+        MVI     M,0
+        INX     H
+        MVI     C,11
+FN1:    MVI     M,' '
+        INX     H
+        DCR     C
+        JNZ     FN1
+        MVI     C,24
+FN2:    MVI     M,0
+        INX     H
+        DCR     C
+        JNZ     FN2
+        POP     H
+        MOV     A,B             ;empty: Bad file name
+        ORA     A
+        JZ      BFNERR
+        CPI     2               ;"d:" drive?
+        JC      FN3
+        INX     H
+        MOV     A,M
+        DCX     H
+        CPI     ':'
+        JNZ     FN3
+        MOV     A,M
+        CALL    UPPER
+        SUI     'A'-1
+        STA     DFCB2
+        INX     H
+        INX     H
+        DCR     B
+        DCR     B
+FN3:    LXI     D,DFCB2+1       ;the name: up to 8, to . or the end
+        MVI     C,8
+FN4:    MOV     A,B
+        ORA     A
+        JZ      FN7
+        MOV     A,M
+        CPI     '.'
+        JZ      FN6
+        CPI     '*'             ;* : ? to the end of the name
+        JZ      FNWLD
+        DCR     C
+        JM      BFNERR
+        CALL    UPPER
+        STAX    D
+        INX     D
+        INX     H
+        DCR     B
+        JMP     FN4
+FN6:    INX     H               ;the type, up to 3
+        DCR     B
+        LXI     D,DFCB2+9
+        MVI     C,3
+FN6A:   MOV     A,B
+        ORA     A
+        RZ
+        MOV     A,M
+        CPI     '*'
+        JZ      FNWLD2
+        DCR     C
+        JM      BFNERR
+        MOV     A,M
+        CALL    UPPER
+        STAX    D
+        INX     D
+        INX     H
+        DCR     B
+        JMP     FN6A
+FNWLD:  MVI     A,'?'           ;name: fill with ?, on to a . or the end
+FNS1:   DCR     C
+        JM      FNS2
+        STAX    D
+        INX     D
+        JMP     FNS1
+FNS2:   INX     H
+        DCR     B
+        MOV     A,B
+        ORA     A
+        JZ      FN7
+        MOV     A,M
+        CPI     '.'
+        JZ      FN6
+        JMP     FNS2
+FNWLD2: MVI     A,'?'           ;type: ? to its end
+FNS3:   DCR     C
+        RM
+        STAX    D
+        INX     D
+        JMP     FNS3
+FN7:    LXI     H,DFCB2+9       ;no type: .BAS
+        MVI     M,'B'
+        INX     H
+        MVI     M,'A'
+        INX     H
+        MVI     M,'S'
+        RET
+BFNERR: MVI     E,EBF
+        JMP     ERRORE
+;
+; ================= byte I/O on DFCB2 =================
+;
+; DSKOPN -- open DFCB2 for reading: C if it isn't there
+; DSKMAK -- create DFCB2 (deleting an old one) for writing
+; DSKGET -- A = the next byte; C at the end of the file
+; DSKPUT -- write A
+; DSKCLS -- close (writing: flush the last record)
+;
+DSKOPN: CALL    SETDMA
+        LXI     D,DFCB2
+        MVI     C,15
+        CALL    BDOSX
+        INR     A
+        STC
+        RZ
+        MVI     A,128           ;(nothing read yet)
+        STA     DSKPOS
+        XRA     A
+        STA     DSKWR
+        RET
+DSKMAK: CALL    SETDMA
+        LXI     D,DFCB2
+        MVI     C,19            ;delete
+        CALL    BDOSX
+        LXI     D,DFCB2
+        MVI     C,22            ;make
+        CALL    BDOSX
+        INR     A
+        JZ      DFERR
+        XRA     A
+        STA     DSKPOS
+        INR     A
+        STA     DSKWR
+        RET
+DSKGET: PUSH    H
+        LDA     DSKPOS
+        CPI     128
+        JC      DG1
+        PUSH    B
+        PUSH    D
+        CALL    SETDMA
+        LXI     D,DFCB2
+        MVI     C,20            ;read the next record
+        CALL    BDOSX
+        POP     D
+        POP     B
+        ORA     A
+        JNZ     DGEOF
+DG1:    MOV     L,A
+        INR     A
+        STA     DSKPOS
+        MVI     H,0
+        PUSH    D
+        LXI     D,DSKBUF
+        DAD     D
+        POP     D
+        MOV     A,M
+        POP     H
+        ORA     A
+        RET
+DGEOF:  POP     H
+        STC
+        RET
+DSKPUT: PUSH    H
+        PUSH    PSW
+        LDA     DSKPOS
+        MOV     L,A
+        MVI     H,0
+        PUSH    D
+        LXI     D,DSKBUF
+        DAD     D
+        POP     D
+        POP     PSW
+        MOV     M,A
+        LDA     DSKPOS
+        INR     A
+        STA     DSKPOS
+        CPI     128
+        CZ      DSKWRT
+        POP     H
+        RET
+DSKWRT: PUSH    B               ;write the buffer
+        PUSH    D
+        CALL    SETDMA
+        LXI     D,DFCB2
+        MVI     C,21
+        CALL    BDOSX
+        POP     D
+        POP     B
+        ORA     A
+        JNZ     DFERR
+        XRA     A
+        STA     DSKPOS
+        RET
+DSKCLS: LDA     DSKWR
+        ORA     A
+        JZ      DC2
+        LDA     DSKPOS          ;fill the last record with ^Z
+        ORA     A
+        JZ      DC2
+DC1:    MVI     A,CTRLZ
+        CALL    DSKPUT
+        LDA     DSKPOS
+        ORA     A
+        JNZ     DC1
+DC2:    LXI     D,DFCB2
+        MVI     C,16
+        JMP     BDOSX
+DSKEOF: RET
+;
+SETDMA: PUSH    B
+        PUSH    D
+        LXI     D,DSKBUF
+        MVI     C,26
+        CALL    BDOSX
+        POP     D
+        POP     B
+        RET
+BDOSX:  PUSH    H
+        CALL    BDOS
+        POP     H
+        RET
+DFERR:  MVI     E,EDF           ;Disk full
+        JMP     ERRORE
+;
+; ================= LOAD, MERGE, RUN "file" =================
+;
+; LOAD "file"[,R] -- replace the program; ,R runs it
+;
+LOAD:   XRA     A
+        STA     LDRUN
+LOAD1:  CALL    DSKNAM
+        MOV     A,M             ;,R: run it
+        CPI     ','
+        JNZ     LOAD2
+        CHRGET
+        CALL    UPPER
+        CPI     'R'
+        JNZ     SNERR
+        STA     LDRUN
+LOAD2:  CALL    LDOPEN
+        CALL    NEWC
+        CALL    LDPROG
+        LDA     LDRUN
+        ORA     A
+        JZ      READY
+        JMP     RUNIT
+;
+; MERGE "file" -- ASCII lines into the program
+;
+MERGE:  CALL    DSKNAM
+        CALL    LDOPEN
+        CALL    LDMRG
+        JMP     READY
+;
+; LDPROG -- load the open file into the program: binary, or ASCII
+; lines. LDMRG -- ASCII lines only (Bad file mode if binary). Both
+; close the file.
+;
+LDMRG:  MVI     A,1
+        JMP     LDP1
+LDPROG: XRA     A
+LDP1:   STA     LDMFLG
+        CALL    DSKGET          ;binary or ASCII?
+        JC      DSKCLS
+        CPI     0FFH
+        JZ      LDP2
+        CPI     0FEH
+        JNZ     LDP3
+LDP2:   LDA     LDMFLG
+        ORA     A
+        JZ      LDBIN
+BFMERR: MVI     E,EBM           ;Bad file mode
+        JMP     ERRORE
+LDP3:   CALL    LDASC
+        JMP     DSKCLS
+;
+; RUNFIL -- RUN "file" (HL at the string), or the program named on the
+; command line (FILNAM, from start-up)
+;
+RUNFIL: MVI     A,1
+        STA     LDRUN
+        LDA     FILNAM          ;from the command line?
+        ORA     A
+        JZ      LOAD1
+        LXI     H,FILNAM        ;(once)
+        MVI     B,0
+RF1:    MOV     A,M
+        ORA     A
+        JZ      RF2
+        INR     B
+        INX     H
+        JMP     RF1
+RF2:    LXI     H,FILNAM
+        CALL    FCBNAM
+        XRA     A
+        STA     FILNAM
+        CALL    STKBAS
+        JMP     LOAD2
+;
+; RUNIT -- run the program just loaded. RUNTOP -- run it as it is
+;
+RUNIT:  CALL    RUNC
+RUNTOP: LXI     H,0
+        SHLD    CURLIN
+        LHLD    TXTTAB
+        DCX     H
+        JMP     NEWSTT
+;
+; LDOPEN -- open it: File not found if it isn't there
+;
+LDOPEN: PUSH    H
+        CALL    DSKOPN
+        POP     H
+        RNC
+        MVI     E,EFF
+        JMP     ERRORE
+;
+; LDBIN -- the rest of the file is the program text
+;
+LDBIN:  LHLD    TXTTAB
+LDB1:   CALL    DSKGET
+        JC      LDB2
+        MOV     M,A
+        INX     H
+        XCHG                    ;room?
+        LHLD    MEMSIZ
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        XCHG
+        JC      LDB1
+        CALL    NEWC            ;too big
+        JMP     OMERR
+LDB2:   CALL    RELINK          ;(sets VARTAB)
+        CALL    CLEARC
+        JMP     DSKCLS
+;
+; LDASC -- ASCII lines (the first byte is in A): crunch and insert each
+;
+LDASC:  LXI     H,BUF
+        MVI     C,0             ;characters in BUF
+LDA1:   CPI     CTRLZ
+        JZ      LDA4
+        CPI     LF
+        JZ      LDA2            ;(LFs are dropped)
+        CPI     CR
+        JZ      LDA3
+        MOV     M,A
+        INR     C               ;(at most 255: the rest overwrite)
+        JZ      LDA1A
+        INX     H
+        JMP     LDA2
+LDA1A:  DCR     C
+LDA2:   CALL    DSKGET
+        JNC     LDA1
+LDA4:   MOV     A,C             ;the end: a last line without CR?
+        ORA     A
+        RZ
+LDA3:   MVI     M,0             ;a line
+        CALL    LDLINE
+        LXI     H,BUF
+        MVI     C,0
+        CALL    DSKGET
+        JNC     LDA1
+        RET
+;
+; LDLINE -- the line in BUF into the program
+;
+LDLINE: LXI     H,BUF-1
+        CHRGET
+        RZ                      ;an empty line
+        JNC     DSERR           ;no line number: Direct statement in file
+        CALL    LINGET
+        JC      SNERR
+        PUSH    D
+        CALL    CRUNCH
+        POP     D
+        JMP     INSLIN
+DSERR:  CALL    DSKCLS
+        MVI     E,EDS
+        JMP     ERRORE
+;
+; ================= SAVE =================
+;
+; SAVE "file"[,A|,P] -- binary (or ,A ASCII; ,P protected)
+;
+SAVE:   CALL    DSKNAM
+        MVI     B,0FFH          ;binary
+        MOV     A,M
+        CPI     ','
+        JNZ     SV1
+        CHRGET
+        CALL    UPPER
+        MVI     B,'A'
+        CPI     'A'
+        JZ      SV0
+        MVI     B,0FEH
+        CPI     'P'
+        JNZ     SNERR
+SV0:    CHRGET
+SV1:    PUSH    H
+        PUSH    B
+        CALL    UNLINK          ;line numbers, not pointers
+        CALL    DSKMAK
+        POP     B
+        MOV     A,B
+        CPI     'A'
+        JZ      SVASC
+        CALL    DSKPUT          ;0FFH/0FEH, then the text
+        LHLD    VARTAB
+        XCHG
+        LHLD    TXTTAB
+SV2:    MOV     A,L
+        CMP     E
+        JNZ     SV3
+        MOV     A,H
+        CMP     D
+        JZ      SV9
+SV3:    MOV     A,M
+        CALL    DSKPUT
+        INX     H
+        JMP     SV2
+SVASC:  LHLD    TXTTAB          ;ASCII: LIST it into the file
+SVA1:   MOV     A,M
+        INX     H
+        ORA     M
+        DCX     H
+        JZ      SVA3
+        CALL    DETOK           ;HL = BUF, DE = next line
+        PUSH    D
+SVA2:   MOV     A,M
+        ORA     A
+        JZ      SVA2A
+        CALL    DSKPUT
+        INX     H
+        JMP     SVA2
+SVA2A:  MVI     A,CR
+        CALL    DSKPUT
+        MVI     A,LF
+        CALL    DSKPUT
+        POP     H
+        JMP     SVA1
+SVA3:
+SV9:    CALL    DSKCLS
+        POP     H
+        RET
+;
+; ================= data =================
+;
+LDRUN:  DB      0               ;run after loading
+LDMFLG: DB      0               ;LDMRG: ASCII only
+DSKPOS: DB      0               ;position in DSKBUF
+DSKWR:  DB      0               ;writing
+;
+        END

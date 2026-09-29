@@ -1,0 +1,1042 @@
+;
+; BEXEC.MAC -- CZBASIC: statement execution and control flow
+;
+; NEWSTT runs the program one statement at a time from the text
+; pointer HL. A statement handler is entered with HL just past its
+; token, A = the next character (CHRGET flags: Z at the end of the
+; statement) and NEWSTT's address on the stack; it returns there with
+; HL at the end of the statement (its ':' or 0). Below that return
+; address the 8080 stack holds the control frames of FOR, GOSUB and
+; WHILE, down to a 0 word (the base, pushed by STKBAS). A handler
+; that changes the frames drops the return address and ends with
+; JMP NEWSTT itself.
+;
+; A frame starts (low address) with a word: its id token, then its
+; size in bytes.
+;   GOSUB: id, DW line, DW text to return to
+;   WHILE: id, DW line, DW text before the WHILE (to re-run it)
+;   FOR:   id, DW variable, DW text after the FOR, DW line,
+;          DB type, DB step sign, limit, step (type bytes each)
+;
+; GOTO and GOSUB turn the line-number constant they jump to into a
+; pointer to the line (TCPTR) the first time, so later jumps don't
+; search. UNLINK (BLINE.MAC) undoes that before lines move.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  NEWSTT,GONE,EXEC1,GOTO,GOLINE,LINREF,LINPTR,STOPBK
+        PUBLIC  STKBAS,CURPTR,CONSTK,RUNC,TSTFAC,ICMP
+        PUBLIC  ENDST,FOR,NEXT,DATAST,GOSUB,RETURN,REMST,STOP,IFST
+        PUBLIC  RUN,ONST,CONT,ELSEST,TRON,TROFF,WHILE,WEND,SYSTEM
+;
+        EXTRN   CURLIN,SAVTXT,SAVSTK,CONTXT,CONLIN,TXTTAB,STKTOP
+        EXTRN   TRCFLG,DOTLIN,ISCNTC,READY,STROUT,LINPRT,CRLF
+        EXTRN   TTYPOS,SNERR,ULERR,NFERR,RGERR,CNERR,FNERR
+        EXTRN   WHERR,WEERR,FCERR,TMERR,OVERR,FNDLIN,FNDLN1,SKPEOL
+        EXTRN   SKPSTM,SKPITM,CLEARC,GETSTK,PTRFLG,FILCLS,DATSKP
+        EXTRN   FRMEVL,FRMNUM,GETINT,FRCTYP,SMPVAR,LETVAR,LETST
+        EXTRN   VALTYP,FACLO,FAC,DFAC,ARGLO,MOVFM,MOVMF,MOVAM
+        EXTRN   FADD,FCMP,ONERR,RUNFIL,XGO,MIDSTM,STMTAB
+        EXTRN   ISLET,STKFRE
+        EXTRN   MOVB
+        EXTRN   LDDE,LHLI,LHLM
+;
+        CSEG
+;
+; ================= the statement loop =================
+;
+NEWSTT: SHLD    SAVTXT          ;for RESUME, CONT and errors
+        XCHG
+        LXI     H,0
+        DAD     SP
+        SHLD    SAVSTK
+        XCHG
+        CALL    STKFRE          ;no string temporaries left over
+        CALL    ISCNTC          ;^C, ^S
+        MOV     A,M
+        CPI     ':'
+        JZ      GONE
+        ORA     A
+        JNZ     SNERR           ;junk after a statement
+        INX     H               ;the end of a line
+        LDA     CURLIN          ;direct mode: done
+        MOV     B,A
+        LDA     CURLIN+1
+        ANA     B
+        INR     A
+        JZ      READY
+        MOV     A,M             ;link 0: the end of the program
+        INX     H
+        ORA     M
+        JZ      ENDPRG
+        DCX     H
+        SHLD    CURPTR          ;this line
+        INX     H
+        INX     H
+        MOV     E,M             ;its number
+        INX     H
+        MOV     D,M
+        XCHG
+        SHLD    CURLIN
+        XCHG
+        SHLD    SAVTXT
+        LDA     TRCFLG
+        ORA     A
+        CNZ     TRACE
+;
+; GONE -- execute the statement after HL
+;
+GONE:   CHRGET
+        JZ      NEWSTT          ;an empty statement
+        LXI     D,NEWSTT
+        PUSH    D
+;
+; EXEC1 -- execute the statement at HL (A = its first character),
+; NEWSTT's address already on the stack
+;
+EXEC1:  CPI     TKEND
+        JC      LETST           ;no keyword: an assignment (BVAR.MAC)
+        CPI     TKLAST+1
+        JNC     EXEC2
+        PUSH    H
+        SUI     TKEND
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        LXI     H,STMTAB
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        POP     H
+        PUSH    D
+        CHRGET
+        RET                     ;to the handler
+EXEC2:  CPI     TKCZ            ;a CADzilla statement (BGFX.MAC)
+        JZ      XGO            ;(CZBASIC.MAC: unless /X)
+        CPI     TKFUNC          ;MID$(...) = ... (BSTR.MAC)
+        JNZ     SNERR
+        INX     H
+        MOV     A,M
+        CPI     FNMID
+        JNZ     SNERR
+        CHRGET
+        JMP     MIDSTM
+;
+; TRACE -- TRON: "[nnnn]" as each line starts
+;
+TRACE:  PUSH    H
+        MVI     A,'['
+        OUTCHR
+        LHLD    CURLIN
+        CALL    LINPRT
+        MVI     A,']'
+        OUTCHR
+        POP     H
+        RET
+;
+; STKBAS -- empty the control stack: SP = STKTOP with the 0 base word
+; on it. Returns to the caller; keeps HL (clobbers BC, DE).
+;
+STKBAS: POP     B
+        XCHG
+        LHLD    STKTOP
+        SPHL
+        XCHG
+        LXI     D,0
+        PUSH    D
+        PUSH    B
+        RET
+;
+; ================= END, STOP, CONT, ^C, SYSTEM =================
+;
+ENDPRG: CALL    FILCLS          ;off the end of the program
+        LXI     H,0
+        SHLD    CONTXT
+        JMP     READY
+;
+ENDST:  RNZ                     ;END (junk after it: NEWSTT objects)
+        CALL    FILCLS          ;END closes the files
+        CALL    SETCON          ;CONT carries on after the END
+        JMP     READY
+;
+STOP:   RNZ
+        CALL    SETCON
+        JMP     BRKMSG
+;
+; STOPBK -- ^C: stop before the statement NEWSTT was about to run
+;
+STOPBK: LHLD    SAVTXT
+        CALL    SETCON
+BRKMSG: LDA     TTYPOS
+        ORA     A
+        CNZ     CRLF
+        LXI     H,BRKTXT
+        CALL    STROUT
+        LHLD    CONLIN          ;" in nnnn" unless direct
+        MOV     A,H
+        ANA     L
+        INR     A
+        JZ      BRKM1
+        PUSH    H
+        LXI     H,INTXT
+        CALL    STROUT
+        POP     H
+        CALL    LINPRT
+        JMP     BRKM2
+BRKM1:  LXI     H,0             ;direct mode: nothing to CONTinue
+        SHLD    CONTXT
+BRKM2:  CALL    CRLF
+        JMP     READY
+;
+; SETCON -- remember where CONT carries on: text HL, this line, and
+; the control stack as the statement found it
+;
+SETCON: SHLD    CONTXT
+        LHLD    CURLIN
+        SHLD    CONLIN
+        LHLD    SAVSTK
+        SHLD    CONSTK
+        RET
+;
+CONT:   RNZ
+        LHLD    CONTXT
+        MOV     A,H
+        ORA     L
+        JZ      CNERR
+        PUSH    H
+        LXI     H,0
+        SHLD    CONTXT
+        LHLD    CONLIN
+        SHLD    CURLIN
+        LHLD    TXTTAB          ;(CURPTR is only a search hint)
+        SHLD    CURPTR
+        POP     D
+        LHLD    CONSTK          ;the program's control stack
+        SPHL
+        XCHG
+        JMP     NEWSTT
+;
+SYSTEM: CALL    FILCLS
+        JMP     WBOOT
+;
+TRON:   MVI     A,1
+        STA     TRCFLG
+        RET
+TROFF:  XRA     A
+        STA     TRCFLG
+        RET
+;
+; ================= REM, ELSE, DATA =================
+;
+REMST:  MOV     A,M             ;REM, ': to the end of the line
+        ORA     A               ;(the text is as typed: no constants)
+        RZ
+        INX     H
+        JMP     REMST
+ELSEST: JMP     SKPEOL          ;ELSE reached by running: skip it all
+DATAST: JMP     DATSKP          ;DATA: skip to its ':' (BLINE.MAC)
+;
+; ================= GOTO, GOSUB, RETURN, ON, RUN =================
+;
+; LINREF -- a line-number reference at HL (A = its token): DE = the
+; number; CHRGET after it. "." is the current line.
+;
+LINREF: CPI     TCLIN
+        JZ      LREF1
+        CPI     TCPTR
+        JZ      LREF2
+        CPI     '.'
+        JNZ     SNERR
+        PUSH    H
+        LHLD    DOTLIN
+        XCHG
+        POP     H
+        CHRGET
+        RET
+LREF1:  INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        CHRGET
+        RET
+LREF2:  INX     H               ;a pointer: that line's number
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        PUSH    H
+        XCHG
+        INX     H
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        POP     H
+        CHRGET
+        RET
+;
+; LINPTR -- the line a GOTO/GOSUB refers to: DE = its address, CHRGET
+; after it. A line number becomes a pointer in the program text.
+;
+LINPTR: CPI     TCPTR
+        JZ      LPP
+        CPI     TCLIN
+        JNZ     SNERR
+        SHLD    LPTOK
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        PUSH    H
+        LHLD    CURLIN          ;a later line: search from this one
+        COMPAR
+        JNC     LPP1
+        LHLD    CURPTR
+        CALL    FNDLN1
+        JC      LPP2
+LPP1:   CALL    FNDLIN          ;(or from the start)
+        JNC     ULERR
+LPP2:   XCHG                    ;DE = the line
+        LDA     CURLIN
+        MOV     B,A
+        LDA     CURLIN+1
+        ANA     B
+        INR     A
+        JZ      LPP3            ;direct mode: leave the text alone
+        LHLD    LPTOK
+        MVI     M,TCPTR
+        INX     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        MVI     A,1
+        STA     PTRFLG
+LPP3:   POP     H
+        CHRGET
+        RET
+LPP:    INX     H               ;already a pointer
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        CHRGET
+        RET
+;
+; GOTO n -- return to NEWSTT with HL at the 0 before line n, so NEWSTT
+; starts that line
+;
+GOTO:   CALL    LINPTR
+GOTO2:  XCHG
+        DCX     H
+        LXI     D,0             ;(no longer direct mode)
+        XCHG
+        SHLD    CURLIN
+        XCHG
+        RET
+;
+; GOLINE -- go to line DE from anywhere; the stack is left as it is
+;
+GOLINE: CALL    FNDLIN
+        JNC     ULERR
+        DCX     H
+        LXI     D,0
+        XCHG
+        SHLD    CURLIN
+        XCHG
+        JMP     NEWSTT
+;
+; GOSUB n
+;
+GOSUB:  CALL    LINPTR          ;DE = the line, HL = the return point
+GOSUB1: POP     B               ;(NEWSTT)
+        PUSH    H               ;the frame
+        LHLD    CURLIN
+        PUSH    H
+        LXI     H,FSGOSU*256+TKGOSU
+        PUSH    H
+        PUSH    B
+        MVI     C,4
+        CALL    GETSTK
+        JMP     GOTO2
+;
+; RETURN
+;
+RETURN: RNZ
+        POP     B               ;(NEWSTT)
+        LXI     H,0
+        DAD     SP
+RETL:   MOV     A,M             ;frame id
+        CPI     TKGOSU
+        JZ      RETF
+        CPI     TKFOR           ;loops inside the subroutine end
+        JZ      RETS
+        CPI     TKWHIL
+        JNZ     RGERR
+RETS:   CALL    FRMSKP
+        JMP     RETL
+RETF:   INX     H
+        INX     H
+        CALL    LDDE           ;line
+        XCHG
+        SHLD    CURLIN
+        XCHG
+        CALL    LDDE           ;text
+        SPHL
+        XCHG
+        JMP     NEWSTT
+;
+; FRMSKP -- HL from a frame to the one below it (keeps DE)
+;
+FRMSKP: INX     H
+        MOV     C,M
+        DCX     H
+        MVI     B,0
+        DAD     B
+        RET
+;
+; ON n GOTO/GOSUB list, ON ERROR GOTO n
+;
+ONST:   CPI     TKERRO
+        JNZ     ON1
+        CHRGET
+        JMP     ONERR           ;(BERR.MAC)
+ON1:    CALL    GETINT          ;n, 0..255
+        MOV     A,D
+        ORA     A
+        JNZ     FCERR
+        MOV     A,M             ;GOTO or GOSUB
+        CPI     TKGOTO
+        JZ      ON2
+        CPI     TKGOSU
+        JNZ     SNERR
+ON2:    STA     ONTYP
+        MOV     C,E
+        CHRGET
+ON3:    DCR     C
+        JZ      ON5             ;this one
+        JM      ON4             ;(n was 0)
+        PUSH    B
+        CALL    LINREF          ;skip one
+        POP     B
+        CPI     ','
+        JNZ     ON4             ;the list is shorter than n
+        CHRGET
+        JMP     ON3
+ON4:    JMP     SKPSTM          ;none: on to the next statement
+ON5:    CALL    LINPTR          ;DE = the line
+        LDA     ONTYP
+        CPI     TKGOTO
+        JZ      GOTO2
+        PUSH    D               ;GOSUB: return after the whole list
+        CALL    SKPSTM
+        POP     D
+        JMP     GOSUB1
+;
+; RUN [n] / RUN "file"[,R]
+;
+RUN:    JZ      RUN0
+        CPI     '"'
+        JZ      RUNFIL          ;(BDISK.MAC)
+        CALL    LINREF          ;RUN n
+        XCHG
+        SHLD    RUNLN
+        CALL    RUNC
+        LHLD    RUNLN
+        XCHG
+        JMP     GOLINE
+RUN0:   CALL    RUNC
+        LXI     H,0
+        SHLD    CURLIN
+        LHLD    TXTTAB
+        DCX     H
+        JMP     NEWSTT
+;
+; RUNC -- clear everything for a run: variables, files, the stack
+;
+RUNC:   CALL    CLEARC
+        LHLD    TXTTAB
+        SHLD    CURPTR
+        JMP     STKBAS
+;
+; ================= IF =================
+;
+IFST:   CALL    FRMEVL
+        MOV     A,M             ;THEN or GOTO must follow
+        CPI     TKGOTO
+        JZ      IF1
+        CPI     TKTHEN
+        JNZ     SNERR
+IF1:    MOV     B,A
+        GETYPE                  ;(a string can't be tested)
+        JZ      TMERR
+        CALL    TSTFAC
+        JZ      IFFALS
+        MOV     A,B
+        CPI     TKGOTO
+        JNZ     IFTHEN
+        CHRGET                  ;IF .. GOTO n
+        JMP     GOTO
+IFTHEN: CHRGET
+IFDO:   CPI     TCLIN           ;THEN n
+        JZ      GOTO
+        CPI     TCPTR
+        JZ      GOTO
+        ORA     A               ;THEN statement
+        RZ
+        CPI     ':'
+        RZ
+        JMP     EXEC1
+IFFALS: MVI     B,0             ;false: find this IF's ELSE (B: nested
+IFF1:   MOV     A,M             ;IFs passed)
+        ORA     A
+        RZ                      ;no ELSE: the next line
+        CPI     TKELSE
+        JZ      IFF3
+        CPI     TKIF
+        JNZ     IFF2
+        INR     B
+IFF2:   CALL    SKPITM
+        JMP     IFF1
+IFF3:   DCR     B               ;a nested IF's ELSE?
+        JP      IFF2
+        CHRGET                  ;ours: do what follows it
+        JMP     IFDO
+;
+; TSTFAC -- Z if the number in FAC is 0 (any numeric type). Keeps HL.
+;
+TSTFAC: GETYPE
+        JP      TSTF1
+        LDA     FACLO           ;integer: the word
+        MOV     C,A
+        LDA     FACLO+1
+        ORA     C
+        RET
+TSTF1:  LDA     FAC             ;single/double: the exponent
+        ORA     A
+        RET
+;
+; ================= FOR, NEXT =================
+;
+FOR:    CALL    SMPVAR          ;DE = the variable (BVAR.MAC)
+        GETYPE
+        JZ      TMERR           ;no string loops
+        LDA     VALTYP
+        STA     FORTYP
+        XCHG
+        SHLD    FORVAR
+        XCHG
+        SYNCHK  TKEQ
+        CALL    FRMNUM          ;start: assign it
+        PUSH    H
+        LHLD    FORVAR
+        XCHG
+        LDA     FORTYP
+        CALL    LETVAR          ;(BVAR.MAC) FAC -> variable DE, type A
+        POP     H
+        SYNCHK  TKTO
+        CALL    FORVAL          ;limit
+        LXI     D,FORLIM
+        CALL    FCOPY
+        MOV     A,M             ;STEP?
+        CPI     TKSTEP
+        JNZ     FOR1
+        CHRGET
+        CALL    FORVAL
+        JMP     FOR2
+FOR1:   PUSH    H               ;STEP 1
+        LXI     H,1
+        SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        LDA     FORTYP
+        CALL    FRCTYP
+        POP     H
+FOR2:   CALL    FSGN            ;A = the step's sign
+        STA     FORSGN
+        LXI     D,FORSTP
+        CALL    FCOPY
+        MOV     A,M             ;the statement must end here
+        ORA     A
+        JZ      FOR3
+        CPI     ':'
+        JNZ     SNERR
+FOR3:   SHLD    FORTXT
+        POP     B               ;(NEWSTT)
+        LXI     H,0             ;an older frame of this same FOR goes
+        DAD     SP              ;(the FOR is run again)
+FOR4:   MOV     A,M
+        CPI     TKFOR
+        JNZ     FOR6
+        PUSH    H
+        INX     H
+        INX     H
+        CALL    LDDE           ;same variable?
+        PUSH    H
+        LHLD    FORVAR
+        COMPAR
+        POP     H
+        JNZ     FOR5
+        MOV     E,M             ;and the same FOR?
+        INX     H
+        MOV     D,M
+        LHLD    FORTXT
+        COMPAR
+        JNZ     FOR5
+        POP     H               ;yes: drop it and all inside it
+        CALL    FRMSKP
+        SPHL
+        JMP     FOR6
+FOR5:   POP     H
+        CALL    FRMSKP
+        JMP     FOR4
+FOR6:   CALL    FORTST          ;does the loop run at all?
+        JNC     FORSKP
+        LDA     FORTYP          ;the frame: 10 + 2*type bytes
+        ADD     A
+        ADI     10
+        MOV     E,A
+        MVI     C,24
+        CALL    GETSTK
+        LXI     H,0
+        DAD     SP
+        MOV     A,L
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBI     0
+        MOV     H,A
+        SPHL
+        MVI     M,TKFOR
+        INX     H
+        MOV     M,E
+        INX     H
+        XCHG
+        LHLD    FORVAR
+        XCHG
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        XCHG
+        LHLD    FORTXT
+        XCHG
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        XCHG
+        LHLD    CURLIN
+        XCHG
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        LDA     FORTYP
+        MOV     M,A
+        INX     H
+        LDA     FORSGN
+        MOV     M,A
+        INX     H
+        LXI     D,FORLIM        ;limit and step
+        CALL    FCPY2
+        LXI     D,FORSTP
+        CALL    FCPY2
+        LHLD    FORTXT
+        JMP     NEWSTT
+;
+; FORVAL -- an expression, converted to the loop's type
+;
+FORVAL: CALL    FRMNUM
+        LDA     FORTYP
+        JMP     FRCTYP
+;
+; FCOPY -- copy the value in FAC (FORTYP bytes) to DE. Keeps HL.
+; FCPY2 -- copy FORTYP bytes from DE to HL (both advanced).
+;
+FCOPY:  PUSH    H
+        CALL    FACADR
+        LDA     FORTYP
+        MOV     B,A
+        CALL    MOVB
+        POP     H
+        RET
+FCPY2:  LDA     FORTYP
+        MOV     B,A
+FCPY3:  LDAX    D
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     FCPY3
+        RET
+;
+; FACADR -- HL = the first byte of the value in FAC (by VALTYP)
+;
+FACADR: LXI     H,FACLO
+        LDA     VALTYP
+        CPI     VTDBL
+        RNZ
+        LXI     H,DFAC
+        RET
+;
+; FSGN -- A = 0FFH if the number in FAC is negative, else 0
+;
+FSGN:   GETYPE
+        JP      FSGN1
+        LDA     FACLO+1         ;integer: the high byte
+        JMP     FSGN2
+FSGN1:  LDA     FAC             ;single/double: 0, or the sign bit
+        ORA     A
+        RZ
+        LDA     FACLO+2
+FSGN2:  RAL
+        SBB     A
+        RET
+;
+; FORTST -- C if the loop variable is still within the limit, in the
+; direction of the step
+;
+FORTST: LDA     FORTYP
+        STA     VALTYP
+        LHLD    FORVAR
+        CALL    MOVFM           ;FAC = the variable
+        LXI     H,FORLIM
+        CALL    MOVAM           ;ARG = the limit
+        CALL    VCMP            ;A = sign(limit - var)
+        MOV     B,A
+        LDA     FORSGN
+        ORA     A
+        MOV     A,B
+        JZ      FORT1
+        CMA                     ;stepping down: turn it round
+        INR     A
+FORT1:  CPI     0FFH            ;runs unless limit - var < 0
+        JZ      FORT2
+        STC
+        RET
+FORT2:  ORA     A
+        RET
+;
+; VCMP -- A = sign(ARG - FAC), both of type VALTYP
+;
+VCMP:   GETYPE
+        JP      FCMP            ;single/double (BFLT.MAC)
+        PUSH    H
+        LHLD    FACLO
+        XCHG
+        LHLD    ARGLO
+        CALL    ICMP
+        POP     H
+        RET
+;
+; ICMP -- A = sign(HL - DE), signed 16-bit
+;
+ICMP:   MOV     A,H
+        XRA     D
+        JP      ICMP1
+        MOV     A,H             ;signs differ: HL's sign decides
+        ORA     A
+        JM      ICMPN
+        MVI     A,1
+        RET
+ICMP1:  COMPAR
+        JZ      ICMPZ
+        JC      ICMPN
+        MVI     A,1
+        RET
+ICMPN:  MVI     A,0FFH
+        RET
+ICMPZ:  XRA     A
+        RET
+;
+; FORSKP -- the loop doesn't run: go on after its NEXT
+;
+FORSKP: LHLD    FORTXT
+        MVI     B,1             ;loops open
+FSK1:   CALL    NXTSTM          ;A = the next statement's token
+        JC      FNERR           ;no NEXT: FOR Without NEXT
+        CPI     TKFOR
+        JNZ     FSK2
+        INR     B
+        JMP     FSK1
+FSK2:   CPI     TKNEXT
+        JNZ     FSK1
+FSK3:   CHRGET                  ;NEXT [v[,v]]: each name closes one
+        JZ      FSK5
+        DCR     B
+        JZ      FSK6
+        CALL    SKPNAM
+        CPI     ','
+        JZ      FSK3
+        JMP     FSK1
+FSK5:   DCR     B               ;NEXT alone closes one
+        JNZ     FSK1
+        JMP     NEWSTT          ;ours: carry on after it
+FSK6:   CALL    SKPNAM          ;ours, named: the rest of the list is
+        CPI     ','             ;a NEXT of its own
+        JNZ     NEWSTT
+        CHRGET
+        JMP     NEXT1
+;
+; NXTSTM -- HL to the start of the next statement, following lines:
+; A = its first token, NC; C at the end of the program. Keeps B.
+;
+NXTSTM: CALL    SKPSTM          ;to this statement's ':' or 0
+        MOV     A,M
+        ORA     A
+        JNZ     NXS2            ;a ':'
+        INX     H               ;the next line
+        MOV     A,M
+        INX     H
+        ORA     M
+        STC
+        RZ                      ;the end of the program
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        XCHG
+        SHLD    CURLIN
+        XCHG
+NXS2:   CHRGET
+        JZ      NXTSTM          ;an empty statement
+        CPI     TKELSE          ;(what follows ELSE counts)
+        JZ      NXTSTM
+        ORA     A
+        RET
+;
+; SKPNAM -- skip the variable name at HL: A = the char after it
+; (CHRGET flags)
+;
+SKPNAM: MOV     A,M
+        CALL    ISLET
+        JC      SKPN1
+        CPI     '.'
+        JZ      SKPN1
+        CPI     '0'
+        JC      SKPN2
+        CPI     '9'+1
+        JNC     SKPN2
+SKPN1:  INX     H
+        JMP     SKPNAM
+SKPN2:  CPI     '%'             ;a type suffix
+        JZ      SKPN3
+        CPI     '!'
+        JZ      SKPN3
+        CPI     '#'
+        JZ      SKPN3
+        CPI     '$'
+        JNZ     SKPN4
+SKPN3:  INX     H
+SKPN4:  DCX     H
+        CHRGET
+        RET
+;
+; NEXT [v[,v...]]
+;
+NEXT:   POP     D               ;(NEWSTT)
+NEXT1:  LXI     D,0             ;no name: the innermost loop
+        JZ      NEXT2
+        CALL    SMPVAR          ;DE = the variable
+NEXT2:  SHLD    NXTTXT
+        LXI     H,0             ;find its frame
+        DAD     SP
+NX3:    MOV     A,M
+        CPI     TKFOR
+        JNZ     NFERR
+        MOV     A,D
+        ORA     E
+        JZ      NX5             ;any FOR will do
+        PUSH    H
+        INX     H
+        CALL    LHLI
+        COMPAR
+        POP     H
+        JZ      NX5
+        CALL    FRMSKP          ;an inner loop: it ends here
+        JMP     NX3
+NX5:    SPHL                    ;(the inner frames are gone)
+        SHLD    NXTFRM
+        LXI     D,8
+        DAD     D
+        MOV     A,M             ;type
+        STA     VALTYP
+        MOV     C,A
+        INX     H
+        MOV     A,M             ;step sign
+        STA     FORSGN
+        INX     H
+        SHLD    NXTLIM          ;limit
+        MVI     B,0
+        DAD     B
+        PUSH    H               ;(step)
+        LHLD    NXTFRM          ;the variable
+        INX     H
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        XCHG
+        SHLD    FORVAR
+        LDA     VALTYP
+        CPI     VTINT
+        JNZ     NX8
+        MOV     E,M             ;integer: DE = var, BC = step
+        INX     H
+        MOV     D,M
+        POP     H
+        MOV     C,M
+        INX     H
+        MOV     B,M
+        MOV     H,D
+        MOV     L,E
+        DAD     B               ;HL = var + step
+        MOV     A,D             ;overflow: var and step alike in sign,
+        XRA     B               ;the sum not
+        JM      NX6
+        MOV     A,D
+        XRA     H
+        JM      OVERR
+NX6:    XCHG                    ;store it
+        PUSH    H
+        LHLD    FORVAR
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        LHLD    NXTLIM
+        CALL    LHLM
+        XCHG                    ;HL = var, DE = limit
+        POP     B
+        CALL    ICMP            ;A = sign(var - limit)
+        JMP     NX9
+NX8:    LHLD    FORVAR          ;single/double: var = var + step
+        CALL    MOVFM
+        POP     H
+        CALL    MOVAM
+        CALL    FADD
+        LHLD    FORVAR
+        CALL    MOVMF
+        LHLD    NXTLIM
+        CALL    MOVAM
+        CALL    FCMP            ;sign(limit - var)
+        CMA                     ;-> sign(var - limit)
+        INR     A
+NX9:    MOV     B,A             ;past the limit in the step's direction?
+        LDA     FORSGN
+        ORA     A
+        MOV     A,B
+        JZ      NX10
+        CMA
+        INR     A
+NX10:   CPI     1
+        JZ      NXDONE
+        LHLD    NXTFRM          ;loop again
+        LXI     D,6
+        DAD     D
+        MOV     E,M             ;line
+        INX     H
+        MOV     D,M
+        XCHG
+        SHLD    CURLIN
+        LHLD    NXTFRM
+        LXI     D,4
+        DAD     D
+        CALL    LHLM            ;text
+        JMP     NEWSTT
+NXDONE: LHLD    NXTFRM          ;done: drop the frame
+        CALL    FRMSKP
+        SPHL
+        LHLD    NXTTXT          ;more names?
+        MOV     A,M
+        CPI     ','
+        JNZ     NEWSTT
+        CHRGET
+        JMP     NEXT1
+;
+; ================= WHILE, WEND =================
+;
+; WHILE cond -- the token is followed by a + (as MBASIC stores it)
+;
+WHILE:  POP     B               ;(NEWSTT)
+        SHLD    WHTXT
+        LHLD    SAVTXT          ;the frame: text before this WHILE,
+        PUSH    H               ;line, id
+        LHLD    CURLIN
+        PUSH    H
+        LXI     H,FSWHIL*256+TKWHIL
+        PUSH    H
+        MVI     C,4
+        CALL    GETSTK
+        LHLD    WHTXT
+        MOV     A,M
+        CPI     TKPLUS
+        JNZ     WH1
+        CHRGET
+WH1:    CALL    FRMEVL
+        GETYPE
+        JZ      TMERR
+        CALL    TSTFAC
+        JNZ     NEWSTT          ;true: into the loop
+        POP     D               ;false: drop the frame and go on
+        POP     D               ;after the matching WEND
+        POP     D
+        MVI     B,1
+WH2:    CALL    NXTSTM
+        JC      WHERR           ;no WEND
+        CPI     TKWHIL
+        JNZ     WH3
+        INR     B
+        JMP     WH2
+WH3:    CPI     TKWEND
+        JNZ     WH2
+        DCR     B
+        JNZ     WH2
+        CHRGET
+        JMP     NEWSTT
+;
+; WEND -- back to the WHILE, which tests again
+;
+WEND:   JNZ     SNERR
+        POP     B               ;(NEWSTT)
+        LXI     H,0
+        DAD     SP
+WE1:    MOV     A,M
+        CPI     TKWHIL
+        JZ      WE2
+        CPI     TKFOR           ;unfinished loops inside it end
+        JNZ     WEERR
+        CALL    FRMSKP
+        JMP     WE1
+WE2:    INX     H
+        INX     H
+        CALL    LDDE           ;line
+        XCHG
+        SHLD    CURLIN
+        XCHG
+        CALL    LDDE           ;text
+        SPHL
+        XCHG
+        SHLD    SAVTXT
+        JMP     GONE
+;
+; ================= data =================
+;
+BRKTXT: DB      'Break',0
+INTXT:  DB      ' in ',0
+;
+CURPTR: DW      0               ;the current line (a search hint)
+CONSTK: DW      0               ;CONT: the control stack
+LPTOK:  DW      0               ;LINPTR: the constant's address
+ONTYP:  DB      0               ;ON: GOTO or GOSUB
+RUNLN:  DW      0               ;RUN n
+WHTXT:  DW      0
+FORVAR: DW      0               ;FOR/NEXT work
+FORTXT: DW      0
+FORTYP: DB      0
+FORSGN: DB      0
+FORLIM: DS      8
+FORSTP: DS      8
+NXTTXT: DW      0
+NXTFRM: DW      0
+NXTLIM: DW      0
+;
+        END

@@ -1,0 +1,1179 @@
+;
+; BTOKEN.MAC -- CZBASIC: keywords, CRUNCH (text -> tokens) and DETOK
+; (tokens -> text)
+;
+; Crunching follows MBASIC 5.21 as observed (see README.md):
+;   - a run of letters, digits and '.' is a keyword only if the whole
+;     run is one; keywords ending in '$' or '(' end the run themselves.
+;     FN is a prefix (FNA -> FN A), USR may be followed by a digit.
+;   - keywords are recognised in either case; other text outside
+;     strings, REM and DATA is uppercased
+;   - numbers become binary constants; after GOTO, GOSUB, THEN, ELSE,
+;     RESTORE, RUN, RESUME, LIST, LLIST, EDIT, DELETE, AUTO, RENUM and
+;     ERL, numbers (and lists of them) are line numbers
+;   - ' is stored as :REM', ELSE as :ELSE, WHILE as WHILE+, ? as PRINT
+;   - REM and ' text, DATA items and strings are left as typed
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  CRUNCH,DETOK,KWNAME,ISLET,UPPER,DTNUM
+;
+        EXTRN   KBUF,BUF,FIN,FOUT,VALTYP,FACLO,DFAC,FINRAD
+        EXTRN   ERRORE
+        EXTRN   MOVB
+        EXTRN   LDDE,LHLI
+;
+        CSEG
+;
+; ================= CRUNCH =================
+;
+; CRUNCH -- crunch the text at HL (0-terminated) into KBUF. Returns
+; BC = the crunched length including its 0, HL = KBUF.
+;
+CRUNCH: LXI     D,KBUF+300      ;the overflow limit
+        XCHG
+        SHLD    CRLIM
+        XCHG
+        LXI     D,KBUF
+        XRA     A
+        STA     LINFLG
+        STA     DATFLG
+        STA     NOKW
+CRLOOP: MOV     A,M
+        ORA     A
+        JZ      CREND
+        MOV     C,A
+        LDA     DATFLG          ;inside DATA: copy as typed
+        ORA     A
+        MOV     A,C
+        JNZ     CRDATA
+        CPI     '"'
+        JZ      CRSTR
+        CPI     ' '
+        JZ      CRCPY           ;blanks: kept, line-number mode too
+        CPI     TAB
+        JZ      CRCPY
+        CPI     ','
+        JZ      CRCPY           ;lists of line numbers
+        CPI     '?'
+        JZ      CRQUES
+        CPI     ''''
+        JZ      CRAPOS
+        CALL    ISLET
+        JC      CRWORD
+        CPI     '&'
+        JZ      CRAMP
+        CPI     '.'
+        JZ      CRNUM
+        CPI     '0'
+        JC      CROP
+        CPI     '9'+1
+        JC      CRNUM
+CROP:   PUSH    H               ;an operator character?
+        LXI     H,OPTAB
+CROP1:  MOV     A,M
+        ORA     A
+        JZ      CROP3
+        INX     H
+        CMP     C
+        MOV     A,M
+        INX     H
+        JNZ     CROP1
+        POP     H               ;A = its token
+        INX     H
+        CALL    EMIT
+        CPI     TKMINU          ;'-' and the relations keep a line
+        JZ      CRLOOP          ;number list going (LIST 10-20, ERL=)
+        CPI     TKLT+1
+        JC      CRLOOP
+        JMP     CRLN0
+CROP3:  POP     H
+        MOV     A,C             ;anything else is copied
+CRONE:  INX     H
+        CALL    EMIT
+CRLN0:  XRA     A
+        STA     LINFLG
+        STA     NOKW
+        JMP     CRLOOP
+CRCPY:  INX     H
+        CALL    EMIT
+        JMP     CRLOOP
+;
+CRQUES: INX     H               ;? = PRINT
+        MVI     A,TKPRIN
+        CALL    EMIT
+        JMP     CRLN0
+;
+CRAPOS: INX     H               ;' = :REM'
+        MVI     A,':'
+        CALL    EMIT
+        MVI     A,TKREM
+        CALL    EMIT
+        MVI     A,TKQUOT
+        CALL    EMIT
+CRREST: MOV     A,M             ;copy the rest of the line
+        ORA     A
+        JZ      CREND
+        INX     H
+        CALL    EMIT
+        JMP     CRREST
+;
+CRSTR:  INX     H               ;a string: copy through the close quote
+        CALL    EMIT
+CRSTR1: MOV     A,M
+        ORA     A
+        JZ      CREND
+        INX     H
+        CALL    EMIT
+        CPI     '"'
+        JNZ     CRSTR1
+        JMP     CRLN0
+;
+CRDATA: INX     H               ;DATA text, to a ':' outside quotes
+        CALL    EMIT            ;(DATFLG bit 1: inside quotes)
+        CPI     '"'
+        JNZ     CRDAT1
+        LDA     DATFLG
+        XRI     2
+        STA     DATFLG
+        JMP     CRLOOP
+CRDAT1: CPI     ':'
+        JNZ     CRLOOP
+        LDA     DATFLG
+        ANI     2
+        JNZ     CRLOOP
+        STA     DATFLG          ;(A = 0) DATA ends
+        JMP     CRLOOP
+;
+CREND:  XCHG                    ;the 0, and a spare 0 0 after it
+        MVI     M,0
+        INX     H
+        PUSH    H
+        MVI     M,0
+        INX     H
+        MVI     M,0
+        POP     H
+        LXI     D,KBUF          ;BC = HL - KBUF
+        MOV     A,L
+        SUB     E
+        MOV     C,A
+        MOV     A,H
+        SBB     D
+        MOV     B,A
+        XCHG
+        RET
+;
+; EMIT -- A to the crunch buffer at DE, keeping A; Line buffer
+; overflow when it is full
+;
+EMIT:   STAX    D
+        INX     D
+        PUSH    PSW
+        PUSH    H
+        LHLD    CRLIM
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        POP     H
+        JNC     CRBO
+        POP     PSW
+        RET
+CRBO:   MVI     E,EBO
+        JMP     ERRORE
+;
+; CRAMP -- &H hex, &O or & octal constants (FIN parses them)
+;
+CRAMP:  PUSH    D
+        CALL    FIN
+        POP     D
+        LDA     FINRAD
+        CPI     8
+        MVI     A,TCOCT
+        JZ      CRAMP1
+        MVI     A,TCHEX
+CRAMP1: CALL    EMIT
+        JMP     CRINT2
+;
+; CRNUM -- a number: a line number in line-number mode, else a
+; constant of the type FIN gives it
+;
+CRNUM:  LDA     LINFLG
+        ORA     A
+        JZ      CRFIN
+        MOV     A,C             ;"LIST ." etc: '.' is not a number here
+        CPI     '.'
+        JZ      CRONE
+        PUSH    D               ;line number: digits only
+        LXI     D,0
+CRLN1:  MOV     A,M
+        SUI     '0'
+        CPI     10
+        JNC     CRLN2
+        INX     H
+        PUSH    H
+        MOV     H,D
+        MOV     L,E
+        DAD     H
+        DAD     H
+        DAD     D
+        DAD     H
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        XCHG
+        POP     H
+        JMP     CRLN1
+CRLN2:  MOV     B,D
+        MOV     C,E
+        POP     D
+        MVI     A,TCLIN
+        CALL    EMIT
+        MOV     A,C
+        CALL    EMIT
+        MOV     A,B
+        CALL    EMIT
+        JMP     CRLOOP          ;(line-number mode stays on)
+;
+CRFIN:  PUSH    D
+        CALL    FIN             ;FAC = the number, HL after it
+        POP     D
+        LDA     VALTYP
+        CPI     VTINT
+        JZ      CRINT
+        PUSH    H
+        CPI     VTDBL
+        JZ      CRDBL
+        MVI     A,TCSNG
+        MVI     B,4
+        LXI     H,FACLO
+        JMP     CRFLT
+CRDBL:  MVI     A,TCDBL
+        MVI     B,8
+        LXI     H,DFAC
+CRFLT:  CALL    EMIT
+CRFLT1: MOV     A,M
+        INX     H
+        CALL    EMIT
+        DCR     B
+        JNZ     CRFLT1
+        POP     H
+        JMP     CRLN0
+CRINT:  PUSH    H
+        LHLD    FACLO
+        MOV     A,H
+        ORA     A
+        JNZ     CRINT1
+        MOV     A,L
+        CPI     10
+        JNC     CRBYTE
+        ADI     TCDIG           ;0..9: one byte
+        CALL    EMIT
+        POP     H
+        JMP     CRLN0
+CRBYTE: MVI     A,TCBYT         ;10..255
+        CALL    EMIT
+        MOV     A,L
+        CALL    EMIT
+        POP     H
+        JMP     CRLN0
+CRINT1: POP     H
+        MVI     A,TCINT
+        CALL    EMIT
+CRINT2: PUSH    H
+        LHLD    FACLO
+        MOV     A,L
+        CALL    EMIT
+        MOV     A,H
+        CALL    EMIT
+        POP     H
+        JMP     CRLN0
+;
+; CRWORD -- a letter: a keyword, or a name copied as it is
+;
+CRWORD: LDA     NOKW            ;the name after FN is never a keyword
+        ORA     A
+        JNZ     CRNAME
+        MOV     A,C
+        CALL    UPPER
+        CPI     'C'             ;CZ...: the CADzilla table
+        JNZ     CRW1
+        INX     H
+        MOV     A,M
+        DCX     H
+        CALL    UPPER
+        CPI     'Z'
+        JNZ     CRW1
+        PUSH    D
+        INX     H
+        INX     H
+        LXI     D,CZTAB
+        CALL    KWLIST
+        DCX     H
+        DCX     H
+        POP     D
+        JNC     CRW1
+        MOV     B,A             ;0FEH, token
+        MVI     A,TKCZ
+        CALL    EMIT
+        MOV     A,B
+        CALL    EMIT
+        XRA     A
+        STA     LINFLG
+        LHLD    KWEND
+        JMP     CRLOOP
+CRW1:   PUSH    D
+        MOV     A,M             ;DE = that letter's list
+        CALL    UPPER
+        SUI     'A'
+        MOV     B,A
+        LXI     D,KWTAB
+CRW2:   MOV     A,B
+        ORA     A
+        JZ      CRW4
+CRW3:   LDAX    D               ;skip one list
+        INX     D
+        ORA     A
+        JZ      CRW3N
+        JP      CRW3
+        INX     D               ;(the token after the last char)
+        JMP     CRW3
+CRW3N:  DCR     B
+        JMP     CRW2
+CRW4:   INX     H               ;match the rest of the word
+        CALL    KWLIST
+        DCX     H
+        POP     D
+        JNC     CRNAME          ;not a keyword
+        ORA     A
+        JM      CRW5
+        MOV     B,A             ;a function: 0FFH, 80H+n
+        MVI     A,TKFUNC
+        CALL    EMIT
+        MOV     A,B
+        ORI     80H
+        CALL    EMIT
+        XRA     A
+        STA     LINFLG
+        LHLD    KWEND
+        JMP     CRLOOP
+CRW5:   CPI     TKELSE          ;ELSE is stored :ELSE
+        JNZ     CRW6
+        MVI     A,':'
+        CALL    EMIT
+        MVI     A,TKELSE
+CRW6:   CALL    EMIT
+        CPI     TKWHIL
+        JNZ     CRW7
+        MVI     A,TKPLUS        ;WHILE is stored WHILE+
+        CALL    EMIT
+        MVI     A,TKWHIL
+CRW7:   CPI     TKREM
+        JZ      CRWREM
+        CPI     TKDATA
+        JNZ     CRW8
+        MVI     A,1
+        STA     DATFLG
+        MVI     A,TKDATA
+CRW8:   CPI     TKFN
+        JNZ     CRW9
+        STA     NOKW
+CRW9:   MOV     C,A             ;a line-number keyword?
+        PUSH    H
+        LXI     H,LNKTAB
+CRW10:  MOV     A,M
+        INX     H
+        ORA     A
+        JZ      CRW11
+        CMP     C
+        JNZ     CRW10
+        MVI     A,1
+CRW11:  STA     LINFLG
+        POP     H
+        LHLD    KWEND           ;continue past the keyword
+        JMP     CRLOOP
+CRWREM: LHLD    KWEND           ;REM: the rest as typed
+        JMP     CRREST
+;
+; CRNAME -- copy a name: letters, digits and '.', uppercased
+;
+CRNAME: XRA     A
+        STA     NOKW
+        STA     LINFLG
+CRNM1:  MOV     A,M
+        CALL    ISLET
+        JC      CRNM2
+        CPI     '.'
+        JZ      CRNM3
+        CPI     '0'
+        JC      CRLOOP
+        CPI     '9'+1
+        JNC     CRLOOP
+        JMP     CRNM3
+CRNM2:  CALL    UPPER
+CRNM3:  INX     H
+        CALL    EMIT
+        JMP     CRNM1
+;
+; KWLIST -- match the text at HL (the word's 2nd char) against the
+; keyword list at DE (entries: chars, bit 7 on the last, then the
+; token; a 0 ends the list). C and A = token if one matches as a
+; whole word, with KWEND = the text just past it. HL is kept.
+;
+KWLIST: LDAX    D
+        ORA     A
+        RZ                      ;end: no match (NC)
+        PUSH    H
+KWL1:   MOV     A,M             ;compare a character
+        CALL    UPPER
+        MOV     C,A
+        LDAX    D
+        ANI     7FH
+        CMP     C
+        JNZ     KWNO
+        LDAX    D
+        INX     H
+        INX     D
+        ORA     A
+        JP      KWL1            ;not the last char yet
+        LDAX    D               ;matched: B = token
+        MOV     B,A
+        DCX     D
+        LDAX    D
+        INX     D
+        ANI     7FH
+        CPI     '$'             ;ends in $ or (: always a keyword
+        JZ      KWYES
+        CPI     '('
+        JZ      KWYES
+        MOV     A,B
+        CPI     TKFN            ;FN: a prefix
+        JZ      KWYES
+        MOV     A,M             ;else the word must end here
+        CALL    ISLET
+        JC      KWNO1
+        CPI     '.'
+        JZ      KWNO1
+        CPI     '0'
+        JC      KWYES
+        CPI     '9'+1
+        JNC     KWYES
+        MOV     A,B             ;a digit follows: only USR takes one
+        CPI     TKUSR
+        JZ      KWYES
+KWNO1:  INX     D               ;(skip the token)
+        POP     H
+        JMP     KWLIST
+KWNO:   LDAX    D               ;skip the rest of this entry
+        INX     D
+        ORA     A
+        JP      KWNO
+        INX     D               ;and its token
+        POP     H
+        JMP     KWLIST
+KWYES:  SHLD    KWEND
+        POP     H
+        MOV     A,B
+        STC
+        RET
+;
+; UPPER -- fold a-z to A-Z. ISLET -- C if A is a letter (either case)
+;
+UPPER:  CPI     'a'
+        RC
+        CPI     'z'+1
+        RNC
+        SUI     20H
+        RET
+ISLET:  PUSH    PSW
+        CALL    UPPER
+        CPI     'A'
+        JC      ISLN
+        CPI     'Z'+1
+        JNC     ISLN
+        POP     PSW
+        STC
+        RET
+ISLN:   POP     PSW
+        ORA     A
+        RET
+;
+; ================= DETOK =================
+;
+; DETOK -- the program line at HL as text in BUF: "nnnn text", 0-
+; terminated (at most DTMAX characters). Returns HL = BUF, DE = the
+; next line's address.
+;
+DTMAX   EQU     255
+;
+DETOK:  PUSH    H
+        LXI     H,BUF+DTMAX     ;the end of the room in BUF
+        SHLD    DTLIM
+        POP     H
+        CALL    LDDE           ;link
+        PUSH    D
+        CALL    LDDE           ;line number
+        PUSH    H
+        XCHG
+        LXI     D,BUF
+        CALL    DTNUM           ;"nnnn"
+        MVI     A,' '
+        STAX    D
+        INX     D
+        POP     H
+        MVI     B,0             ;state: 0 code, 1 quote, 2 REM,
+DTLOOP: PUSH    H               ;3 DATA, 4 DATA and quote
+        LHLD    DTLIM           ;room left?
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        POP     H
+        JNC     DTEND0
+        MOV     A,M
+        INX     H
+        ORA     A
+        JZ      DTEND
+        MOV     C,A
+        MOV     A,B
+        ORA     A
+        JZ      DTCODE
+        MOV     A,C             ;inside quotes, REM or DATA: as it is
+        CPI     '"'
+        JNZ     DTR1
+        MOV     A,B             ;a quote: 1 -> 0, 3 -> 4, 4 -> 3
+        CPI     1
+        JNZ     DTR0
+        MVI     B,0
+        JMP     DTRPUT
+DTR0:   CPI     3
+        JNZ     DTR01
+        MVI     B,4
+        JMP     DTRPUT
+DTR01:  CPI     4
+        JNZ     DTRPUT
+        MVI     B,3
+        JMP     DTRPUT
+DTR1:   CPI     ':'             ;':' ends DATA (outside quotes)
+        JNZ     DTRPUT
+        MOV     A,B
+        CPI     3
+        JNZ     DTRPUT
+        MVI     B,0
+DTRPUT: MOV     A,C
+DTPUT:  STAX    D
+        INX     D
+        JMP     DTLOOP
+DTEND0: XRA     A
+DTEND:  STAX    D
+        POP     D               ;next line
+        LXI     H,BUF
+        RET
+;
+DTCODE: MOV     A,C             ;code: tokens, constants, characters
+        CPI     '"'
+        JNZ     DTC1
+        MVI     B,1
+        JMP     DTPUT
+DTC1:   CPI     ':'             ;":ELSE" and ":REM'" list as ELSE and '
+        JNZ     DTC2
+        MOV     A,M
+        CPI     TKELSE
+        JZ      DTLOOP          ;(the ELSE token comes next)
+        CPI     TKREM
+        JNZ     DTPUTC
+        INX     H
+        MOV     A,M
+        DCX     H
+        CPI     TKQUOT
+        JNZ     DTPUTC
+        INX     H               ;skip REM and ', print '
+        INX     H
+        MVI     A,27H
+        MVI     B,2
+        JMP     DTPUT
+DTPUTC: MOV     A,C
+        JMP     DTPUT
+DTC2:   CPI     TKWHIL          ;WHILE+: skip the +
+        JNZ     DTC3
+        MOV     A,M
+        CPI     TKPLUS
+        JNZ     DTKW
+        INX     H
+        JMP     DTKW
+DTC3:   CPI     TKFUNC
+        JZ      DTFUNC
+        CPI     TKCZ
+        JZ      DTCZ
+        CPI     80H
+        JNC     DTKW
+        CPI     TCOCT           ;constant tokens
+        JC      DTPUTC
+        CPI     TCDBL+1
+        JNC     DTPUTC
+        JMP     DTCON
+;
+DTKW:   PUSH    H               ;keyword C
+        MVI     B,0
+        CALL    KWNAME
+        POP     H
+        MVI     B,2             ;REM and DATA text follow as typed
+        MOV     A,C
+        CPI     TKREM
+        JZ      DTLOOP
+        MVI     B,3
+        CPI     TKDATA
+        JZ      DTLOOP
+        MVI     B,0
+        JMP     DTLOOP
+DTFUNC: MVI     B,TKFUNC        ;0FFH, n
+        JMP     DTPFX
+DTCZ:   MVI     B,TKCZ          ;0FEH, n
+DTPFX:  MOV     C,M
+        INX     H
+        PUSH    H
+        CALL    KWNAME
+        POP     H
+        MVI     B,0
+        JMP     DTLOOP
+;
+; KWNAME -- the name of token C into the text at DE (DE advanced).
+; B = its prefix: 0 (a statement, keyword or operator token), TKFUNC
+; (C = 80H+n) or TKCZ. Keeps C for a plain token.
+;
+KWNAME: MOV     A,B
+        CPI     TKCZ
+        JZ      KWNCZ
+        ORA     A
+        JNZ     KWNFN
+        LXI     H,OPTAB         ;an operator character?
+KWNO2:  MOV     A,M
+        ORA     A
+        JZ      KWNW
+        INX     H
+        MOV     A,M
+        INX     H
+        CMP     C
+        JNZ     KWNO2
+        DCX     H
+        DCX     H
+        MOV     A,M
+        STAX    D
+        INX     D
+        RET
+KWNFN:  MOV     A,C             ;a function's entry holds n
+        ANI     7FH
+        MOV     C,A
+KWNW:   LXI     H,KWTAB
+        MVI     B,'A'
+KWNL:   MOV     A,M             ;an entry, or the end of a letter
+        ORA     A
+        JNZ     KWNE
+        INX     H
+        INR     B
+        MOV     A,B
+        CPI     'Z'+1
+        JC      KWNL
+KWNUK:  MVI     A,'?'           ;unknown token
+        STAX    D
+        INX     D
+        RET
+KWNE:   PUSH    H               ;this entry's token
+KWNE1:  MOV     A,M
+        INX     H
+        ORA     A
+        JP      KWNE1
+        MOV     A,M
+        INX     H
+        CMP     C
+        JZ      KWNFND
+        POP     PSW             ;(drop the entry's start)
+        JMP     KWNL
+KWNFND: POP     H
+        MOV     A,B             ;the letter, then the rest
+        STAX    D
+        INX     D
+KWNCP:  MOV     A,M
+        ANI     7FH
+        STAX    D
+        INX     D
+        MOV     A,M
+        INX     H
+        ORA     A
+        JP      KWNCP
+        RET
+KWNCZ:  LXI     H,CZTAB         ;"CZ" and the rest
+KWNC1:  MOV     A,M
+        ORA     A
+        JZ      KWNUK
+        PUSH    H
+KWNC2:  MOV     A,M
+        INX     H
+        ORA     A
+        JP      KWNC2
+        MOV     A,M
+        INX     H
+        CMP     C
+        JZ      KWNC3
+        POP     PSW
+        JMP     KWNC1
+KWNC3:  POP     H
+        MVI     A,'C'
+        STAX    D
+        INX     D
+        MVI     A,'Z'
+        STAX    D
+        INX     D
+        JMP     KWNCP
+;
+; DTCON -- a constant as text: C = its token, HL at its value
+;
+DTCON:  MOV     A,C
+        CPI     TCDIG
+        JC      DTCN0
+        CPI     TCDIG+10
+        JNC     DTCN0
+        SUI     TCDIG-'0'       ;0..9: one digit
+        JMP     DTPUT
+DTCN0:  CPI     TCSNG
+        JZ      DTCF
+        CPI     TCDBL
+        JZ      DTCF
+        CPI     TCBYT
+        JNZ     DTCN1
+        MOV     A,M             ;10..255
+        INX     H
+        PUSH    H
+        MOV     L,A
+        MVI     H,0
+        JMP     DTDEC
+DTCN1:  MOV     B,M             ;16-bit value
+        INX     H
+        MOV     A,M
+        INX     H
+        PUSH    H
+        MOV     H,A
+        MOV     L,B
+        MOV     A,C
+        CPI     TCPTR           ;a line pointer: that line's number
+        JNZ     DTCN2
+        INX     H
+        CALL    LHLI
+        JMP     DTDEC
+DTCN2:  CPI     TCHEX
+        JZ      DTHEX
+        CPI     TCOCT
+        JZ      DTOCT
+DTDEC:  CALL    DTNUM
+DTCEND: POP     H
+        MVI     B,0
+        JMP     DTLOOP
+DTHEX:  MVI     B,'H'
+        MVI     C,4
+        JMP     DTRX
+DTOCT:  MVI     B,'O'
+        MVI     C,3
+DTRX:   MVI     A,'&'
+        STAX    D
+        INX     D
+        MOV     A,B
+        STAX    D
+        INX     D
+        CALL    DTRAD
+        JMP     DTCEND
+;
+; DTRAD -- HL as hex (C = 4) or octal (C = 3) digits at DE
+;
+DTRAD:  MVI     B,0             ;digits pushed
+DTRA1:  MOV     A,C
+        CPI     4
+        MOV     A,L
+        JZ      DTRA2
+        ANI     7
+        JMP     DTRA3
+DTRA2:  ANI     0FH
+DTRA3:  ADI     '0'
+        CPI     '9'+1
+        JC      DTRA4
+        ADI     'A'-'9'-1
+DTRA4:  PUSH    PSW
+        INR     B
+        MOV     A,C             ;HL >>= C
+DTRSH:  PUSH    PSW
+        ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        POP     PSW
+        DCR     A
+        JNZ     DTRSH
+        MOV     A,H
+        ORA     L
+        JNZ     DTRA1
+DTRA5:  POP     PSW             ;most significant first
+        STAX    D
+        INX     D
+        DCR     B
+        JNZ     DTRA5
+        RET
+;
+; DTCF -- a single or double constant, through FOUT, with ! or # added
+; when it would otherwise read back as another type
+;
+DTCF:   PUSH    D
+        MOV     A,C
+        CPI     TCDBL
+        LXI     D,FACLO
+        MVI     B,VTSNG
+        JNZ     DTCF1
+        LXI     D,DFAC
+        MVI     B,VTDBL
+DTCF1:  MOV     A,B
+        STA     VALTYP
+        STA     DTTYP           ;(FOUT leaves VALTYP double)
+        CALL    MOVB            ;copy the value into FAC
+        POP     D
+        PUSH    H               ;(the text past the constant)
+        PUSH    D
+        CALL    FOUT            ;HL = the number as text
+        POP     D
+        MOV     A,M             ;drop FOUT's sign blank
+        CPI     ' '
+        JNZ     DTCF3
+        INX     H
+DTCF3:  MVI     B,0             ;bit 0: '.' or E seen, bit 1: D seen
+DTCF4:  MOV     A,M
+        ORA     A
+        JZ      DTCF5
+        CPI     'D'
+        JNZ     DTCF6
+        MVI     B,2
+        JMP     DTCF7
+DTCF6:  CPI     '.'
+        JZ      DTCF8
+        CPI     'E'
+        JNZ     DTCF7
+DTCF8:  MOV     C,A
+        MOV     A,B
+        ORI     1
+        MOV     B,A
+        MOV     A,C
+DTCF7:  STAX    D
+        INX     H
+        INX     D
+        JMP     DTCF4
+DTCF5:  LDA     DTTYP
+        CPI     VTDBL
+        JZ      DTCF9
+        MOV     A,B             ;single: ! unless it has . or E
+        ANI     1
+        JNZ     DTCEND
+        MVI     A,'!'
+        JMP     DTCF10
+DTCF9:  MOV     A,B             ;double: # unless it has D
+        ANI     2
+        JNZ     DTCEND
+        MVI     A,'#'
+DTCF10: STAX    D
+        INX     D
+        JMP     DTCEND
+;
+; DTNUM -- HL as unsigned decimal text at DE (DE advanced)
+;
+DTNUM:  PUSH    B
+        XRA     A
+        STA     DTZ
+        LXI     B,-10000
+        CALL    DTND
+        LXI     B,-1000
+        CALL    DTND
+        LXI     B,-100
+        CALL    DTND
+        LXI     B,-10
+        CALL    DTND
+        MOV     A,L
+        ADI     '0'
+        STAX    D
+        INX     D
+        POP     B
+        RET
+DTND:   MVI     A,'0'-1
+DTND1:  INR     A
+        DAD     B
+        JC      DTND1
+        PUSH    PSW             ;undo the last subtraction
+        MOV     A,L
+        SUB     C
+        MOV     L,A
+        MOV     A,H
+        SBB     B
+        MOV     H,A
+        POP     PSW
+        CPI     '0'
+        JNZ     DTND2
+        PUSH    PSW
+        LDA     DTZ
+        ORA     A
+        JZ      DTND3           ;a leading zero
+        POP     PSW
+DTND2:  STAX    D
+        INX     D
+        MVI     A,1
+        STA     DTZ
+        RET
+DTND3:  POP     PSW
+        RET
+;
+; ================= data =================
+;
+LINFLG: DB      0               ;crunch: numbers are line numbers
+DATFLG: DB      0               ;crunch: inside DATA (bit 1: quotes)
+NOKW:   DB      0               ;crunch: the name after FN
+KWEND:  DW      0               ;crunch: text past a matched keyword
+CRLIM:  DW      0               ;crunch: end of room in KBUF
+DTLIM:  DW      0               ;detok: end of room in BUF
+DTZ:    DB      0               ;detok: a digit has been written
+DTTYP:  DB      0               ;detok: the constant's type
+;
+; Operator characters and their tokens
+;
+OPTAB:  DB      '+',TKPLUS,'-',TKMINU,'*',TKMUL,'/',TKDIV
+        DB      '^',TKPOW,'\',TKIDIV,'>',TKGT,'=',TKEQ,'<',TKLT
+        DB      0
+;
+; Keywords that turn on line-number mode (0 ends)
+;
+LNKTAB: DB      TKGOTO,TKGOSU,TKTHEN,TKELSE,TKREST,TKRUN,TKRESU
+        DB      TKLIST,TKLLIS,TKEDIT,TKDELE,TKAUTO,TKRENU,TKERL,0
+;
+; The keywords, one list per first letter A..Z, each ended by a 0.
+; An entry is the keyword after its first letter, with bit 7 set on
+; its last character, then its token: 80H and up for statements,
+; keywords and operators, below 80H for function n (stored 0FFH,
+; 80H+n). CZTAB: the CADzilla keywords after their "CZ" (0FEH, token).
+;
+KWTAB:
+;A
+        DB      'UT','O'+80H,TKAUTO             ;AUTO
+        DB      'N','D'+80H,TKAND               ;AND
+        DB      'B','S'+80H,006H                ;ABS
+        DB      'T','N'+80H,00EH                ;ATN
+        DB      'S','C'+80H,015H                ;ASC
+        DB      0
+;B
+        DB      0
+;C
+        DB      'LOS','E'+80H,TKCLOS            ;CLOSE
+        DB      'ON','T'+80H,TKCONT             ;CONT
+        DB      'LEA','R'+80H,TKCLEA            ;CLEAR
+        DB      'IN','T'+80H,01CH               ;CINT
+        DB      'SN','G'+80H,01DH               ;CSNG
+        DB      'DB','L'+80H,01EH               ;CDBL
+        DB      'V','I'+80H,02BH                ;CVI
+        DB      'V','S'+80H,02CH                ;CVS
+        DB      'V','D'+80H,02DH                ;CVD
+        DB      'O','S'+80H,00CH                ;COS
+        DB      'HR','$'+80H,016H               ;CHR$
+        DB      'AL','L'+80H,TKCALL             ;CALL
+        DB      'OMMO','N'+80H,TKCOMM           ;COMMON
+        DB      'HAI','N'+80H,TKCHAI            ;CHAIN
+        DB      0
+;D
+        DB      'ELET','E'+80H,TKDELE           ;DELETE
+        DB      'AT','A'+80H,TKDATA             ;DATA
+        DB      'I','M'+80H,TKDIM               ;DIM
+        DB      'EFST','R'+80H,TKDFST           ;DEFSTR
+        DB      'EFIN','T'+80H,TKDFIN           ;DEFINT
+        DB      'EFSN','G'+80H,TKDFSN           ;DEFSNG
+        DB      'EFDB','L'+80H,TKDFDB           ;DEFDBL
+        DB      'E','F'+80H,TKDEF               ;DEF
+        DB      0
+;E
+        DB      'LS','E'+80H,TKELSE             ;ELSE
+        DB      'N','D'+80H,TKEND               ;END
+        DB      'RAS','E'+80H,TKERAS            ;ERASE
+        DB      'DI','T'+80H,TKEDIT             ;EDIT
+        DB      'RRO','R'+80H,TKERRO            ;ERROR
+        DB      'R','L'+80H,TKERL               ;ERL
+        DB      'R','R'+80H,TKERR               ;ERR
+        DB      'X','P'+80H,00BH                ;EXP
+        DB      'O','F'+80H,02FH                ;EOF
+        DB      'Q','V'+80H,TKEQV               ;EQV
+        DB      0
+;F
+        DB      'O','R'+80H,TKFOR               ;FOR
+        DB      'IEL','D'+80H,TKFIEL            ;FIELD
+        DB      'ILE','S'+80H,TKFILE            ;FILES
+        DB      'N'+80H,TKFN                    ;FN
+        DB      'R','E'+80H,00FH                ;FRE
+        DB      'I','X'+80H,01FH                ;FIX
+        DB      0
+;G
+        DB      'OT','O'+80H,TKGOTO             ;GOTO
+        DB      'O T','O'+80H,TKGOTO            ;GO TO
+        DB      'OSU','B'+80H,TKGOSU            ;GOSUB
+        DB      'E','T'+80H,TKGET               ;GET
+        DB      0
+;H
+        DB      'EX','$'+80H,01AH               ;HEX$
+        DB      0
+;I
+        DB      'NPU','T'+80H,TKINPU            ;INPUT
+        DB      'F'+80H,TKIF                    ;IF
+        DB      'NST','R'+80H,TKINST            ;INSTR
+        DB      'N','T'+80H,005H                ;INT
+        DB      'N','P'+80H,010H                ;INP
+        DB      'M','P'+80H,TKIMP               ;IMP
+        DB      'NKEY','$'+80H,TKINKY           ;INKEY$
+        DB      0
+;J
+        DB      0
+;K
+        DB      'IL','L'+80H,TKKILL             ;KILL
+        DB      0
+;L
+        DB      'PRIN','T'+80H,TKLPRI           ;LPRINT
+        DB      'LIS','T'+80H,TKLLIS            ;LLIST
+        DB      'PO','S'+80H,01BH               ;LPOS
+        DB      'E','T'+80H,TKLET               ;LET
+        DB      'IN','E'+80H,TKLINE             ;LINE
+        DB      'OA','D'+80H,TKLOAD             ;LOAD
+        DB      'SE','T'+80H,TKLSET             ;LSET
+        DB      'IS','T'+80H,TKLIST             ;LIST
+        DB      'O','G'+80H,00AH                ;LOG
+        DB      'O','C'+80H,030H                ;LOC
+        DB      'E','N'+80H,012H                ;LEN
+        DB      'EFT','$'+80H,001H              ;LEFT$
+        DB      'O','F'+80H,031H                ;LOF
+        DB      0
+;M
+        DB      'ERG','E'+80H,TKMERG            ;MERGE
+        DB      'O','D'+80H,TKMOD               ;MOD
+        DB      'KI','$'+80H,032H               ;MKI$
+        DB      'KS','$'+80H,033H               ;MKS$
+        DB      'KD','$'+80H,034H               ;MKD$
+        DB      'ID','$'+80H,003H               ;MID$
+        DB      0
+;N
+        DB      'EX','T'+80H,TKNEXT             ;NEXT
+        DB      'UL','L'+80H,TKNULL             ;NULL
+        DB      'AM','E'+80H,TKNAME             ;NAME
+        DB      'E','W'+80H,TKNEW               ;NEW
+        DB      'O','T'+80H,TKNOT               ;NOT
+        DB      0
+;O
+        DB      'PE','N'+80H,TKOPEN             ;OPEN
+        DB      'U','T'+80H,TKOUT               ;OUT
+        DB      'N'+80H,TKON                    ;ON
+        DB      'R'+80H,TKOR                    ;OR
+        DB      'CT','$'+80H,019H               ;OCT$
+        DB      'PTIO','N'+80H,TKOPTI           ;OPTION
+        DB      0
+;P
+        DB      'RIN','T'+80H,TKPRIN            ;PRINT
+        DB      'U','T'+80H,TKPUT               ;PUT
+        DB      'OK','E'+80H,TKPOKE             ;POKE
+        DB      'O','S'+80H,011H                ;POS
+        DB      'EE','K'+80H,017H               ;PEEK
+        DB      0
+;Q
+        DB      0
+;R
+        DB      'ETUR','N'+80H,TKRETU           ;RETURN
+        DB      'EA','D'+80H,TKREAD             ;READ
+        DB      'U','N'+80H,TKRUN               ;RUN
+        DB      'ESTOR','E'+80H,TKREST          ;RESTORE
+        DB      'E','M'+80H,TKREM               ;REM
+        DB      'ESUM','E'+80H,TKRESU           ;RESUME
+        DB      'SE','T'+80H,TKRSET             ;RSET
+        DB      'IGHT','$'+80H,002H             ;RIGHT$
+        DB      'N','D'+80H,008H                ;RND
+        DB      'ENU','M'+80H,TKRENU            ;RENUM
+        DB      'ESE','T'+80H,TKRESE            ;RESET
+        DB      'ANDOMIZ','E'+80H,TKRAND        ;RANDOMIZE
+        DB      0
+;S
+        DB      'TO','P'+80H,TKSTOP             ;STOP
+        DB      'WA','P'+80H,TKSWAP             ;SWAP
+        DB      'AV','E'+80H,TKSAVE             ;SAVE
+        DB      'PC','('+80H,TKSPC              ;SPC(
+        DB      'TE','P'+80H,TKSTEP             ;STEP
+        DB      'G','N'+80H,004H                ;SGN
+        DB      'Q','R'+80H,007H                ;SQR
+        DB      'I','N'+80H,009H                ;SIN
+        DB      'TR','$'+80H,013H               ;STR$
+        DB      'TRING','$'+80H,TKSTRS          ;STRING$
+        DB      'PACE','$'+80H,018H             ;SPACE$
+        DB      'YSTE','M'+80H,TKSYST           ;SYSTEM
+        DB      0
+;T
+        DB      'HE','N'+80H,TKTHEN             ;THEN
+        DB      'RO','N'+80H,TKTRON             ;TRON
+        DB      'ROF','F'+80H,TKTROF            ;TROFF
+        DB      'AB','('+80H,TKTAB              ;TAB(
+        DB      'O'+80H,TKTO                    ;TO
+        DB      'A','N'+80H,00DH                ;TAN
+        DB      0
+;U
+        DB      'SIN','G'+80H,TKUSIN            ;USING
+        DB      'S','R'+80H,TKUSR               ;USR
+        DB      0
+;V
+        DB      'A','L'+80H,014H                ;VAL
+        DB      'ARPT','R'+80H,TKVARP           ;VARPTR
+        DB      0
+;W
+        DB      'IDT','H'+80H,TKWIDT            ;WIDTH
+        DB      'AI','T'+80H,TKWAIT             ;WAIT
+        DB      'HIL','E'+80H,TKWHIL            ;WHILE
+        DB      'EN','D'+80H,TKWEND             ;WEND
+        DB      'RIT','E'+80H,TKWRIT            ;WRITE
+        DB      0
+;X
+        DB      'O','R'+80H,TKXOR               ;XOR
+        DB      0
+;Y
+        DB      0
+;Z
+        DB      0
+;
+CZTAB:
+        DB      'INI','T'+80H,XKINIT            ;CZINIT
+        DB      'CL','S'+80H,XKCLS              ;CZCLS
+        DB      'COLO','R'+80H,XKCOL            ;CZCOLOR
+        DB      'PA','L'+80H,XKPAL              ;CZPAL
+        DB      'MOD','E'+80H,XKMODE            ;CZMODE
+        DB      'ARE','A'+80H,XKAREA            ;CZAREA
+        DB      'MOV','E'+80H,XKMOVE            ;CZMOVE
+        DB      'RMOV','E'+80H,XKRMOV           ;CZRMOVE
+        DB      'DO','T'+80H,XKDOT              ;CZDOT
+        DB      'LIN','E'+80H,XKLINE            ;CZLINE
+        DB      'RLIN','E'+80H,XKRLIN           ;CZRLINE
+        DB      'REC','T'+80H,XKRECT            ;CZRECT
+        DB      'FREC','T'+80H,XKFRCT           ;CZFRECT
+        DB      'CIRCL','E'+80H,XKCIRC          ;CZCIRCLE
+        DB      'ELLIPS','E'+80H,XKELLI         ;CZELLIPSE
+        DB      'AR','C'+80H,XKARC              ;CZARC
+        DB      'EAR','C'+80H,XKEARC            ;CZEARC
+        DB      'POL','Y'+80H,XKPOLY            ;CZPOLY
+        DB      'PLIN','E'+80H,XKPLIN           ;CZPLINE
+        DB      'PAIN','T'+80H,XKPANT           ;CZPAINT
+        DB      'FLOO','D'+80H,XKFLOD           ;CZFLOOD
+        DB      'COP','Y'+80H,XKCOPY            ;CZCOPY
+        DB      'PA','T'+80H,XKPAT              ;CZPAT
+        DB      'LSTYL','E'+80H,XKLSTY          ;CZLSTYLE
+        DB      'PSCA','N'+80H,XKPSCN           ;CZPSCAN
+        DB      'PT','N'+80H,XKPTN              ;CZPTN
+        DB      'TEX','T'+80H,XKTEXT            ;CZTEXT
+        DB      'WAI','T'+80H,XKWAIT            ;CZWAIT
+        DB      'POIN','T'+80H,XKPNT            ;CZPOINT
+        DB      'XMA','X'+80H,XKXMAX            ;CZXMAX
+        DB      'YMA','X'+80H,XKYMAX            ;CZYMAX
+        DB      'XPO','S'+80H,XKXPOS            ;CZXPOS
+        DB      'YPO','S'+80H,XKYPOS            ;CZYPOS
+        DB      0
+;
+        END

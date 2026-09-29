@@ -1,0 +1,1127 @@
+;
+; BVAR.MAC -- CZBASIC: variables, arrays, assignment, DEF FN
+;
+; A simple variable (VARTAB..ARYTAB) is
+;       DB type, DB name length, the name, the value (type bytes)
+; where type is VALTYP's (2 int, 3 string descriptor, 4 single,
+; 8 double). A DEF FN definition is kept the same way with type + 80H
+; and a 2-byte value: its definition's text (at its '(' or '=').
+; An array (ARYTAB..STREND) is
+;       DB type, DB name length, the name, DW bytes that follow,
+;       DB dimensions, DW elements in each dimension (first to last),
+;       the elements, the first subscript varying fastest.
+; Names are kept to 40 characters; all 40 count.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  PTRGET,SMPVAR,LETST,LET,LETVAR,DIM,ERASE,SWAP
+        PUBLIC  DEFSTR,DEFINT,DEFSNG,DEFDBL,OPTION,CLEAR,DEF,FNCALL
+        PUBLIC  VARPTR,GETNAM,NAMTYP,VROOM,GETUNS,FACUNS
+        PUBLIC  NXTENT,ADDHLA,SMPGET,ARYSR,NAMLEN,UMULC,SMPFND
+;
+        EXTRN   VARTAB,ARYTAB,STREND,FRETOP,DEFTBL,OPTBAS,OPTDIM
+        EXTRN   CURLIN,MEMTOP,STKSIZ,VALTYP,FACLO,VSP,VSTKE
+        EXTRN   SNERR,BSERR,DDERR,OMERR,TMERR,UFERR,IDERR,FCERR
+        EXTRN   ISLET,FRMEVL,GETINT,FRCTYP,CHKNUM,CHKSTR
+        EXTRN   MOVMF,GETSTK,MOVUP,MOVDN,SKPSTM,UPPER
+        EXTRN   STRASG,GARBAG,FRETMD,CLEARC,STKINI,STKBAS,NEWSTT
+        EXTRN   DEFUSR,FAC,FACHI,FADD,MOVAM,FRCSNG,FRCINT,STRTMP
+        EXTRN   ASUBS,ADIMS     ;(BINIT.MAC)
+        EXTRN   MOVB
+        EXTRN   SUBDE
+        EXTRN   LDDE
+;
+        CSEG
+;
+; ================= names =================
+;
+; GETNAM -- the variable name at HL: NAMPTR (its text), NAMLEN (up to
+; 40), NAMTYP (a % $ ! # suffix, else DEFTBL). HL after it, A = the
+; next character (CHRGET flags).
+;
+GETNAM: MOV     A,M
+        CALL    ISLET
+        JNC     SNERR
+        SHLD    NAMPTR
+        SUI     'A'             ;(for the default type)
+        MOV     E,A
+        MVI     C,0
+GN1:    MOV     A,M             ;(crunched text: letters are A-Z)
+        CPI     'A'
+        JC      GN1D
+        CPI     'Z'+1
+        JC      GN2
+GN1D:   CPI     '.'
+        JZ      GN2
+        CPI     '0'
+        JC      GN3
+        CPI     '9'+1
+        JNC     GN3
+GN2:    INX     H
+        MOV     A,C
+        CPI     40
+        JNC     GN1
+        INR     C
+        JMP     GN1
+GN3:    MOV     A,C
+        STA     NAMLEN
+        MOV     A,M             ;a type suffix?
+        MVI     B,VTINT
+        CPI     '%'
+        JZ      GN4
+        MVI     B,VTSTR
+        CPI     '$'
+        JZ      GN4
+        MVI     B,VTSNG
+        CPI     '!'
+        JZ      GN4
+        MVI     B,VTDBL
+        CPI     '#'
+        JZ      GN4
+        PUSH    H               ;none: DEFTBL
+        LXI     H,DEFTBL
+        MVI     D,0
+        DAD     D
+        MOV     B,M
+        POP     H
+        DCX     H
+GN4:    MOV     A,B
+        STA     NAMTYP
+        CHRGET
+        RET
+;
+; NAMCMP -- Z if the entry name at HL (its length byte) is NAMPTR /
+; NAMLEN. Keeps HL, DE.
+;
+NAMCMP: PUSH    H
+        PUSH    D
+        LDA     NAMLEN
+        CMP     M
+        JNZ     NAMC2
+        MOV     B,A
+        XCHG
+        LHLD    NAMPTR
+        XCHG
+NAMC1:  INX     H
+        LDAX    D
+        CMP     M
+        JNZ     NAMC2
+        INX     D
+        DCR     B
+        JNZ     NAMC1
+NAMC2:  POP     D
+        POP     H
+        RET
+;
+; NXTENT -- HL from a simple variable entry to the next (keeps DE)
+;
+NXTENT: MOV     B,M             ;type
+        INX     H
+        MOV     A,M             ;name length
+        INX     H
+        CALL    ADDHLA
+        MOV     A,B             ;value: 2 for DEF FN, else type bytes
+        ANI     8FH             ;(less CHAIN's COMMON mark, 40H)
+        JP      ADDHLA
+        MVI     A,2
+ADDHLA: ADD     L
+        MOV     L,A
+        RNC
+        INR     H
+        RET
+;
+; ================= simple variables =================
+;
+; PTRGET -- the variable or array element at HL: DE = its value,
+; VALTYP = its type; HL after it (A, CHRGET flags). Made if new.
+;
+PTRGET: CALL    GETNAM
+        CPI     '('
+        JNZ     SMPGT1
+        XRA     A               ;(an element)
+        JMP     ARYACC
+;
+; SMPVAR -- a simple variable only
+;
+SMPVAR: CALL    GETNAM
+        CPI     '('
+        JZ      SNERR
+SMPGT1: LDA     NAMTYP
+        STA     VALTYP
+;
+; SMPFND -- find (or make) the simple variable NAMPTR/NAMLEN with
+; entry type A: DE = its value. Keeps HL. SMPGET -- find only (C if
+; not there).
+;
+SMPFND: PUSH    H
+        MOV     C,A
+        CALL    SMPSR
+        JNC     SMPF1
+        CALL    MKVAR
+SMPF1:  POP     H
+        RET
+SMPGET: PUSH    H
+        MOV     C,A
+        CALL    SMPSR
+        POP     H
+        RET
+;
+; SMPSR -- search for type C: DE = the value, NC; or C (HL = ARYTAB)
+;
+SMPSR:  LHLD    ARYTAB
+        XCHG
+        LHLD    VARTAB
+SS1:    MOV     A,L
+        CMP     E
+        JNZ     SS2
+        MOV     A,H
+        CMP     D
+        STC
+        RZ                      ;not there
+SS2:    MOV     A,M
+        CMP     C
+        JNZ     SS3
+        INX     H
+        CALL    NAMCMP
+        DCX     H
+        JZ      SS4
+SS3:    PUSH    B
+        CALL    NXTENT
+        POP     B
+        JMP     SS1
+SS4:    INX     H               ;found: past type, length, name
+        MOV     A,M
+        INX     H
+        CALL    ADDHLA
+        XCHG
+        ORA     A
+        RET
+;
+; MKVAR -- make the variable (type C, NAMPTR/NAMLEN) at ARYTAB: DE =
+; its value (zero)
+;
+MKVAR:  MOV     A,C             ;size = 2 + length + value size
+        ORA     A
+        MVI     A,2
+        JM      MKV1
+        MOV     A,C
+MKV1:   MOV     B,A             ;B = value size
+        LDA     NAMLEN
+        ADD     B
+        ADI     2
+        PUSH    B
+        MOV     C,A
+        MVI     B,0
+        PUSH    B               ;(size)
+        CALL    VROOM
+        LHLD    ARYTAB          ;move the arrays up
+        XCHG
+        LHLD    STREND
+        MOV     A,L             ;BC = STREND - ARYTAB
+        SUB     E
+        MOV     C,A
+        MOV     A,H
+        SBB     D
+        MOV     B,A
+        POP     D               ;size
+        PUSH    D
+        PUSH    H
+        DAD     D               ;new STREND
+        SHLD    STREND
+        XCHG                    ;DE = new end
+        POP     H               ;HL = old end
+        CALL    MOVUP
+        POP     D               ;ARYTAB += size
+        LHLD    ARYTAB
+        PUSH    H               ;(the new entry)
+        DAD     D
+        SHLD    ARYTAB
+        POP     H
+        POP     B               ;B = value size, C = type
+        MOV     M,C
+        INX     H
+        LDA     NAMLEN
+        MOV     M,A
+        INX     H
+        ORA     A
+        JZ      MKV3
+        MOV     C,A             ;the name
+        XCHG
+        LHLD    NAMPTR
+        XCHG
+MKV2:   LDAX    D
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     C
+        JNZ     MKV2
+MKV3:   PUSH    H               ;a zero value
+MKV4:   MVI     M,0
+        INX     H
+        DCR     B
+        JNZ     MKV4
+        POP     D
+        RET
+;
+; VROOM -- make sure BC more bytes fit between STREND and the strings
+; (collecting garbage if need be); Out of memory if not. Keeps BC.
+;
+VROOM:  CALL    VROOM1
+        RNC
+        CALL    GARBAG          ;(BSTR.MAC)
+        CALL    VROOM1
+        JC      OMERR
+        RET
+VROOM1: LHLD    STREND          ;C if STREND + BC + 40 >= FRETOP
+        DAD     B
+        RC
+        LXI     D,40
+        DAD     D
+        RC
+        XCHG
+        LHLD    FRETOP
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        CMC
+        RET
+;
+; ================= arrays =================
+;
+; ARYACC -- the array whose name GETNAM just read (HL at its '('):
+; read the subscripts. A = 0: DE = the element (VALTYP = its type; a
+; new array gets 10 in every dimension). A = 1: DIM it. HL after ')'.
+; The subscripts go on the stack while they are evaluated (they may
+; use arrays themselves), then into ASUBS.
+;
+ARYACC: XCHG                    ;save the name and mode
+        LHLD    NAMPTR
+        PUSH    H
+        XCHG
+        MOV     B,A
+        LDA     NAMTYP
+        MOV     D,A
+        LDA     NAMLEN
+        MOV     E,A
+        PUSH    D
+        MOV     A,B
+        PUSH    PSW
+        MVI     B,0             ;subscripts so far
+ARS1:   PUSH    B
+        MVI     C,8
+        CALL    GETSTK
+        CHRGET                  ;past ( or ,
+        CALL    GETINT          ;DE = a subscript
+        POP     B
+        INR     B
+        PUSH    D
+        MOV     A,M
+        CPI     ','
+        JZ      ARS1
+        SYNCHK  ')'
+        SHLD    ATXT
+        MOV     A,B             ;at most 16 dimensions
+        CPI     17
+        JNC     BSERR
+        STA     ACNT
+        LXI     H,ASUBS-1       ;into ASUBS, the last one first
+        ADD     A
+        CALL    ADDHLA
+ARS2:   POP     D
+        MOV     M,D
+        DCX     H
+        MOV     M,E
+        DCX     H
+        DCR     B
+        JNZ     ARS2
+        POP     PSW             ;mode, name, type
+        STA     AMODE
+        POP     D
+        MOV     A,E
+        STA     NAMLEN
+        MOV     A,D
+        STA     NAMTYP
+        POP     H
+        SHLD    NAMPTR
+        CALL    ARYSR           ;HL = its dimension count
+        LDA     AMODE
+        JNC     AR3
+        CALL    MKARY           ;new: make it
+        LDA     AMODE
+        ORA     A
+        JNZ     ARDONE          ;(DIM)
+        CALL    ARYSR
+        JMP     AR4
+AR3:    ORA     A               ;DIM of one that exists
+        JNZ     DDERR
+AR4:    LDA     ACNT            ;the number of subscripts must match
+        CMP     M
+        JNZ     BSERR
+        INX     H               ;the first dimension's count
+        PUSH    H
+        ADD     A               ;data: past the counts
+        CALL    ADDHLA
+        SHLD    ADATA
+        LDA     ACNT            ;start from the last dimension
+        DCR     A
+        ADD     A
+        MOV     C,A
+        MVI     B,0
+        POP     H
+        DAD     B
+        SHLD    ADIMP
+        LXI     H,ASUBS
+        DAD     B
+        SHLD    ASUBP
+        LXI     H,0
+        SHLD    AIDX
+        LDA     ACNT            ;index = index * n(i) + (s(i) - base)
+AR5:    PUSH    PSW
+        LHLD    ADIMP           ;BC = n(i)
+        MOV     C,M
+        INX     H
+        MOV     B,M
+        DCX     H
+        DCX     H
+        DCX     H
+        SHLD    ADIMP
+        PUSH    B
+        LHLD    AIDX            ;(0 so far -- one dimension, or the
+        MOV     A,H             ;last -- needs no multiplying)
+        ORA     L
+        CNZ     UMULC
+        SHLD    AIDX
+        LHLD    ASUBP           ;HL = s(i) - base
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        DCX     H
+        DCX     H
+        DCX     H
+        SHLD    ASUBP
+        LDA     OPTBAS
+        MOV     L,A
+        MVI     H,0
+        MOV     A,E
+        SUB     L
+        MOV     L,A
+        MOV     A,D
+        SBB     H
+        MOV     H,A
+        POP     B
+        ORA     A               ;below the base
+        JM      BSERR
+        MOV     A,L             ;n(i) or more
+        SUB     C
+        MOV     A,H
+        SBB     B
+        JNC     BSERR
+        XCHG
+        LHLD    AIDX
+        DAD     D
+        SHLD    AIDX
+        POP     PSW
+        DCR     A
+        JNZ     AR5
+        LHLD    AIDX            ;address = data + index * size
+        LDA     NAMTYP
+        CPI     VTSTR
+        JNZ     AR6
+        MOV     D,H             ;* 3
+        MOV     E,L
+        DAD     H
+        DAD     D
+        JMP     AR7
+AR6:    RRC                     ;* 2, 4 or 8
+        JC      AR7
+        DAD     H
+        JMP     AR6
+AR7:    XCHG
+        LHLD    ADATA
+        DAD     D
+        XCHG                    ;DE = the element
+ARDONE: LDA     NAMTYP
+        STA     VALTYP
+        LHLD    ATXT
+        DCX     H               ;(A and flags for the caller)
+        CHRGET
+        RET
+;
+; ARYSR -- find array NAMPTR/NAMLEN/NAMTYP: HL = its dimension count
+; byte, NC; C if there's none
+;
+ARYSR:  LHLD    STREND
+        XCHG
+        LHLD    ARYTAB
+ASR1:   MOV     A,L
+        CMP     E
+        JNZ     ASR2
+        MOV     A,H
+        CMP     D
+        STC
+        RZ
+ASR2:   LDA     NAMTYP
+        CMP     M
+        INX     H
+        JNZ     ASR3
+        CALL    NAMCMP
+        JNZ     ASR3
+        MOV     A,M             ;found: past the name and the size
+        INX     H
+        CALL    ADDHLA
+        INX     H
+        INX     H
+        ORA     A
+        RET
+ASR3:   MOV     A,M             ;skip: the name, then DW size + size
+        INX     H
+        CALL    ADDHLA
+        MOV     C,M
+        INX     H
+        MOV     B,M
+        INX     H
+        DAD     B
+        JMP     ASR1
+;
+; MKARY -- make the array (NAMPTR, NAMLEN, NAMTYP) at STREND with
+; ACNT dimensions: the bounds in ASUBS (A <> 0, DIM) or 10 each
+;
+MKARY:  STA     AMK
+        LXI     H,1
+        SHLD    ANEL
+        LXI     H,ASUBS
+        SHLD    MKSP
+        LXI     H,ADIMS
+        SHLD    MKDP
+        LDA     ACNT
+        STA     MKCNT
+MKA1:   LHLD    MKSP            ;DE = the bound
+        CALL    LDDE
+        SHLD    MKSP
+        LDA     AMK
+        ORA     A
+        JNZ     MKA2
+        LXI     D,10
+MKA2:   XCHG                    ;n = bound + 1 - base, 1 or more
+        INX     H
+        LDA     OPTBAS
+        MOV     E,A
+        MVI     D,0
+        CALL    SUBDE
+        ORA     A
+        JM      BSERR
+        ORA     L
+        JZ      BSERR
+        XCHG
+        LHLD    MKDP
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        SHLD    MKDP
+        MOV     B,D             ;elements *= n
+        MOV     C,E
+        LHLD    ANEL
+        CALL    UMULC
+        JC      OMERR
+        SHLD    ANEL
+        LDA     MKCNT
+        DCR     A
+        STA     MKCNT
+        JNZ     MKA1
+        LHLD    ANEL            ;data bytes = elements * size
+        LDA     NAMTYP
+        MOV     C,A
+        MVI     B,0
+        CALL    UMULC
+        JC      OMERR
+        SHLD    ADATSZ
+        LDA     ACNT            ;following = 1 + 2k + data
+        ADD     A
+        INR     A
+        MOV     C,A
+        MVI     B,0
+        DAD     B
+        JC      OMERR
+        SHLD    AFOLL
+        LDA     NAMLEN          ;entry = 4 + name + following
+        ADI     4
+        MOV     C,A
+        DAD     B
+        JC      OMERR
+        MOV     B,H
+        MOV     C,L
+        PUSH    B
+        CALL    VROOM
+        POP     B
+        LHLD    STREND
+        PUSH    H
+        DAD     B
+        SHLD    STREND
+        POP     H
+        LDA     NAMTYP          ;type, name
+        MOV     M,A
+        INX     H
+        LDA     NAMLEN
+        MOV     M,A
+        INX     H
+        ORA     A
+        JZ      MKA4
+        MOV     C,A
+        XCHG
+        LHLD    NAMPTR
+        XCHG
+MKA3:   LDAX    D
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     C
+        JNZ     MKA3
+MKA4:   XCHG                    ;size word
+        LHLD    AFOLL
+        XCHG
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        LDA     ACNT            ;dimensions and their counts
+        MOV     M,A
+        INX     H
+        ADD     A
+        MOV     C,A
+        MVI     B,0
+        XCHG
+        LXI     H,ADIMS
+        CALL    MOVDN           ;(HL -> DE, BC bytes; DE advanced)
+        XCHG
+        XCHG                    ;zero the elements
+        LHLD    ADATSZ
+        XCHG
+MKA5:   MOV     A,D
+        ORA     E
+        JZ      MKA6
+        MVI     M,0
+        INX     H
+        DCX     D
+        JMP     MKA5
+MKA6:   MVI     A,1
+        STA     OPTDIM
+        RET
+;
+; UMULC -- HL = HL * BC (unsigned), C on overflow. Clobbers DE.
+;
+UMULC:  XCHG
+        LXI     H,0
+        MVI     A,16
+UMC1:   DAD     H
+        JC      UMOV
+        PUSH    PSW
+        MOV     A,C
+        ADD     A
+        MOV     C,A
+        MOV     A,B
+        RAL
+        MOV     B,A
+        JNC     UMC2
+        DAD     D
+        JC      UMOV1
+UMC2:   POP     PSW
+        DCR     A
+        JNZ     UMC1
+        ORA     A
+        RET
+UMOV1:  POP     PSW
+UMOV:   STC
+        RET
+;
+; DIM name(bounds)[, ...]
+;
+DIM:    CALL    GETNAM
+        CPI     '('
+        JNZ     SNERR
+        MVI     A,1
+        CALL    ARYACC
+        CPI     ','
+        RNZ
+        CHRGET
+        JMP     DIM
+;
+; ERASE name[, ...]
+;
+ERASE:  CALL    GETNAM
+        PUSH    H
+        CALL    ARYSR           ;HL = its dimension count byte
+        JC      FCERR
+        DCX     H               ;its size word
+        MOV     B,M
+        DCX     H
+        MOV     C,M
+        INX     H               ;end = here + 2 + size
+        INX     H
+        DAD     B
+        PUSH    H               ;(end)
+        LDA     NAMLEN          ;start = end - size - 4 - length
+        ADI     4
+        MOV     E,A
+        MVI     D,0
+        XCHG
+        DAD     B
+        XCHG                    ;DE = entry length
+        MOV     A,L
+        SUB     E
+        MOV     E,A
+        MOV     A,H
+        SBB     D
+        MOV     D,A             ;DE = start
+        POP     H               ;HL = end
+        PUSH    D
+        PUSH    H
+        XCHG                    ;count = STREND - end
+        LHLD    STREND
+        MOV     A,L
+        SUB     E
+        MOV     C,A
+        MOV     A,H
+        SBB     D
+        MOV     B,A
+        POP     H               ;from end
+        POP     D               ;to start
+        CALL    MOVDN
+        XCHG                    ;DE = the new STREND
+        SHLD    STREND
+        POP     H
+        MOV     A,M
+        CPI     ','
+        RNZ
+        CHRGET
+        JMP     ERASE
+;
+; ================= assignment =================
+;
+; LET var = expression (LETST: without the LET)
+;
+LETST:
+LET:    CALL    PTRGET
+        LDA     VALTYP
+        PUSH    PSW
+        PUSH    D
+        SYNCHK  TKEQ
+        CALL    FRMEVL
+        POP     D
+        POP     PSW
+;
+; LETVAR -- store FAC in the variable at DE of type A. Keeps HL.
+;
+LETVAR: CPI     VTSTR
+        JZ      LETS
+        PUSH    H
+        PUSH    D
+        PUSH    PSW
+        CALL    CHKNUM
+        POP     PSW
+        CALL    FRCTYP
+        POP     H
+        CALL    MOVMF
+        POP     H
+        RET
+LETS:   CALL    CHKSTR
+        JMP     STRASG          ;(BSTR.MAC)
+;
+; SWAP a, b
+;
+SWAP:   CALL    PTRGET
+        PUSH    D
+        LDA     VALTYP
+        PUSH    PSW
+        SYNCHK  ','
+        CALL    PTRGET
+        POP     PSW
+        MOV     C,A
+        LDA     VALTYP
+        CMP     C
+        JNZ     TMERR
+        XTHL                    ;HL = the first, stack = the text
+SWP1:   LDAX    D
+        MOV     B,M
+        MOV     M,A
+        MOV     A,B
+        STAX    D
+        INX     H
+        INX     D
+        DCR     C
+        JNZ     SWP1
+        POP     H
+        RET
+;
+; DEFSTR/DEFINT/DEFSNG/DEFDBL letter[-letter][, ...]
+;
+DEFSTR: MVI     B,VTSTR
+        JMP     DEFTP
+DEFINT: MVI     B,VTINT
+        JMP     DEFTP
+DEFSNG: MVI     B,VTSNG
+        JMP     DEFTP
+DEFDBL: MVI     B,VTDBL
+DEFTP:  CALL    ISLET
+        JNC     SNERR
+        SUI     'A'
+        MOV     C,A
+        MOV     D,A
+        CHRGET
+        CPI     TKMINU
+        JNZ     DT2
+        CHRGET
+        CALL    ISLET
+        JNC     SNERR
+        SUI     'A'
+        CMP     C
+        JC      SNERR
+        MOV     D,A
+        CHRGET
+DT2:    PUSH    H
+        LXI     H,DEFTBL
+        MOV     A,C
+        CALL    ADDHLA
+DT3:    MOV     M,B
+        INX     H
+        MOV     A,C
+        INR     C
+        CMP     D
+        JNZ     DT3
+        POP     H
+        MOV     A,M
+        CPI     ','
+        RNZ
+        CHRGET
+        JMP     DEFTP
+;
+; OPTION BASE 0|1
+;
+OPTION: MVI     B,4
+        LXI     D,BASTXT
+OPT1:   LDAX    D
+        CMP     M
+        JNZ     SNERR
+        INX     D
+        INX     H
+        DCR     B
+        JNZ     OPT1
+        DCX     H
+        CHRGET
+        CALL    GETINT
+        MOV     A,D
+        ORA     A
+        JNZ     SNERR
+        MOV     A,E
+        CPI     2
+        JNC     SNERR
+        LDA     OPTDIM
+        ORA     A
+        JNZ     DDERR
+        MOV     A,E
+        STA     OPTBAS
+        RET
+BASTXT: DB      'BASE'
+;
+; CLEAR [expr][,[top][,stack]] -- clear the variables (and the
+; FOR/GOSUB stack); top = the highest address BASIC uses, stack = the
+; stack size
+;
+CLEAR:  JZ      CLR9
+        CPI     ','
+        JZ      CLR1
+        CALL    FRMEVL          ;(an ignored first expression)
+        MOV     A,M
+        CPI     ','
+        JNZ     CLR9
+CLR1:   CHRGET
+        JZ      CLR9
+        CPI     ','
+        JZ      CLR2
+        CALL    GETUNS          ;top of memory
+        INX     D
+        XCHG
+        SHLD    MEMTOP
+        XCHG
+        MOV     A,M
+        CPI     ','
+        JNZ     CLR9
+CLR2:   CHRGET
+        CALL    GETUNS          ;stack size
+        XCHG
+        SHLD    STKSIZ
+        XCHG
+CLR9:   POP     B               ;(NEWSTT)
+        PUSH    H
+        CALL    STKINI
+        CALL    CLEARC
+        POP     H
+        CALL    STKBAS
+        JMP     NEWSTT
+;
+; GETUNS -- an expression as an unsigned 16-bit number (-32768 ..
+; 65535): DE
+;
+GETUNS: CALL    FRMEVL
+FACUNS: CALL    CHKNUM          ;(FACUNS: the number in FAC)
+        PUSH    H
+        GETYPE
+        JM      GETU2           ;an integer already
+        CALL    FRCSNG
+        LDA     FAC             ;32768 and up: less 65536
+        CPI     128+16
+        JC      GETU1
+        LDA     FACHI
+        ORA     A
+        JM      GETU1
+        LXI     H,CM65K
+        CALL    MOVAM
+        CALL    FADD
+GETU1:  CALL    FRCINT
+GETU2:  LHLD    FACLO
+        XCHG
+        POP     H
+        RET
+CM65K:  DB      0,0,80H,91H     ;-65536 (single)
+;
+; ================= DEF FN =================
+;
+; DEF FNname[(params)] = expression  (or DEF USRn = address)
+;
+DEF:    CPI     TKUSR
+        JZ      DEFUSR          ;(BMISC.MAC)
+        SYNCHK  TKFN
+        PUSH    H               ;not in direct mode
+        LHLD    CURLIN
+        MOV     A,H
+        ANA     L
+        INR     A
+        POP     H
+        JZ      IDERR
+        CALL    GETNAM
+        LDA     NAMTYP          ;the definition: type + 80H
+        ORI     80H
+        CALL    SMPFND          ;DE = its value
+        XCHG                    ;= the text here ('(' or '=')
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        XCHG
+        JMP     SKPSTM          ;the rest runs when FN is used
+;
+; FNCALL -- FNname[(args)] in an expression. The parameters are
+; ordinary variables: their old values are kept on the value stack
+; (above a 0 byte) while the definition is evaluated.
+;
+FNCALL: CHRGET
+        CALL    GETNAM
+        PUSH    H
+        LDA     NAMTYP
+        ORI     80H
+        CALL    SMPGET          ;DE = the definition's text pointer
+        JC      UFERR
+        XCHG
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        POP     H
+        LDA     NAMTYP          ;(its type, for the result)
+        PUSH    PSW
+        MVI     C,10
+        CALL    GETSTK
+        XRA     A               ;the 0 below the saved values
+        CALL    VPSHB
+        LDAX    D
+        CPI     '('
+        JNZ     FNB
+        MOV     A,M             ;the call must have ( too
+        CPI     '('
+        JNZ     SNERR
+FNP1:   PUSH    D               ;an argument
+        CHRGET
+        CALL    FRMEVL
+        POP     D
+        XCHG                    ;its parameter's name
+        PUSH    D
+        CHRGET
+        CALL    GETNAM
+        POP     D
+        XCHG
+        PUSH    H
+        PUSH    D
+        LDA     NAMTYP
+        CALL    CVTFAC
+        LDA     NAMTYP
+        CALL    SMPFND          ;DE = the parameter
+        LDA     NAMTYP
+        CALL    SAVVAR          ;keep its old value
+        CALL    STOVAR          ;and give it the argument
+        POP     D
+        POP     H
+        LDAX    D
+        CPI     ')'
+        JZ      FNP2
+        CPI     ','
+        JNZ     SNERR
+        MOV     A,M
+        CPI     ','
+        JNZ     SNERR
+        JMP     FNP1
+FNP2:   MOV     A,M
+        CPI     ')'
+        JNZ     SNERR
+        CHRGET                  ;the call: past its )
+        INX     D               ;the definition: past its )
+FNB:    PUSH    H
+        XCHG
+        DCX     H
+        CHRGET
+        SYNCHK  TKEQ
+        CALL    FRMEVL          ;the definition's expression
+        POP     H
+        POP     PSW
+        CALL    CVTFAC
+        GETYPE                  ;a string result must not be a
+        CZ      STRTMP          ;parameter's (BSTR.MAC)
+;
+; RSTVAR -- put the saved parameter values back, down to the 0
+;
+RSTVAR: PUSH    H
+RSV1:   LHLD    VSP
+        DCX     H
+        MOV     A,M             ;size, 0 = the end
+        ORA     A
+        JZ      RSV3
+        MOV     C,A
+        DCX     H
+        MOV     D,M             ;the variable
+        DCX     H
+        MOV     E,M
+        MOV     A,L             ;HL -= size: the old value
+        SUB     C
+        MOV     L,A
+        MOV     A,H
+        SBI     0
+        MOV     H,A
+        SHLD    VSP
+RSV2:   MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     C
+        JNZ     RSV2
+        JMP     RSV1
+RSV3:   SHLD    VSP
+        POP     H
+        RET
+;
+; SAVVAR -- push the A-byte value at DE, its address and A onto the
+; value stack. Keeps DE, HL.
+;
+SAVVAR: PUSH    H
+        PUSH    D
+        MOV     C,A
+        LHLD    VSP             ;room?
+        PUSH    D
+        LXI     D,VSTKE-12
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        POP     D
+        JNC     OMERR
+        MOV     B,C
+SAV1:   LDAX    D
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     SAV1
+        POP     D
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        MOV     M,C
+        INX     H
+        SHLD    VSP
+        POP     H
+        RET
+;
+; VPSHB -- push byte A onto the value stack
+;
+VPSHB:  PUSH    H
+        LHLD    VSP
+        MOV     M,A
+        INX     H
+        SHLD    VSP
+        POP     H
+        RET
+;
+; STOVAR -- FAC into the variable at DE (type NAMTYP), as it is: a
+; string's descriptor is copied, and its temporary released
+;
+STOVAR: PUSH    H
+        LDA     NAMTYP
+        CPI     VTSTR
+        JZ      STOV1
+        XCHG
+        CALL    MOVMF
+        POP     H
+        RET
+STOV1:  PUSH    D               ;(its own copy: no shared data)
+        CALL    STRTMP
+        POP     D
+        LHLD    FACLO
+        MVI     B,3
+        CALL    MOVB
+        CALL    FRETMD          ;(BSTR.MAC)
+        POP     H
+        RET
+;
+; CVTFAC -- FAC to type A (a string must be a string)
+;
+CVTFAC: CPI     VTSTR
+        JZ      CHKSTR
+        PUSH    PSW
+        CALL    CHKNUM
+        POP     PSW
+        JMP     FRCTYP
+;
+; VARPTR(var) -- the address of its value
+;
+VARPTR: CHRGET
+        SYNCHK  '('
+        CPI     '#'
+        JZ      FCERR           ;(VARPTR(#file): not yet)
+        CALL    PTRGET
+        SYNCHK  ')'
+        XCHG
+        SHLD    FACLO
+        XCHG
+        MVI     A,VTINT
+        STA     VALTYP
+        RET
+;
+; ================= data =================
+;
+NAMPTR: DW      0               ;GETNAM: the name's text
+NAMLEN: DB      0               ;its length (up to 40)
+NAMTYP: DB      0               ;its type
+ATXT:   DW      0               ;arrays
+ACNT:   DB      0
+AMODE:  DB      0
+AMK:    DB      0
+ADATA:  DW      0
+ADIMP:  DW      0
+ASUBP:  DW      0
+AIDX:   DW      0
+ANEL:   DW      0
+ADATSZ: DW      0
+AFOLL:  DW      0
+MKSP:   DW      0
+MKDP:   DW      0
+MKCNT:  DB      0
+;
+        END

@@ -1,0 +1,221 @@
+;
+; BMISC.MAC -- CZBASIC: PEEK POKE INP OUT WAIT, USR and DEF USR, CALL
+;
+; Addresses may be given as -32768..65535 (MBASIC's rule): negative
+; ones are 65536 lower.
+;
+; USR[n](x) calls the machine-code routine DEF USRn set (n = 0..9)
+; with A = the argument's type (VALTYP), HL = its value in FAC (FACLO;
+; DFAC for a double) or, for a string, DE = its descriptor. Whatever
+; the routine leaves in FAC/VALTYP is the result.
+;
+; CALL v[(a, b, ...)] calls the address in variable v with the
+; addresses of the argument variables' values: the first in HL, the
+; second in DE, the third in BC (more: BC points at a list of the
+; third and later ones), as MBASIC does.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  PEEKFN,POKE,INPFN,OUTST,WAITST,USRFN,DEFUSR,CALLST
+;
+        EXTRN   FACLO,DFAC,VALTYP,FACUNS,GETUNS,GETBYT,RETBYT,PTRGET
+        EXTRN   FRMEVL,CHKNUM,MOVFM,FCERR,SNERR,OVERR,GETSTK
+        EXTRN   CALARG          ;(BINIT.MAC)
+;
+        CSEG
+;
+; PEEK(a) -- the byte at a
+;
+PEEKFN: CALL    FACUNS
+        LDAX    D
+        JMP     RETBYT
+;
+; POKE a, b
+;
+POKE:   CALL    GETUNS
+        PUSH    D
+        SYNCHK  ','
+        CALL    GETBYT
+        POP     D
+        STAX    D
+        RET
+;
+; INP(p) -- the byte from port p
+;
+INPFN:  CALL    FACUNS
+        MOV     A,D
+        ORA     A
+        JNZ     FCERR
+        MOV     A,E
+        STA     INPORT
+        CALL    INPIO
+        JMP     RETBYT
+INPIO:  DB      0DBH            ;IN p
+INPORT: DB      0
+        RET
+;
+; OUT p, b
+;
+OUTST:  CALL    GETBYT
+        STA     OUTPRT
+        SYNCHK  ','
+        CALL    GETBYT
+        JMP     OUTIO
+OUTIO:  DB      0D3H            ;OUT p
+OUTPRT: DB      0
+        RET
+;
+; WAIT p, and[, xor] -- until (IN p XOR xor) AND and is not 0
+;
+WAITST: CALL    GETBYT
+        STA     INPORT
+        SYNCHK  ','
+        CALL    GETBYT
+        MOV     B,A
+        MVI     C,0
+        MOV     A,M
+        CPI     ','
+        JNZ     WAIT1
+        CHRGET
+        PUSH    B
+        CALL    GETBYT
+        POP     B
+        MOV     C,A
+WAIT1:  PUSH    H
+WAIT2:  CALL    INPIO
+        XRA     C
+        ANA     B
+        JZ      WAIT2
+        POP     H
+        RET
+;
+; DEF USR[n] = address
+;
+DEFUSR: CHRGET                  ;past USR
+        CALL    USRNUM          ;DE = the table slot
+        PUSH    D
+        SYNCHK  TKEQ
+        CALL    GETUNS
+        XTHL
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        POP     H
+        RET
+;
+; USRNUM -- an optional digit n at HL: DE = &USRTAB(n) (HL past it)
+;
+USRNUM: MOV     A,M
+        MVI     E,0
+        CPI     TCDIG
+        JC      USRN1
+        CPI     TCDIG+10
+        JNC     USRN1
+        SUI     TCDIG
+        MOV     E,A
+        CHRGET
+USRN1:  XCHG
+        MVI     H,0
+        DAD     H
+        PUSH    D
+        LXI     D,USRTAB
+        DAD     D
+        POP     D
+        XCHG
+        RET                     ;(DE = slot, HL = text)
+;
+; USR[n](x) in an expression (HL at the USR token)
+;
+USRFN:  CHRGET
+        CALL    USRNUM
+        PUSH    D
+        SYNCHK  '('
+        CALL    FRMEVL
+        SYNCHK  ')'
+        XTHL                    ;HL = the slot, stack = the text
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        MOV     A,D
+        ORA     E
+        JZ      FCERR           ;(no DEF USR)
+        LXI     H,USRRET
+        PUSH    H
+        PUSH    D               ;(the routine)
+        LXI     H,FACLO         ;A = type, HL = the value, DE = a
+        LDA     VALTYP          ;string's descriptor
+        XCHG
+        LHLD    FACLO
+        XCHG
+        CPI     VTDBL
+        RNZ
+        LXI     H,DFAC
+        RET                     ;(to the routine)
+USRRET: POP     H
+        RET
+;
+; CALL v[(arg, ...)]
+;
+CALLST: CALL    PTRGET          ;the variable holding the address
+        PUSH    H
+        XCHG
+        CALL    MOVFM
+        CALL    FACUNS          ;DE = the address
+        XCHG
+        SHLD    CALADR
+        LXI     H,0             ;(no arguments yet)
+        SHLD    CALNUM
+        POP     H
+        MOV     A,M             ;arguments?
+        CPI     '('
+        JNZ     CALL3
+CALL1:  CHRGET
+        CALL    PTRGET          ;each: its value's address
+        PUSH    H
+        LHLD    CALNUM
+        MOV     A,L
+        CPI     16
+        JNC     FCERR
+        INR     L
+        SHLD    CALNUM
+        DCR     L
+        MVI     H,0
+        DAD     H
+        LXI     B,CALARG
+        DAD     B
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        POP     H
+        MOV     A,M
+        CPI     ','
+        JZ      CALL1
+        SYNCHK  ')'
+CALL3:  PUSH    H
+        LXI     H,CALL4         ;return here
+        PUSH    H
+        LHLD    CALADR
+        PUSH    H
+        LHLD    CALARG+2        ;DE = the 2nd
+        XCHG
+        LXI     B,CALARG+4      ;BC = the 3rd, or the list from it
+        LDA     CALNUM
+        CPI     4
+        JNC     CALL3A
+        PUSH    H
+        LHLD    CALARG+4
+        MOV     B,H
+        MOV     C,L
+        POP     H
+CALL3A: LHLD    CALARG          ;HL = the 1st
+        RET                     ;(to the routine)
+CALL4:  POP     H
+        RET
+;
+; ================= data =================
+;
+USRTAB: DW      0,0,0,0,0,0,0,0,0,0     ;DEF USR0..9
+CALADR: DW      0
+CALNUM: DW      0
+;
+        END

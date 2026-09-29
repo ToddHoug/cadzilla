@@ -1,0 +1,694 @@
+;
+; BFMATH.MAC -- CZBASIC: SQR SIN COS TAN ATN EXP LOG, ^, RND and
+; RANDOMIZE
+;
+; Like MBASIC 5.21, the transcendental functions work in single
+; precision (a double argument is rounded to single first). x^n with a
+; whole n is done by repeated squaring, exactly, in the operands' type
+; (single at least); other powers are EXP(y*LOG(x)).
+;
+;   SQR   Newton's iteration from half the exponent
+;   EXP   2^(x/ln 2): 2^f from a series on [0,1), the whole part added
+;         to the exponent
+;   LOG   x = m*2^e: ln(m*sqrt 2) = 2 z (1 + z^2/3 + ...) with
+;         z = (m sqrt 2 - 1)/(m sqrt 2 + 1), then + (e - 1/2) ln 2
+;   SIN   x/(2 pi) reduced to a quarter turn, then the Taylor series
+;   ATN   1/x above 1, then atn x = pi/6 + atn((x sqrt 3 - 1)/(sqrt 3 + x))
+;         above tan(pi/12), then the series
+;   RND   a 32-bit linear congruential generator (x*69069 + 1); its
+;         top 24 bits are the fraction. (Not MBASIC's sequence.)
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  SQRFN,SINFN,COSFN,TANFN,ATNFN,EXPFN,LOGFN,FPWR
+        PUBLIC  RNDFN,RANDOM
+;
+        EXTRN   FAC,FACHI,FACLO,DFAC,ARGX,ARGHI,VALTYP,FACSGN
+        EXTRN   FADD,FSUB,FSUBS,FMUL,FDIV,FCMP,FNEG,FNORM,FZERO
+        EXTRN   MOVFM,MOVMF,MOVAM,MOVAF,MOVFA,FRCSNG,FRCDBL,FRCINT
+        EXTRN   FRCTYP,INTFLT,FIXFLT,FLTINT,CHKNUM,SWAPFT,LTYPE,CVTARG
+        EXTRN   FCERR,WARN,STROUT,INLIN,FIN,OUTCON,STOPBK,FRMNUM
+        EXTRN   MOVB
+        EXTRN   NEGHL
+;
+        CSEG
+;
+; ================= helpers =================
+;
+; SNGARG -- the argument in FAC, as a single
+;
+SNGARG: CALL    CHKNUM
+        JMP     FRCSNG
+;
+; FSTO -- (HL) = FAC. FLOD -- FAC = (HL). FMULM / FADDM / FSUBM /
+; FDIVM -- FAC = FAC op (HL); FSUBM: FAC - (HL); FDIVM: FAC / (HL).
+; All by VALTYP.
+;
+FSTO:   JMP     MOVMF
+FLOD:   JMP     MOVFM
+FMULM:  CALL    MOVAM
+        JMP     FMUL
+FADDM:  CALL    MOVAM
+        JMP     FADD
+FSUBM:  CALL    MOVAM
+        JMP     FSUBS
+FDIVM:  PUSH    H               ;FAC / (HL): ARG = FAC, FAC = (HL)
+        CALL    MOVAF
+        POP     H
+        CALL    MOVFM
+        JMP     FDIV
+;
+; DIVBY -- FAC = (HL) / FAC
+;
+DIVBY:  CALL    MOVAM
+        JMP     FDIV
+;
+; POLY -- FAC = P(FAC) for the table at HL: DB n, then the n+1
+; coefficients (singles), highest power first. Horner's rule.
+;
+POLY:   SHLD    PPTR
+        LXI     H,PZ
+        CALL    FSTO
+        LHLD    PPTR
+        MOV     A,M
+        STA     PCNT
+        INX     H
+        CALL    FLOD
+POLY1:  INX     H               ;next coefficient
+        INX     H
+        INX     H
+        INX     H
+        SHLD    PPTR
+        LXI     H,PZ            ;* z
+        CALL    FMULM
+        LHLD    PPTR            ;+ c
+        CALL    FADDM
+        LHLD    PPTR
+        LDA     PCNT
+        DCR     A
+        STA     PCNT
+        JNZ     POLY1
+        RET
+;
+; ODDPOL -- FAC = x * P(x^2), x in FAC
+;
+ODDPOL: PUSH    H
+        LXI     H,OX
+        CALL    FSTO
+        CALL    FMULM           ;x^2
+        POP     H
+        CALL    POLY
+        LXI     H,OX
+        JMP     FMULM
+;
+; ================= SQR =================
+;
+SQRFN:  CALL    SNGARG
+        FSIGN
+        RZ                      ;SQR(0) = 0
+        JM      FCERR
+        LXI     H,SQX
+        CALL    FSTO
+        LDA     FAC             ;y = x with its exponent halved
+        SUI     128
+        MOV     B,A
+        RAL                     ;(arithmetic shift right)
+        MOV     A,B
+        RAR
+        ADI     128
+        STA     FAC
+        MVI     A,5             ;y = (y + x/y) / 2, five times
+SQR1:   STA     SQCNT
+        LXI     H,SQY
+        CALL    FSTO
+        LXI     H,SQX           ;x / y
+        CALL    DIVBY
+        LXI     H,SQY           ;+ y
+        CALL    FADDM
+        LXI     H,FAC           ;/ 2
+        DCR     M
+        LDA     SQCNT
+        DCR     A
+        JNZ     SQR1
+        RET
+;
+; ================= EXP, LOG =================
+;
+EXPFN:  CALL    SNGARG
+EXP0:   LXI     H,FLOG2E        ;t = x / ln 2
+        CALL    FMULM
+        LXI     H,ET
+        CALL    FSTO
+        CALL    INTFLT          ;n = INT(t) (single)
+        LXI     H,EN
+        CALL    FSTO
+        LDA     FAC             ;|n| >= 256: over- or underflow
+        CPI     128+9
+        JNC     EXPBIG
+        CALL    FRCINT          ;(as an integer)
+        SHLD    ENI
+        MVI     A,VTSNG
+        STA     VALTYP
+        LXI     H,ET            ;f = t - n, 0..1
+        CALL    FLOD
+        LXI     H,EN
+        CALL    FSUBM
+        LXI     H,EXPCOF        ;2^f
+        CALL    POLY
+        LHLD    ENI             ;exponent + n
+        LDA     FAC
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        MOV     A,H             ;below 1: underflow
+        ORA     A
+        JM      FZERO
+        JNZ     EXPOV
+        MOV     A,L
+        ORA     A
+        JZ      FZERO
+        STA     FAC
+        RET
+EXPBIG: LDA     FACHI           ;huge t: 0 if negative, else overflow
+        ORA     A
+        JM      FZERO
+EXPOV:  XRA     A               ;Overflow: the largest positive
+        STA     FACSGN
+        LXI     H,FBIG
+        CALL    FLOD
+        MVI     E,EOV
+        JMP     WARN
+;
+LOGFN:  CALL    SNGARG
+LOG0:   FSIGN
+        JZ      FCERR
+        JM      FCERR
+        LDA     FAC             ;e
+        SUI     128
+        STA     LGE
+        MVI     A,128           ;m in [.5,1)
+        STA     FAC
+        LXI     H,FSQR2         ;m' = m sqrt 2
+        CALL    FMULM
+        LXI     H,LGM
+        CALL    FSTO
+        LXI     H,FONE          ;m' + 1
+        CALL    FADDM
+        LXI     H,LGD
+        CALL    FSTO
+        LXI     H,LGM           ;(m' - 1) / (m' + 1)
+        CALL    FLOD
+        LXI     H,FONE
+        CALL    FSUBM
+        LXI     H,LGD
+        CALL    FDIVM
+        LXI     H,LOGCOF        ;ln m' / 2
+        CALL    ODDPOL
+        LDA     FAC             ;* 2
+        ORA     A
+        JZ      LOG1
+        INR     A
+        STA     FAC
+LOG1:   LXI     H,LGM
+        CALL    FSTO
+        LDA     LGE             ;(e - 1/2) ln 2
+        MOV     L,A
+        RAL
+        SBB     A
+        MOV     H,A
+        SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        CALL    FLTINT
+        LXI     H,FHALF
+        CALL    FSUBM
+        LXI     H,FLN2
+        CALL    FMULM
+        LXI     H,LGM
+        JMP     FADDM
+;
+; ================= SIN, COS, TAN =================
+;
+COSFN:  CALL    SNGARG
+COS0:   LXI     H,FPI2          ;cos x = sin(x + pi/2)
+        CALL    FADDM
+        JMP     SIN0
+SINFN:  CALL    SNGARG
+SIN0:   LXI     H,FRTWOP        ;u = x / 2 pi, its fraction 0..1
+        CALL    FMULM
+        LXI     H,SNU
+        CALL    FSTO
+        CALL    INTFLT
+        LXI     H,SNI
+        CALL    FSTO
+        LXI     H,SNU
+        CALL    FLOD
+        LXI     H,SNI
+        CALL    FSUBM
+        LXI     H,SNU           ;u
+        CALL    FSTO
+        LXI     H,FQTR          ;below a quarter: sin(u 2 pi)
+        CALL    MOVAM
+        CALL    FCMP            ;sign(.25 - u)
+        ORA     A
+        JP      SIN2
+        LXI     H,SNU           ;below three quarters: (.5 - u) 2 pi
+        CALL    FLOD
+        LXI     H,F3QTR
+        CALL    MOVAM
+        CALL    FCMP
+        ORA     A
+        JM      SIN1
+        CALL    FNEG            ;-u + .5
+        LXI     H,FHALF
+        CALL    FADDM
+        JMP     SIN2
+SIN1:   LXI     H,SNU           ;else (u - 1) 2 pi
+        CALL    FLOD
+        LXI     H,FONE
+        CALL    FSUBM
+SIN2:   LXI     H,FTWOPI
+        CALL    FMULM
+        LXI     H,SINCOF
+        JMP     ODDPOL
+;
+TANFN:  CALL    SNGARG
+        LXI     H,TNX
+        CALL    FSTO
+        CALL    SIN0
+        LXI     H,TNS
+        CALL    FSTO
+        LXI     H,TNX
+        CALL    FLOD
+        CALL    COS0
+        LXI     H,TNS           ;sin / cos
+        JMP     DIVBY
+;
+; ================= ATN =================
+;
+ATNFN:  CALL    SNGARG
+        LDA     FACHI           ;the sign, then |x|
+        ANI     80H
+        STA     ATSGN
+        LDA     FACHI
+        ANI     7FH
+        STA     FACHI
+        XRA     A
+        STA     ATINV
+        STA     ATRED
+        LXI     H,FONE          ;above 1: 1/x
+        CALL    MOVAM
+        CALL    FCMP            ;sign(1 - x)
+        ORA     A
+        JP      ATN1
+        LXI     H,FONE
+        CALL    DIVBY
+        MVI     A,1
+        STA     ATINV
+ATN1:   LXI     H,FTN15         ;above tan 15 degrees: reduce
+        CALL    MOVAM
+        CALL    FCMP
+        ORA     A
+        JP      ATN2
+        LXI     H,ATX           ;(x sqrt 3 - 1) / (sqrt 3 + x)
+        CALL    FSTO
+        LXI     H,FSQR3
+        CALL    FADDM
+        LXI     H,ATD
+        CALL    FSTO
+        LXI     H,ATX
+        CALL    FLOD
+        LXI     H,FSQR3
+        CALL    FMULM
+        LXI     H,FONE
+        CALL    FSUBM
+        LXI     H,ATD
+        CALL    FDIVM
+        MVI     A,1
+        STA     ATRED
+ATN2:   LXI     H,ATNCOF
+        CALL    ODDPOL
+        LDA     ATRED
+        ORA     A
+        JZ      ATN3
+        LXI     H,FPI6
+        CALL    FADDM
+ATN3:   LDA     ATINV
+        ORA     A
+        JZ      ATN4
+        CALL    FNEG            ;pi/2 - r
+        LXI     H,FPI2
+        CALL    FADDM
+ATN4:   LDA     ATSGN
+        ORA     A
+        RZ
+        JMP     FNEG
+;
+; ================= ^ =================
+;
+; FPWR -- FAC = ARG ^ FAC (ARG of type LTYPE)
+;
+FPWR:   CALL    SWAPFT          ;keep the base (and its type)
+        LDA     VALTYP
+        STA     PWBT
+        LXI     H,PWB
+        CALL    FSTO
+        CALL    SWAPFT
+        GETYPE                  ;a whole exponent?
+        JM      PWINT
+        LXI     H,PWY
+        CALL    FSTO
+        CALL    FIXFLT
+        LXI     H,PWY
+        CALL    MOVAM
+        CALL    FCMP
+        ORA     A
+        JNZ     PWREAL
+        LDA     FAC             ;and not too big
+        CPI     128+16
+        JNC     PWREAL
+        CALL    FRCINT
+PWINT:  LHLD    FACLO           ;n
+        SHLD    PWN
+        LDA     PWBT            ;the type: the base's, single at least
+        CPI     VTDBL
+        MVI     A,VTDBL
+        JZ      PWI1
+        MVI     A,VTSNG
+PWI1:   STA     PWT
+        LDA     PWBT            ;FAC = base, in that type
+        STA     VALTYP
+        LXI     H,PWB
+        CALL    FLOD
+        LDA     PWT
+        CALL    FRCTYP
+        LXI     H,PWB
+        CALL    FSTO
+        LXI     H,FONE          ;r = 1
+        CALL    FLODS
+        LXI     H,PWR
+        CALL    FSTO
+        LHLD    PWN             ;m = |n|
+        MOV     A,H
+        ORA     A
+        JP      PWI2
+        CALL    NEGHL
+PWI2:   SHLD    PWM
+PWI3:   LHLD    PWM
+        MOV     A,H
+        ORA     L
+        JZ      PWI5
+        MOV     A,L             ;odd: r = r * b
+        RAR
+        JNC     PWI4
+        LXI     H,PWR
+        CALL    FLOD
+        LXI     H,PWB
+        CALL    FMULM
+        LXI     H,PWR
+        CALL    FSTO
+PWI4:   LHLD    PWM             ;m >>= 1
+        ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        SHLD    PWM
+        ORA     H               ;b = b * b (if more to come)
+        JZ      PWI3
+        LXI     H,PWB
+        CALL    FLOD
+        LXI     H,PWB
+        CALL    FMULM
+        LXI     H,PWB
+        CALL    FSTO
+        JMP     PWI3
+PWI5:   LXI     H,PWR
+        CALL    FLOD
+        LDA     PWN+1           ;n < 0: 1 / r
+        ORA     A
+        RP
+        LXI     H,FONE
+        CALL    FLODAS          ;(ARG = 1 in the type)
+        JMP     FDIV
+;
+; PWREAL -- x^y = EXP(y LOG x), x > 0 (x = 0: 0)
+;
+PWREAL: LXI     H,PWY           ;y, single
+        CALL    FLOD
+        CALL    FRCSNG
+        LXI     H,PWY
+        CALL    FSTO
+        LDA     PWBT            ;x, single
+        STA     VALTYP
+        LXI     H,PWB
+        CALL    FLOD
+        CALL    FRCSNG
+        FSIGN
+        JZ      FZERO
+        JM      FCERR
+        CALL    LOG0
+        LXI     H,PWY
+        CALL    FMULM
+        JMP     EXP0
+;
+; FLODS -- FAC = the single at HL, in type VALTYP (1.0 here)
+; FLODAS -- ARG = the single at HL, in type VALTYP
+;
+FLODS:  LDA     VALTYP
+        PUSH    PSW
+        MVI     A,VTSNG
+        STA     VALTYP
+        CALL    MOVFM
+        POP     PSW
+        JMP     FRCTYP
+FLODAS: CALL    MOVAF           ;(keep FAC in ARG a moment)
+        LXI     H,PWR
+        CALL    FSTO
+        LXI     H,FONE
+        CALL    FLODS
+        CALL    MOVAF
+        LXI     H,PWR
+        JMP     FLOD
+;
+; ================= RND, RANDOMIZE =================
+;
+; RND[(x)] -- x < 0 starts a sequence from x, 0 repeats the last
+;
+RNDFN:  CALL    CHKNUM
+        CALL    FRCSNG
+        FSIGN
+        JZ      RNDLST
+        JP      RND1
+        LHLD    FACLO           ;negative: the seed from its bits
+        SHLD    SEED
+        LHLD    FACLO+2
+        SHLD    SEED+2
+RND1:   CALL    NXTRND
+        LXI     H,RLAST
+        JMP     FSTO
+RNDLST: LXI     H,RLAST
+        JMP     FLOD
+;
+; NXTRND -- SEED = SEED * 69069 + 1; FAC = its top 24 bits / 2^24
+;
+NXTRND: LXI     H,SEED          ;T = SEED
+        LXI     D,RT
+        MVI     B,4
+        CALL    MOVB
+        LXI     H,SEED          ;SEED = 0
+        MVI     B,4
+NR2:    MVI     M,0
+        INX     H
+        DCR     B
+        JNZ     NR2
+        LXI     D,0DCDH         ;SEED = T * 0DCDH (69069 = 10000H+0DCDH)
+        MVI     C,12
+NR3:    PUSH    D               ;SEED <<= 1
+        LXI     H,SEED
+        MVI     B,4
+        ORA     A
+NR4:    MOV     A,M
+        RAL
+        MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     NR4
+        POP     D
+        MOV     A,E             ;the multiplier's next bit, from the top
+        ADD     A               ;(of its 12 bits)
+        MOV     E,A
+        MOV     A,D
+        RAL
+        MOV     D,A
+        ANI     10H
+        JZ      NR6
+        LXI     H,SEED          ;SEED += T
+        PUSH    D
+        LXI     D,RT
+        MVI     B,4
+        ORA     A
+NR5:    LDAX    D
+        ADC     M
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     NR5
+        POP     D
+NR6:    DCR     C
+        JNZ     NR3
+        LHLD    SEED+2          ;+ T << 16
+        XCHG
+        LHLD    RT
+        DAD     D
+        SHLD    SEED+2
+        LHLD    SEED            ;+ 1
+        INX     H
+        SHLD    SEED
+        MOV     A,H
+        ORA     L
+        JNZ     NR7
+        LHLD    SEED+2
+        INX     H
+        SHLD    SEED+2
+NR7:    LHLD    SEED+1          ;the fraction: bits 31..8 as a mantissa
+        SHLD    FACLO
+        LDA     SEED+3
+        STA     FACHI
+        XRA     A
+        STA     DFAC+3          ;(guard)
+        STA     FACSGN
+        MVI     A,128
+        STA     FAC
+        MVI     A,VTSNG
+        STA     VALTYP
+        JMP     FNORM
+;
+; RANDOMIZE [n] -- a new seed (asked for when not given)
+;
+RANDOM: JNZ     RAND1
+        PUSH    H
+RAND0:  LXI     H,RNDMSG
+        CALL    STROUT
+        CALL    INLIN           ;"? " is in the message
+        JC      STOPBK
+        INX     H
+        CALL    FIN
+        POP     H
+        PUSH    H
+        GETYPE
+        JZ      RAND0
+        CALL    FRCINT
+        JMP     RAND2
+RAND1:  CALL    FRMNUM
+        PUSH    H
+        CALL    FRCINT
+RAND2:  SHLD    SEED
+        XCHG
+        LXI     H,0
+        SHLD    SEED+2
+        MVI     A,5             ;stir
+RAND3:  PUSH    PSW
+        CALL    NXTRND
+        POP     PSW
+        DCR     A
+        JNZ     RAND3
+        POP     H
+        RET
+;
+RNDMSG: DB      'Random number seed (-32768 to 32767)? ',0
+;
+; ================= data =================
+;
+PPTR:   DW      0               ;POLY
+PCNT:   DB      0
+PZ:     DS      4
+OX:     DS      4
+SQX:    DS      4               ;SQR
+SQY:    DS      4
+SQCNT:  DB      0
+ET:     DS      4               ;EXP
+EN:     DS      4
+ENI:    DW      0
+LGE:    DB      0               ;LOG
+LGM:    DS      4
+LGD:    DS      4
+SNU:    DS      4               ;SIN
+SNI:    DS      4
+TNX:    DS      4               ;TAN
+TNS:    DS      4
+ATSGN:  DB      0               ;ATN
+ATINV:  DB      0
+ATRED:  DB      0
+ATX:    DS      4
+ATD:    DS      4
+PWY:    DS      8               ;^
+PWB:    DS      8
+PWR:    DS      8
+PWN:    DW      0
+PWM:    DW      0
+PWT:    DB      0
+PWBT:   DB      0
+SEED:   DB      1,0,0,0         ;RND
+RT:     DS      4
+RLAST:  DB      0,0,0,80H       ;(.5)
+;
+FQTR:   DB      0,0,0,7FH       ;.25
+F3QTR:  DB      0,0,40H,80H     ;.75
+FBIG:   DB      0FFH,0FFH,7FH,0FFH ;the largest single
+;
+FHALF:  DB      000H,000H,000H,080H             ;0.5
+FONE:   DB      000H,000H,000H,081H             ;1
+FTWOPI: DB      0DBH,00FH,049H,083H             ;2 pi
+FPI2:   DB      0DBH,00FH,049H,081H             ;pi/2
+FRTWOP: DB      083H,0F9H,022H,07EH             ;1 / 2 pi
+FLN2:   DB      018H,072H,031H,080H             ;ln 2
+FLOG2E: DB      03BH,0AAH,038H,081H             ;1 / ln 2
+FSQRH:  DB      0F3H,004H,035H,080H             ;sqrt(1/2)
+FSQR2:  DB      0F3H,004H,035H,081H             ;sqrt 2
+FSQR3:  DB      0D7H,0B3H,05DH,081H             ;sqrt 3
+FPI6:   DB      092H,00AH,006H,080H             ;pi/6
+FTN15:  DB      0A3H,030H,009H,07FH             ;tan(pi/12)
+;SINCOF: sin(x)/x as a polynomial in x^2, highest power first
+SINCOF: DB      6
+        DB      031H,092H,030H,060H
+        DB      02BH,032H,0D7H,067H
+        DB      01DH,0EFH,038H,06EH
+        DB      001H,00DH,0D0H,074H
+        DB      089H,088H,008H,07AH
+        DB      0ABH,0AAH,0AAH,07EH
+        DB      000H,000H,000H,081H
+;ATNCOF: atn(x)/x as a polynomial in x^2
+ATNCOF: DB      6
+        DB      0D9H,089H,01DH,07DH
+        DB      08CH,02EH,0BAH,07DH
+        DB      039H,08EH,063H,07DH
+        DB      025H,049H,092H,07EH
+        DB      0CDH,0CCH,04CH,07EH
+        DB      0ABH,0AAH,0AAH,07FH
+        DB      000H,000H,000H,081H
+;LOGCOF: ln((1+z)/(1-z))/(2z) = 1 + z^2/3 + z^4/5 ... in z^2
+LOGCOF: DB      5
+        DB      08CH,02EH,03AH,07DH
+        DB      039H,08EH,063H,07DH
+        DB      025H,049H,012H,07EH
+        DB      0CDH,0CCH,04CH,07EH
+        DB      0ABH,0AAH,02AH,07FH
+        DB      000H,000H,000H,081H
+;EXPCOF: 2^f for f in [0,1): sum (f ln2)^k / k!, in f
+EXPCOF: DB      9
+        DB      09FH,092H,05AH,069H
+        DB      011H,060H,031H,06DH
+        DB      0FEH,0E5H,07FH,070H
+        DB      089H,084H,021H,074H
+        DB      0FFH,0C3H,02EH,077H
+        DB      05BH,095H,01DH,07AH
+        DB      047H,058H,063H,07CH
+        DB      0F0H,0FDH,075H,07EH
+        DB      018H,072H,031H,080H
+        DB      000H,000H,000H,081H
+;
+        END

@@ -1,0 +1,161 @@
+;
+; BTAB.MAC -- CZBASIC: the statement and function dispatch tables
+;
+; STMTAB: a handler per statement token 81H..TKLAST (BEXEC.MAC EXEC1).
+; FNTAB: a handler per function 0FFH, 81H..FNLAST (BEVAL.MAC FUNC).
+; Unused tokens go to SNERR.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  STMTAB,FNTAB
+;
+        EXTRN   ABSFN,ASCFN,ATNFN,AUTO,CALLST,CDBLFN,CHAIN,CHRFN
+        EXTRN   CINTFN,CLEAR,CLOSE,COMMON,CONT,COSFN,CSNGFN,CVDFN
+        EXTRN   CVIFN,CVSFN,DATAST,DEF,DEFDBL,DEFINT,DEFSNG,DEFSTR
+        EXTRN   DELETE,DIM,EDIT,ELSEST,ENDST,EOFFN,ERASE,ERRSTM
+        EXTRN   EXPFN,FIELD,FILES,FIXFN,FOR,FREFN,GETST,GOSUB
+        EXTRN   GOTO,HEXFN,IFST,INPFN,INPUT,INTFN,KILL,LEFTS
+        EXTRN   LENFN,LET,LINEST,LIST,LLIST,LOAD,LOCFN,LOFFN
+        EXTRN   LOGFN,LPOSFN,LPRINT,LSET,MERGE,MIDS,MKDFN,MKIFN
+        EXTRN   MKSFN,NAMEST,NEW,NEXT,NULL,OCTFN,ONST,OPEN
+        EXTRN   OPTION,OUTST,PEEKFN,POKE,POSFN,PRINT,PUTST,RANDOM
+        EXTRN   READ,REMST,RENUM,RESET,RESTOR,RESUME,RETURN,RIGHTS
+        EXTRN   RNDFN,RSET,RUN,SAVE,SGNFN,SINFN,SNERR,SPACFN
+        EXTRN   SQRFN,STOP,STRFN,SWAP,SYSTEM,TANFN,TROFF,TRON
+        EXTRN   VALFN,WAITST,WEND,WHILE,WIDTH,WRITE
+;
+        CSEG
+;
+STMTAB:
+        DW      ENDST           ;81 END
+        DW      FOR             ;82 FOR
+        DW      NEXT            ;83 NEXT
+        DW      DATAST          ;84 DATA
+        DW      INPUT           ;85 INPUT
+        DW      DIM             ;86 DIM
+        DW      READ            ;87 READ
+        DW      LET             ;88 LET
+        DW      GOTO            ;89 GOTO
+        DW      RUN             ;8A RUN
+        DW      IFST            ;8B IF
+        DW      RESTOR          ;8C RESTORE
+        DW      GOSUB           ;8D GOSUB
+        DW      RETURN          ;8E RETURN
+        DW      REMST           ;8F REM
+        DW      STOP            ;90 STOP
+        DW      PRINT           ;91 PRINT
+        DW      CLEAR           ;92 CLEAR
+        DW      LIST            ;93 LIST
+        DW      NEW             ;94 NEW
+        DW      ONST            ;95 ON
+        DW      NULL            ;96 NULL
+        DW      WAITST          ;97 WAIT
+        DW      DEF             ;98 DEF
+        DW      POKE            ;99 POKE
+        DW      CONT            ;9A CONT
+        DW      SNERR           ;9B (unused)
+        DW      SNERR           ;9C (unused)
+        DW      OUTST           ;9D OUT
+        DW      LPRINT          ;9E LPRINT
+        DW      LLIST           ;9F LLIST
+        DW      SNERR           ;A0 (unused)
+        DW      WIDTH           ;A1 WIDTH
+        DW      ELSEST          ;A2 ELSE
+        DW      TRON            ;A3 TRON
+        DW      TROFF           ;A4 TROFF
+        DW      SWAP            ;A5 SWAP
+        DW      ERASE           ;A6 ERASE
+        DW      EDIT            ;A7 EDIT
+        DW      ERRSTM          ;A8 ERROR
+        DW      RESUME          ;A9 RESUME
+        DW      DELETE          ;AA DELETE
+        DW      AUTO            ;AB AUTO
+        DW      RENUM           ;AC RENUM
+        DW      DEFSTR          ;AD DEFSTR
+        DW      DEFINT          ;AE DEFINT
+        DW      DEFSNG          ;AF DEFSNG
+        DW      DEFDBL          ;B0 DEFDBL
+        DW      LINEST          ;B1 LINE
+        DW      SNERR           ;B2 (unused)
+        DW      SNERR           ;B3 (unused)
+        DW      WHILE           ;B4 WHILE
+        DW      WEND            ;B5 WEND
+        DW      CALLST          ;B6 CALL
+        DW      WRITE           ;B7 WRITE
+        DW      COMMON          ;B8 COMMON
+        DW      CHAIN           ;B9 CHAIN
+        DW      OPTION          ;BA OPTION
+        DW      RANDOM          ;BB RANDOMIZE
+        DW      SNERR           ;BC (unused)
+        DW      SYSTEM          ;BD SYSTEM
+        DW      SNERR           ;BE (unused)
+        DW      OPEN            ;BF OPEN
+        DW      FIELD           ;C0 FIELD
+        DW      GETST           ;C1 GET
+        DW      PUTST           ;C2 PUT
+        DW      CLOSE           ;C3 CLOSE
+        DW      LOAD            ;C4 LOAD
+        DW      MERGE           ;C5 MERGE
+        DW      FILES           ;C6 FILES
+        DW      NAMEST          ;C7 NAME
+        DW      KILL            ;C8 KILL
+        DW      LSET            ;C9 LSET
+        DW      RSET            ;CA RSET
+        DW      SAVE            ;CB SAVE
+        DW      RESET           ;CC RESET
+;
+FNTAB:
+        DW      LEFTS           ;81 LEFT$
+        DW      RIGHTS          ;82 RIGHT$
+        DW      MIDS            ;83 MID$
+        DW      SGNFN           ;84 SGN
+        DW      INTFN           ;85 INT
+        DW      ABSFN           ;86 ABS
+        DW      SQRFN           ;87 SQR
+        DW      RNDFN           ;88 RND
+        DW      SINFN           ;89 SIN
+        DW      LOGFN           ;8A LOG
+        DW      EXPFN           ;8B EXP
+        DW      COSFN           ;8C COS
+        DW      TANFN           ;8D TAN
+        DW      ATNFN           ;8E ATN
+        DW      FREFN           ;8F FRE
+        DW      INPFN           ;90 INP
+        DW      POSFN           ;91 POS
+        DW      LENFN           ;92 LEN
+        DW      STRFN           ;93 STR$
+        DW      VALFN           ;94 VAL
+        DW      ASCFN           ;95 ASC
+        DW      CHRFN           ;96 CHR$
+        DW      PEEKFN          ;97 PEEK
+        DW      SPACFN          ;98 SPACE$
+        DW      OCTFN           ;99 OCT$
+        DW      HEXFN           ;9A HEX$
+        DW      LPOSFN          ;9B LPOS
+        DW      CINTFN          ;9C CINT
+        DW      CSNGFN          ;9D CSNG
+        DW      CDBLFN          ;9E CDBL
+        DW      FIXFN           ;9F FIX
+        DW      SNERR           ;A0 (unused)
+        DW      SNERR           ;A1 (unused)
+        DW      SNERR           ;A2 (unused)
+        DW      SNERR           ;A3 (unused)
+        DW      SNERR           ;A4 (unused)
+        DW      SNERR           ;A5 (unused)
+        DW      SNERR           ;A6 (unused)
+        DW      SNERR           ;A7 (unused)
+        DW      SNERR           ;A8 (unused)
+        DW      SNERR           ;A9 (unused)
+        DW      SNERR           ;AA (unused)
+        DW      CVIFN           ;AB CVI
+        DW      CVSFN           ;AC CVS
+        DW      CVDFN           ;AD CVD
+        DW      SNERR           ;AE (unused)
+        DW      EOFFN           ;AF EOF
+        DW      LOCFN           ;B0 LOC
+        DW      LOFFN           ;B1 LOF
+        DW      MKIFN           ;B2 MKI$
+        DW      MKSFN           ;B3 MKS$
+        DW      MKDFN           ;B4 MKD$
+;
+        END

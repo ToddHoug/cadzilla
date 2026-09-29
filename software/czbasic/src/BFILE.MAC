@@ -1,0 +1,837 @@
+;
+; BFILE.MAC -- CZBASIC: data files
+;
+; /F:n files (3 unless the command line says otherwise), numbered from
+; 1. Each has a block, carved from memory at start-up (FILINI):
+;       +0  FMODE  0 closed, 1 input, 2 output, 3 random
+;       +1  FPOS   position in FBUF (sequential)
+;       +2  FREC   records done (LOC) / the last random record
+;       +4  FRLEN  random record length
+;       +6  FCOL   output column (for , zones)
+;       +7  FEOF   1 once the end has been read
+;       +8  FFCB   the CP/M FCB (36 bytes)
+;       +44 FBUF   the sequential record buffer (128)
+;       +172 FFLD  the random record buffer (/S: size, 128 unless given)
+; Sequential files are text: PRINT # writes as PRINT does, INPUT #
+; reads items as INPUT does (blanks, CR and LF before an item are
+; skipped); the end is a ^Z or the end of the last record.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  FILINI,FILBLK,OPEN,CLOSE,FILCLS,FILOUT,PRTFIL,WRTFIL
+        PUBLIC  FILINP,FILLIN,EOFFN,LOCFN,LOFFN,KILL,NAMEST,FILES
+        PUBLIC  RESET,FILCOL,GETFNO,FFLD,FRLEN,FREC,FFCB,FMODE,BDOSF
+        PUBLIC  FCURB
+;
+        EXTRN   NFILES,RECSIZ,PTRFIL,BUF,VALTYP,FACLO,TTYWID,TTYPOS
+        EXTRN   FRMSTR,FRESTR,GETBYT,GETINT,PTRGET,LETVAR,ITMPAR,PUTTMP
+        EXTRN   DSKNAM,DFCB2,PRINTF,WRITEF,UPPER,CHKSTR,RETBYT,FLTUNS
+        EXTRN   CRLF,OUTCON,STROUT,ERRORE,BSERR,FCERR,SNERR,STKFRE
+        EXTRN   BYTARG,FCBNAM
+        EXTRN   NMFCB,FDIR      ;(BINIT.MAC)
+        EXTRN   MOVB
+        EXTRN   LHLI,LHLM
+;
+FMODE   EQU     0
+FPOS    EQU     1
+FREC    EQU     2
+FRLEN   EQU     4
+FCOL    EQU     6
+FEOF    EQU     7
+FFCB    EQU     8
+FBUF    EQU     44
+FFLD    EQU     172
+FBHDR   EQU     172
+;
+        CSEG
+;
+; ================= blocks =================
+;
+; FILINI -- carve the blocks from HL up (all closed): HL after them
+;
+FILINI: SHLD    FILTAB
+        PUSH    H
+        LHLD    RECSIZ
+        LXI     D,FBHDR
+        DAD     D
+        SHLD    FBSIZ
+        POP     H
+        LDA     NFILES
+        ORA     A
+        RZ
+        MOV     B,A
+FINI1:  MVI     M,0             ;closed
+        XCHG
+        LHLD    FBSIZ
+        DAD     D
+        DCR     B
+        JNZ     FINI1
+        RET
+;
+; FILBLK -- HL = the block of file A (Bad file number if none)
+;
+FILBLK: ORA     A
+        JZ      BNERR
+        MOV     B,A
+        LDA     NFILES
+        CMP     B
+        JC      BNERR
+        LHLD    FBSIZ
+        XCHG
+        LHLD    FILTAB
+FB1:    DCR     B
+        RZ
+        DAD     D
+        JMP     FB1
+BNERR:  MVI     E,EBN
+        JMP     ERRORE
+BMERR:  MVI     E,EBM           ;Bad file mode
+        JMP     ERRORE
+;
+; GETFNO -- [#]n at HL: A = n, FCURB = its block (HL: the text)
+;
+GETFNO: CPI     '#'
+        JNZ     GFN1
+        CHRGET
+GFN1:   CALL    GETBYT
+        PUSH    H
+        STA     FCURN
+        CALL    FILBLK
+        SHLD    FCURB
+        POP     H
+        LDA     FCURN
+        RET
+;
+; FLD -- A = byte FIELD at offset C of the current block (FCURB)
+;
+FOFS:   PUSH    D               ;HL = FCURB + C
+        LHLD    FCURB
+        MOV     E,C
+        MVI     D,0
+        DAD     D
+        POP     D
+        RET
+;
+; BDOSF -- BDOS function C on the current block's FCB (DMA = DE)
+;
+BDOSF:  PUSH    H
+        PUSH    B
+        MVI     C,26            ;set the DMA
+        CALL    BDOS
+        POP     B
+        LHLD    FCURB
+        LXI     D,FFCB
+        DAD     D
+        XCHG
+        CALL    BDOS
+        POP     H
+        RET
+;
+; ================= OPEN, CLOSE =================
+;
+; OPEN mode$, [#]n, name$[, reclen]
+;
+OPEN:   CALL    FRMSTR          ;the mode: O, I or R
+        PUSH    H
+        CALL    FRESTR
+        MOV     A,B
+        ORA     A
+        JZ      BMERR
+        LDAX    D
+        CALL    UPPER
+        MVI     B,2
+        CPI     'O'
+        JZ      OP1
+        DCR     B
+        CPI     'I'
+        JZ      OP1
+        MVI     B,3
+        CPI     'R'
+        JNZ     BMERR
+OP1:    MOV     A,B
+        STA     FOMODE
+        POP     H
+        SYNCHK  ','
+        CALL    GETFNO
+        PUSH    H
+        LHLD    FCURB           ;already open?
+        MOV     A,M
+        ORA     A
+        JZ      OP2
+        MVI     E,EAO
+        JMP     ERRORE
+OP2:    POP     H
+        SYNCHK  ','
+        CALL    DSKNAM          ;the name -> DFCB2
+        PUSH    H
+        LHLD    FCURB           ;copy it to the block's FCB
+        LXI     D,FFCB
+        DAD     D
+        XCHG
+        LXI     H,DFCB2
+        MVI     B,36
+        CALL    MOVB
+        LHLD    RECSIZ          ;record length: RECSIZ unless given
+        SHLD    FOLEN
+        POP     H
+        MOV     A,M
+        CPI     ','
+        JNZ     OP4
+        CHRGET
+        CALL    GETINT
+        MOV     A,D             ;1..RECSIZ
+        ORA     E
+        JZ      FCERR
+        PUSH    H
+        LHLD    RECSIZ
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        JC      FCERR
+        XCHG
+        SHLD    FOLEN
+        POP     H
+OP4:    PUSH    H
+        LHLD    FCURB           ;the block's fields
+        INX     H
+        MVI     M,0             ;FPOS
+        INX     H
+        MVI     M,0             ;FREC
+        INX     H
+        MVI     M,0
+        INX     H
+        XCHG
+        LHLD    FOLEN
+        XCHG
+        MOV     M,E             ;FRLEN
+        INX     H
+        MOV     M,D
+        INX     H
+        MVI     M,0             ;FCOL
+        INX     H
+        MVI     M,0             ;FEOF
+        LDA     FOMODE
+        CPI     2
+        JZ      OPOUT
+        MVI     C,15            ;input, random: open it
+        CALL    BUFDMA
+        CALL    BDOSF
+        INR     A
+        JNZ     OP6
+        LDA     FOMODE          ;not there: random makes it, input
+        CPI     3               ;can't
+        JNZ     FFERR
+        MVI     C,22
+        CALL    BDOSF
+        INR     A
+        JZ      DFERR
+OP6:    MVI     C,FPOS          ;input: nothing read yet
+        CALL    FOFS
+        MVI     M,128
+        JMP     OPDONE
+OPOUT:  MVI     C,19            ;output: a new file
+        CALL    BUFDMA
+        CALL    BDOSF
+        MVI     C,22
+        CALL    BDOSF
+        INR     A
+        JZ      DFERR
+OPDONE: LHLD    FCURB
+        LDA     FOMODE
+        MOV     M,A
+        POP     H
+        RET
+FFERR:  MVI     E,EFF
+        JMP     ERRORE
+DFERR:  MVI     E,EDF
+        JMP     ERRORE
+;
+; BUFDMA -- DE = the current block's FBUF (for BDOSF)
+;
+BUFDMA: PUSH    H
+        PUSH    B
+        MVI     C,FBUF
+        CALL    FOFS
+        XCHG
+        POP     B
+        POP     H
+        RET
+;
+; CLOSE [[#]n[, [#]n...]] -- no numbers: all
+;
+CLOSE:  JZ      FILCLS
+CL1:    CALL    GETFNO
+        PUSH    H
+        CALL    FCLOSE
+        POP     H
+        MOV     A,M
+        CPI     ','
+        RNZ
+        CHRGET
+        JMP     CL1
+;
+; FILCLS -- close every file (keeps HL)
+;
+FILCLS: PUSH    H
+        LDA     NFILES
+        ORA     A
+        JZ      FCA2
+        MOV     C,A
+FCA1:   MOV     A,C
+        PUSH    B
+        CALL    FILBLK
+        SHLD    FCURB
+        CALL    FCLOSE
+        POP     B
+        DCR     C
+        JNZ     FCA1
+FCA2:   XRA     A
+        STA     PTRFIL
+        POP     H
+        RET
+;
+; FCLOSE -- close the current block's file (if open)
+;
+FCLOSE: LHLD    FCURB
+        MOV     A,M
+        ORA     A
+        RZ
+        MVI     M,0
+        CPI     2
+        JNZ     FCL2
+        INX     H               ;output: ^Z to the end of the record,
+        MOV     A,M             ;write it
+        ORA     A
+        JZ      FCL2
+FCL1:   MVI     A,CTRLZ
+        CALL    FPUT
+        LHLD    FCURB
+        INX     H
+        MOV     A,M
+        ORA     A
+        JNZ     FCL1
+FCL2:   MVI     C,16
+        CALL    BUFDMA
+        JMP     BDOSF
+;
+; RESET -- close everything, reset the disks
+;
+RESET:  CALL    FILCLS
+        PUSH    H
+        MVI     C,13
+        CALL    BDOS
+        POP     H
+        RET
+;
+; ================= writing =================
+;
+; FILOUT -- A to the file PTRFIL (from OUTDO); all registers kept
+;
+FILOUT: PUSH    H
+        PUSH    D
+        PUSH    B
+        PUSH    PSW
+        LDA     PTRFIL
+        CALL    FILBLK
+        SHLD    FCURB
+        POP     PSW
+        PUSH    PSW
+        CALL    FPUT
+        POP     PSW             ;the column
+        LHLD    FCURB
+        LXI     D,FCOL
+        DAD     D
+        CPI     CR
+        JNZ     FO1
+        MVI     M,0
+        JMP     FO2
+FO1:    CPI     ' '
+        JC      FO2
+        INR     M
+FO2:    POP     B
+        POP     D
+        POP     H
+        RET
+;
+; FPUT -- A into the current block's buffer; a full one is written
+;
+FPUT:   LHLD    FCURB
+        INX     H
+        MOV     E,M             ;FPOS
+        PUSH    H
+        LHLD    FCURB
+        LXI     B,FBUF
+        DAD     B
+        MVI     D,0
+        DAD     D
+        MOV     M,A
+        POP     H
+        INR     M
+        MOV     A,M
+        CPI     128
+        RNZ
+        MVI     M,0
+        MVI     C,21            ;write the record
+        CALL    BUFDMA
+        CALL    BDOSF
+        ORA     A
+        JNZ     DFERR
+        JMP     INCREC
+;
+; INCREC -- FREC += 1
+;
+INCREC: LHLD    FCURB
+        INX     H
+        INX     H
+        INR     M
+        RNZ
+        INX     H
+        INR     M
+        RET
+;
+; FILCOL -- A = the output column of file PTRFIL
+;
+FILCOL: PUSH    H
+        PUSH    D
+        PUSH    B
+        LDA     PTRFIL
+        CALL    FILBLK
+        LXI     D,FCOL
+        DAD     D
+        MOV     A,M
+        POP     B
+        POP     D
+        POP     H
+        RET
+;
+; PRINT #n, ... and WRITE #n, ... -- the items go to the file
+;
+PRTFIL: CALL    FOUTN
+        CALL    PRINTF
+        JMP     FOFF
+WRTFIL: CALL    FOUTN
+        CALL    WRITEF
+FOFF:   XRA     A
+        STA     PTRFIL
+        RET
+FOUTN:  CALL    GETFNO          ;#n, : output there
+        PUSH    H
+        LHLD    FCURB
+        MOV     A,M
+        POP     H
+        CPI     2
+        JNZ     BMERR
+        LDA     FCURN
+        STA     PTRFIL
+        SYNCHK  ','
+        DCX     H               ;(re-read for the Z flag)
+        CHRGET
+        RET
+;
+; ================= reading =================
+;
+; FGET -- A = the next character of the current (input) file; C at
+; the end (which stays the end)
+;
+FGET:   LHLD    FCURB
+        LXI     D,FEOF
+        DAD     D
+        MOV     A,M
+        ORA     A
+        JNZ     FGEOF
+        LHLD    FCURB
+        INX     H
+        MOV     A,M             ;FPOS
+        CPI     128
+        JC      FG2
+        PUSH    H               ;read the next record
+        MVI     C,20
+        CALL    BUFDMA
+        CALL    BDOSF
+        POP     H
+        ORA     A
+        JNZ     FGEND
+        MVI     M,0
+        PUSH    H
+        CALL    INCREC
+        POP     H
+        XRA     A
+FG2:    INR     M
+        MOV     E,A
+        MVI     D,0
+        LHLD    FCURB
+        LXI     B,FBUF
+        DAD     B
+        DAD     D
+        MOV     A,M
+        CPI     CTRLZ
+        JZ      FGEND
+        ORA     A               ;(NC)
+        RET
+FGEND:  LHLD    FCURB           ;the end, from now on
+        LXI     D,FEOF
+        DAD     D
+        MVI     M,1
+FGEOF:  MVI     A,CTRLZ
+        STC
+        RET
+;
+; FUNGET -- put back the character FGET gave (not the end)
+;
+FUNGET: LHLD    FCURB
+        INX     H
+        DCR     M
+        RET
+;
+; FINCUR -- [#]n, at HL: the current block, which must be input
+;
+FINCUR: CALL    GETFNO
+        PUSH    H
+        LHLD    FCURB
+        MOV     A,M
+        POP     H
+        CPI     1
+        JNZ     BMERR
+        RET
+;
+; INPUT #n, var[, var...]
+;
+FILINP: CHRGET                  ;(past #)
+        CALL    FINCUR
+        SYNCHK  ','
+FI1:    CALL    PTRGET
+        LDA     VALTYP
+        STA     FITYP
+        PUSH    H
+        PUSH    D
+        CALL    FITEM           ;the item's text into BUF
+        LXI     H,BUF
+        LDA     FITYP
+        MVI     B,0
+        CALL    ITMPAR
+        JC      SNERR
+        POP     D
+        LDA     FITYP
+        CALL    LETVAR
+        POP     H
+        CALL    STKFRE
+        MOV     A,M
+        CPI     ','
+        RNZ
+        CHRGET
+        JMP     FI1
+;
+; FITEM -- the next item of the file into BUF (0-terminated): blanks,
+; CRs and LFs before it skipped; a number ends at a blank, comma or
+; line end; a string at a comma or line end (a quoted one at its
+; quote). The separator is used up.
+;
+FITEM:  CALL    FGET
+        JC      IPEERR          ;Input past end
+        CPI     ' '
+        JZ      FITEM
+        CPI     CR
+        JZ      FITEM
+        CPI     LF
+        JZ      FITEM
+        LXI     H,BUF
+        MVI     C,0             ;quoted (FQUOT: FGET changes BC)
+        CPI     '"'
+        JNZ     FIT0
+        MVI     C,1
+FIT0:   MOV     B,A
+        MOV     A,C
+        STA     FQUOT
+        MOV     A,B
+FIT1:   MOV     M,A
+        INX     H
+        PUSH    H
+        CALL    FGET
+        POP     H
+        JC      FIT9
+        MOV     B,A
+        LDA     FQUOT           ;inside quotes: to the closing one
+        ORA     A
+        MOV     A,B
+        JZ      FIT3
+        CPI     '"'
+        JNZ     FIT1
+        MOV     M,A
+        INX     H
+        PUSH    H               ;then past the separator
+FIT2:   CALL    FGET
+        JC      FIT8
+        CPI     ','
+        JZ      FIT8
+        CPI     CR
+        JZ      FIT7
+        JMP     FIT2
+FIT3:   CPI     ','             ;unquoted
+        JZ      FIT9
+        CPI     CR
+        JZ      FIT6
+        CPI     LF
+        JZ      FIT9
+        CPI     ' '
+        JNZ     FIT1
+        LDA     FITYP           ;a blank ends a number
+        CPI     VTSTR
+        MOV     A,B
+        JZ      FIT1
+        PUSH    H
+FIT4:   CALL    FGET            ;(skip blanks; a comma after is used)
+        JC      FIT8
+        CPI     ' '
+        JZ      FIT4
+        CPI     ','
+        JZ      FIT8
+        CPI     CR
+        JZ      FIT7
+        CALL    FUNGET
+        JMP     FIT8
+FIT6:   PUSH    H               ;CR: an LF after it goes too
+FIT7:   CALL    FGET
+        JC      FIT8
+        CPI     LF
+        JZ      FIT8
+        CALL    FUNGET
+FIT8:   POP     H
+FIT9:   MVI     M,0
+        RET
+IPEERR: MVI     E,EEF
+        JMP     ERRORE
+;
+; LINE INPUT #n, s$ -- up to the CR (the LF after it dropped)
+;
+FILLIN: CHRGET
+        CALL    FINCUR
+        SYNCHK  ','
+        CALL    PTRGET
+        CALL    CHKSTR
+        PUSH    H
+        PUSH    D
+        CALL    FGET            ;nothing left: Input past end
+        JC      IPEERR
+        CALL    FUNGET
+        LXI     H,BUF
+        MVI     B,0
+FL1:    PUSH    H
+        PUSH    B
+        CALL    FGET
+        POP     B
+        POP     H
+        JC      FL3
+        CPI     CR
+        JZ      FL2
+        MOV     M,A
+        INX     H
+        INR     B
+        MOV     A,B
+        CPI     255
+        JC      FL1
+        JMP     FL3
+FL2:    PUSH    B               ;(its LF)
+        CALL    FGET
+        JC      FL2A
+        CPI     LF
+        CNZ     FUNGET
+FL2A:   POP     B
+FL3:    LXI     D,BUF
+        CALL    PUTTMP
+        POP     D
+        MVI     A,VTSTR
+        CALL    LETVAR
+        POP     H
+        RET
+;
+; EOF(n) -- -1 at the end of an input file, else 0
+;
+EOFFN:  CALL    FNBLK
+        MOV     A,M
+        CPI     1
+        MVI     A,0
+        JNZ     EOF1            ;(not input: 0)
+        CALL    FGET
+        MVI     A,0FFH
+        JC      EOF1
+        CALL    FUNGET
+        XRA     A
+EOF1:   MOV     L,A
+        MOV     H,A
+        SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        RET
+;
+; FNBLK -- the file whose number is in FAC: HL = FCURB = its block
+;
+FNBLK:  CALL    BYTARG          ;(FAC -> A)
+        CALL    FILBLK
+        SHLD    FCURB
+        RET
+;
+; LOC(n) -- records read or written (random: the last one)
+;
+LOCFN:  CALL    FNBLK
+        INX     H
+        CALL    LHLI
+        SHLD    FACLO
+        JMP     FLTUNS
+;
+; LOF(n) -- the file's size in records
+;
+LOFFN:  CALL    FNBLK
+        MOV     A,M
+        ORA     A
+        JZ      BNERR
+        MVI     C,35            ;compute the size into r0..r2
+        CALL    BUFDMA
+        CALL    BDOSF
+        LHLD    FCURB
+        LXI     D,FFCB+33
+        DAD     D
+        CALL    LHLM
+        SHLD    FACLO
+        JMP     FLTUNS
+;
+; ================= KILL, NAME, FILES =================
+;
+; KILL name$
+;
+KILL:   CALL    DSKNAM
+        PUSH    H
+        CALL    FEXIST
+        JNZ     FFERR
+        LXI     D,DFCB2
+        MVI     C,19
+        CALL    BDOS
+        POP     H
+        RET
+;
+; FEXIST -- Z if DFCB2's file exists
+;
+FEXIST: LXI     D,FDIR
+        MVI     C,26
+        CALL    BDOS
+        LXI     D,DFCB2
+        MVI     C,17
+        CALL    BDOS
+        CPI     0FFH
+        JZ      FEX1
+        XRA     A
+        RET
+FEX1:   ORI     1
+        RET
+;
+; NAME old$ AS new$
+;
+NAMEST: CALL    DSKNAM
+        PUSH    H
+        CALL    FEXIST
+        JNZ     FFERR
+        LXI     H,DFCB2         ;keep the old name
+        LXI     D,NMFCB
+        MVI     B,16
+        CALL    MOVB
+        POP     H
+        MOV     A,M             ;AS
+        CALL    UPPER
+        CPI     'A'
+        JNZ     SNERR
+        INX     H
+        MOV     A,M
+        CALL    UPPER
+        CPI     'S'
+        JNZ     SNERR
+        CHRGET
+        CALL    DSKNAM
+        PUSH    H
+        CALL    FEXIST          ;the new name must be free
+        MVI     E,EFE
+        JZ      ERRORE
+        LXI     H,DFCB2         ;rename: old at 0, new at 16
+        LXI     D,NMFCB+16
+        MVI     B,16
+        CALL    MOVB
+        LXI     D,NMFCB
+        MVI     C,23
+        CALL    BDOS
+        POP     H
+        RET
+;
+; FILES [pattern$] -- list the directory (default *.*)
+;
+FILES:  JZ      FS0
+        CALL    DSKNAM
+        JMP     FS1
+FS0:    PUSH    H
+        LXI     H,STARS
+        MVI     B,3
+        CALL    FCBNAM
+        POP     H
+FS1:    PUSH    H
+        LXI     D,FDIR
+        MVI     C,26
+        CALL    BDOS
+        LXI     D,DFCB2
+        MVI     C,17            ;search first
+FS2:    CALL    BDOS
+        CPI     0FFH
+        JZ      FS9
+        ADD     A               ;the entry: FDIR + 32*A
+        ADD     A
+        ADD     A
+        ADD     A
+        ADD     A
+        LXI     H,FDIR+1
+        ADD     L
+        MOV     L,A
+        JNC     FS3
+        INR     H
+FS3:    LDA     TTYPOS          ;room for "NAME    .EXT  "?
+        ADI     14
+        MOV     B,A
+        LDA     TTYWID
+        CMP     B
+        CC      CRLF
+        MVI     B,8
+FS4:    MOV     A,M
+        ANI     7FH
+        OUTCHR
+        INX     H
+        DCR     B
+        JNZ     FS4
+        MVI     A,'.'
+        OUTCHR
+        MVI     B,3
+FS5:    MOV     A,M
+        ANI     7FH
+        OUTCHR
+        INX     H
+        DCR     B
+        JNZ     FS5
+        MVI     A,' '
+        OUTCHR
+        OUTCHR
+        MVI     C,18            ;search next
+        JMP     FS2
+FS9:    LDA     TTYPOS
+        ORA     A
+        CNZ     CRLF
+        POP     H
+        RET
+STARS:  DB      '*.*'
+;
+; ================= data =================
+;
+FILTAB: DW      0               ;the first block
+FBSIZ:  DW      0               ;block size
+FCURB:  DW      0               ;the current block
+FCURN:  DB      0               ;and its number
+FOMODE: DB      0
+FOLEN:  DW      0
+FITYP:  DB      0
+FQUOT:  DB      0
+;
+        END

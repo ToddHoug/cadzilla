@@ -1,0 +1,230 @@
+;
+; BGTEXT.MAC -- CZBASIC: CZTEXT x,y,s$[,c[,scale[,dir]]]
+;
+; Text on the graphics screen in the 8x8 font of BFONT.MAC (5 column
+; bytes a character). Each character is loaded into the ACRTC's pattern
+; RAM (rows 0-7, columns 0-7) and drawn with PTN at the pen position, in the color mode CMCL1
+; (the character's 0 bits leave the screen alone), with the pattern
+; zoom making it scale times bigger (1-16). dir turns the text in
+; 45-degree steps counter-clockwise (0-7), as PTN does; the pen moves
+; on 8*scale pixels that way after each character. x,y is the bottom-
+; left corner of the first character. Afterwards the pattern RAM is
+; all ones again with the whole 16x16 scan window, as CZINIT left it.
+;
+        INCLUDE BASIC.INC
+        INCLUDE B:CZGFX.INC
+;
+        PUBLIC  XTEXT
+;
+        EXTRN   GETINT,FRMSTR,FRESTR,GARG,GNUM,GTXT,GPARSE,GWCOL,GRCOL
+        EXTRN   FONT,FCERR
+;
+        CSEG
+;
+XTEXT:  CALL    GETINT          ;x, y
+        XCHG
+        SHLD    TX
+        XCHG
+        SYNCHK  ','
+        CALL    GETINT
+        XCHG
+        SHLD    TY
+        XCHG
+        SYNCHK  ','
+        CALL    FRMSTR          ;s$: its length and text
+        PUSH    H
+        CALL    FRESTR
+        MOV     A,B
+        STA     TLEN
+        XCHG
+        SHLD    TPTR
+        POP     H
+        XRA     A               ;[,c[,scale[,dir]]]
+        STA     GNUM
+        SHLD    GTXT
+        MOV     A,M
+        CPI     ','
+        JNZ     TX1
+        CHRGET
+        LXI     B,0103H
+        CALL    GPARSE
+TX1:    MVI     A,1             ;scale 1..16
+        STA     TSCL
+        LDA     GNUM
+        CPI     2
+        JC      TX2
+        LDA     GARG+2
+        ORA     A
+        JZ      FCERR
+        CPI     17
+        JNC     FCERR
+        STA     TSCL
+TX2:    XRA     A               ;direction
+        STA     TDIR
+        LDA     GNUM
+        CPI     3
+        JC      TX3
+        LDA     GARG+4
+        ANI     7
+        STA     TDIR
+TX3:    LDA     TLEN
+        ORA     A
+        JZ      TXEND
+        XRA     A               ;the color (argument 0), if given
+        CALL    GWCOL
+        LDA     CZDM##          ;color mode CMCL1, for now
+        STA     TDM
+        ANI     0FFH-CMPRAM
+        ORI     CMCL1
+        STA     CZDM##
+        LDA     TSCL            ;the scan window: 8x8, zoomed scale-1
+        DCR     A
+        STA     TSCN+4
+        STA     TSCN+5
+        LXI     H,TSCN
+        CALL    CZPSCN##
+        LDA     TSCL            ;the size: 8*scale - 1 each way
+        ADD     A
+        ADD     A
+        ADD     A
+        DCR     A
+        STA     TSIZE
+        LDA     TDIR            ;the step: 8*scale along dir
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        LXI     H,DIRTAB
+        DAD     D
+        LDA     TSCL
+        ADD     A
+        ADD     A
+        ADD     A
+        MOV     C,A             ;C = 8*scale
+        MOV     A,M             ;dx sign (-1, 0, 1)
+        CALL    TSTEP
+        SHLD    TDX
+        LDA     TDIR
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        LXI     H,DIRTAB+1
+        DAD     D
+        MOV     A,M
+        CALL    TSTEP
+        SHLD    TDY
+;
+TXCH:   LHLD    TPTR            ;the next character
+        MOV     A,M
+        INX     H
+        SHLD    TPTR
+        CPI     ' '             ;outside the font: a blank
+        JC      TXC0
+        CPI     7FH
+        JC      TXC1
+TXC0:   MVI     A,' '
+TXC1:   SUI     ' '             ;its 5 columns in the font
+        MOV     L,A
+        MVI     H,0
+        MOV     E,L
+        MOV     D,H
+        DAD     H
+        DAD     H
+        DAD     D
+        LXI     D,FONT
+        DAD     D
+        XCHG
+        LXI     H,TPAT+2        ;into 8 rows in the pattern table: row
+        MVI     C,8             ;r takes bit r of each column (RRC
+TXC2:   PUSH    D               ;brings each column byte back after 8)
+        MVI     B,5
+        MVI     M,0
+TXC3:   LDAX    D
+        RRC
+        STAX    D
+        MOV     A,M
+        RAR
+        MOV     M,A
+        INX     D
+        DCR     B
+        JNZ     TXC3
+        POP     D
+        MOV     A,M             ;columns 0-4 from bits 3-7 to bits 0-4
+        RRC
+        RRC
+        RRC
+        MOV     M,A
+        INX     H
+        MVI     M,0
+        INX     H
+        DCR     C
+        JNZ     TXC2
+        XRA     A
+        LXI     H,TPAT
+        CALL    CZLPAT##
+        LXI     H,0             ;the pattern pointer back at 0,0
+        MVI     A,5
+        CALL    CZWPR##
+        LHLD    TY
+        XCHG
+        LHLD    TX
+        CALL    CZMOVE##
+        LDA     TSIZE
+        MOV     L,A
+        MOV     H,A
+        LDA     TDIR
+        CALL    CZPTN##
+        LHLD    TDX             ;the pen on
+        XCHG
+        LHLD    TX
+        DAD     D
+        SHLD    TX
+        LHLD    TDY
+        XCHG
+        LHLD    TY
+        DAD     D
+        SHLD    TY
+        LDA     TLEN
+        DCR     A
+        STA     TLEN
+        JNZ     TXCH
+;
+        LDA     TDM             ;put things back
+        STA     CZDM##
+        CALL    CZPDEF##        ;(the pattern RAM as CZINIT left it)
+        CALL    GRCOL
+TXEND:  LHLD    GTXT
+        RET
+;
+; TSTEP -- HL = C * the sign A (-1, 0, 1)
+;
+TSTEP:  LXI     H,0
+        ORA     A
+        RZ
+        MOV     L,C
+        RP
+        MOV     A,L
+        CMA
+        MOV     L,A
+        MVI     H,0FFH
+        INX     H
+        RET
+;
+; dx, dy per direction (45-degree steps counter-clockwise)
+;
+DIRTAB: DB      1,0, 1,1, 0,1, -1,1, -1,0, -1,-1, 0,-1, 1,-1
+;
+TSCN:   DB      0,0,7,7,0,0     ;CZPSCN: columns and rows 0-7, the zoom
+TPAT:   DW      8               ;one character
+        DS      16
+TX:     DW      0
+TY:     DW      0
+TDX:    DW      0
+TDY:    DW      0
+TPTR:   DW      0
+TLEN:   DB      0
+TSCL:   DB      0
+TDIR:   DB      0
+TSIZE:  DB      0
+TDM:    DB      0
+;
+        END

@@ -1,0 +1,298 @@
+;
+; BRAND.MAC -- CZBASIC: random files -- FIELD, GET, PUT, LSET, RSET;
+; MKI$ MKS$ MKD$ and CVI CVS CVD
+;
+; Record n of a random file is CP/M record n-1 (read and written
+; whole into the file's FFLD buffer; the record length only bounds
+; FIELD). FIELDed variables point into that buffer.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  FIELD,GETST,PUTST,LSET,RSET
+        PUBLIC  MKIFN,MKSFN,MKDFN,CVIFN,CVSFN,CVDFN
+;
+        EXTRN   GETFNO,FFLD,FRLEN,FREC,FFCB,FMODE,BDOSF,GETUNS,GETBYT
+        EXTRN   PTRGET,CHKSTR,CHKNUM,FRMSTR,FRESTR,MKSTR,FRCINT,FRCSNG
+        EXTRN   FRCDBL,FACLO,DFAC,VALTYP,UPPER,ERRORE,SNERR,FCERR,FCURB
+        EXTRN   MOVB
+        EXTRN   LHLI
+;
+        CSEG
+;
+; RNDCUR -- [#]n: the current block, which must be random; BLK = it
+;
+RNDCUR: CALL    GETFNO
+        PUSH    H
+        LHLD    FCURB
+        SHLD    BLK
+        MOV     A,M
+        POP     H
+        CPI     3
+        RZ
+        MVI     E,EBM
+        JMP     ERRORE
+;
+; BOFS -- HL = BLK + offset DE
+;
+BOFS:   LHLD    BLK
+        DAD     D
+        RET
+;
+; FIELD [#]n, w AS v$[, w AS v$...]
+;
+FIELD:  CALL    RNDCUR
+        LXI     D,0
+FLD1:   XCHG
+        SHLD    FOFF
+        XCHG
+        MOV     A,M
+        CPI     ','
+        RNZ
+        CHRGET
+        CALL    GETBYT          ;w
+        STA     FW
+        MOV     A,M             ;AS
+        CALL    UPPER
+        CPI     'A'
+        JNZ     SNERR
+        INX     H
+        MOV     A,M
+        CALL    UPPER
+        CPI     'S'
+        JNZ     SNERR
+        CHRGET
+        CALL    PTRGET          ;v$
+        CALL    CHKSTR
+        PUSH    H
+        PUSH    D
+        LHLD    FOFF            ;offset + w within the record?
+        LDA     FW
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        PUSH    H
+        LXI     D,FRLEN
+        CALL    BOFS
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        POP     H
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        JC      FOVERR
+        SHLD    FOFF2
+        LHLD    FOFF            ;v$ = (w, FFLD + offset)
+        LXI     D,FFLD
+        DAD     D
+        XCHG
+        LHLD    BLK
+        DAD     D
+        XCHG
+        POP     H
+        LDA     FW
+        MOV     M,A
+        INX     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        LHLD    FOFF2
+        XCHG
+        POP     H
+        JMP     FLD1
+FOVERR: MVI     E,EFO
+        JMP     ERRORE
+;
+; GET [#]n[, r] and PUT [#]n[, r]
+;
+GETST:  MVI     A,33            ;read random
+        JMP     GP0
+PUTST:  MVI     A,34            ;write random
+GP0:    STA     GPFN
+        MOV     A,M             ;(the # again)
+        CALL    RNDCUR
+        MOV     A,M             ;the record: given, or the last + 1
+        CPI     ','
+        JZ      GP1
+        PUSH    H
+        LXI     D,FREC
+        CALL    BOFS
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        INX     D
+        POP     H
+        JMP     GP2
+GP1:    CHRGET
+        CALL    GETUNS
+GP2:    MOV     A,D
+        ORA     E
+        JNZ     GP3
+        MVI     E,EBR           ;Bad record number
+        JMP     ERRORE
+GP3:    PUSH    H
+        PUSH    D
+        LXI     D,FREC
+        CALL    BOFS
+        POP     D
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        DCX     D               ;r0,r1,r2 = r - 1
+        PUSH    D
+        LXI     D,FFCB+33
+        CALL    BOFS
+        POP     D
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        MVI     M,0
+        LXI     D,FFLD          ;DMA = the record buffer
+        CALL    BOFS
+        XCHG
+        LDA     GPFN
+        MOV     C,A
+        CALL    BDOSF
+        ORA     A
+        JZ      GP9
+        MOV     B,A
+        LDA     GPFN
+        CPI     34
+        JZ      GPDF
+        LXI     D,FFLD          ;read past the end: a record of zeros
+        CALL    BOFS
+        MVI     B,128
+GP4:    MVI     M,0
+        INX     H
+        DCR     B
+        JNZ     GP4
+GP9:    POP     H
+        RET
+GPDF:   MVI     E,EDF
+        JMP     ERRORE
+;
+; LSET v$ = x$ / RSET v$ = x$ -- x$ into v$'s own characters, left-
+; or right-justified, blanks around it
+;
+LSET:   XRA     A
+        JMP     LR0
+RSET:   MVI     A,1
+LR0:    STA     RSFLG
+        CALL    PTRGET
+        CALL    CHKSTR
+        PUSH    D
+        SYNCHK  TKEQ
+        CALL    FRMSTR
+        XTHL                    ;HL = v$'s descriptor, stack = text
+        PUSH    H
+        CALL    FRESTR          ;B = x$'s length, DE = its text
+        POP     H
+        MOV     C,M             ;C = v$'s length, HL = its text
+        CALL    LHLI
+        MOV     A,B             ;(no more than v$ holds)
+        CMP     C
+        JC      LR1
+        MOV     B,C
+LR1:    LDA     RSFLG
+        ORA     A
+        JZ      LR3
+        MOV     A,C             ;RSET: the blanks first
+        SUB     B
+        JZ      LR3
+LR2:    MVI     M,' '
+        INX     H
+        DCR     C
+        DCR     A
+        JNZ     LR2
+LR3:    MOV     A,B             ;the characters
+        ORA     A
+        JZ      LR5
+LR4:    LDAX    D
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     C
+        DCR     B
+        JNZ     LR4
+LR5:    MOV     A,C             ;blanks after (LSET)
+        ORA     A
+        JZ      LR7
+LR6:    MVI     M,' '
+        INX     H
+        DCR     C
+        JNZ     LR6
+LR7:    POP     H
+        RET
+;
+; MKI$(i) MKS$(x) MKD$(x) -- the number's bytes as a string
+;
+MKIFN:  CALL    CHKNUM
+        CALL    FRCINT
+        MVI     A,2
+        LXI     H,FACLO
+        JMP     MK1
+MKSFN:  CALL    CHKNUM
+        CALL    FRCSNG
+        MVI     A,4
+        LXI     H,FACLO
+        JMP     MK1
+MKDFN:  CALL    CHKNUM
+        CALL    FRCDBL
+        MVI     A,8
+        LXI     H,DFAC
+MK1:    PUSH    PSW             ;copy the bytes before FAC changes
+        MOV     B,A
+        LXI     D,MKTMP
+        CALL    MOVB
+        POP     PSW
+        PUSH    PSW
+        CALL    MKSTR           ;DE = the string's text
+        POP     PSW
+        MOV     B,A
+        LXI     H,MKTMP
+        JMP     MOVB
+;
+; CVI(s$) CVS(s$) CVD(s$) -- the first 2, 4 or 8 bytes as a number
+;
+CVIFN:  MVI     A,VTINT
+        LXI     H,FACLO
+        JMP     CV1
+CVSFN:  MVI     A,VTSNG
+        LXI     H,FACLO
+        JMP     CV1
+CVDFN:  MVI     A,VTDBL
+        LXI     H,DFAC
+CV1:    STA     CVT
+        PUSH    H
+        CALL    CHKSTR
+        CALL    FRESTR          ;B = length, DE = text
+        POP     H
+        LDA     CVT
+        CMP     B               ;long enough?
+        JZ      CV2
+        JNC     FCERR
+CV2:    MOV     B,A
+CV3:    LDAX    D
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     CV3
+        LDA     CVT
+        STA     VALTYP
+        RET
+;
+; ================= data =================
+;
+BLK:    DW      0
+FOFF:   DW      0
+FOFF2:  DW      0
+FW:     DB      0
+GPFN:   DB      0
+RSFLG:  DB      0
+CVT:    DB      0
+MKTMP:  DS      8
+;
+        END

@@ -1,0 +1,475 @@
+;
+; BCHAIN.MAC -- CZBASIC: CHAIN and COMMON
+;
+; CHAIN [MERGE] f$ [,[line] [,ALL] [,DELETE range]]
+;
+; Runs the program in f$ (from line, else its first) and passes it
+; the variables named in this program's COMMON statements -- every
+; one of them, run or not -- or all of them with ALL. Open files stay
+; open. Without MERGE, f$ replaces the program; DEF FN definitions,
+; DEFtypes and OPTION BASE go. With MERGE, the DELETE range goes
+; first, f$ (ASCII) is merged in, and the DEFtypes, OPTION BASE and
+; (with ALL) the DEF FNs stay. Those are MBASIC's rules.
+;
+; How: the variables not passed are removed, the rest have their
+; strings copied out of the program text, and the whole variable
+; block is parked just below the strings while the new text loads
+; (MEMSIZ lowered to it, CHNFLG keeping CLEARC off it). Then it comes
+; back down to the new VARTAB. COMMON marks its variables with 40H in
+; the type byte while this is done.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  CHAIN,COMMON,CHNFLG,CHNABT
+;
+        EXTRN   TXTTAB,VARTAB,ARYTAB,STREND,FRETOP,MEMSIZ,CURLIN
+        EXTRN   OPTBAS,OPTDIM,ONELIN,DSKNAM,LDOPEN,LDPROG,LDMRG,RUNTOP
+        EXTRN   NEWC,CLRRUN,CLRDEF,DELBC,LINRNG,LINREF,GETUNS,GOLINE
+        EXTRN   STKBAS,SKPSTM,MOVUP,MOVDN,GETNAM,SMPGET,ARYSR,NXTENT
+        EXTRN   ADDHLA,NAMLEN,NAMTYP,GETSPA,UPPER,SNERR,SUBDE,SUBBC
+        EXTRN   MOVB
+        EXTRN   LDDE
+;
+        CSEG
+;
+; COMMON -- nothing to do when it is run
+;
+COMMON: JMP     SKPSTM
+;
+; CHAIN -- the arguments first
+;
+CHAIN:  LXI     D,0
+        XCHG
+        SHLD    CHLIN
+        XCHG
+        MVI     B,0
+        CPI     TKMERG
+        JNZ     CH1
+        CHRGET
+        INR     B
+CH1:    MOV     A,B
+        STA     CHMRG
+        XRA     A
+        STA     CHALL
+        STA     CHDEL
+        CALL    DSKNAM          ;f$
+        MOV     A,M
+        CPI     ','
+        JNZ     CH5
+        CHRGET                  ;,line
+        CPI     ','
+        JZ      CH3
+        CPI     TCLIN
+        JZ      CH2
+        CPI     TCPTR
+        JZ      CH2
+        CALL    GETUNS
+        JMP     CH2A
+CH2:    CALL    LINREF
+CH2A:   XCHG
+        SHLD    CHLIN
+        XCHG
+        MOV     A,M
+        CPI     ','
+        JNZ     CH5
+CH3:    CHRGET                  ;,ALL
+        CPI     TKDELE
+        JZ      CH4
+        MVI     B,'A'
+        CALL    CHLET
+        MVI     B,'L'
+        CALL    CHLET
+        CALL    CHLET
+        STA     CHALL           ;(A = 'L')
+        DCX     H
+        CHRGET
+        CPI     ','
+        JNZ     CH5
+        CHRGET
+        CPI     TKDELE          ;,DELETE range
+        JNZ     SNERR
+CH4:    CHRGET
+        CALL    LINRNG
+        JNZ     SNERR
+        MOV     H,B
+        MOV     L,C
+        SHLD    CHDF
+        XCHG
+        SHLD    CHDL
+        MVI     A,1
+        STA     CHDEL
+        JMP     CH6
+CH5:    ORA     A               ;the end of the statement
+        JZ      CH6
+        CPI     ':'
+        JNZ     SNERR
+;
+CH6:    LXI     H,0             ;no trapping of errors from here on
+        SHLD    ONELIN
+        CALL    LDOPEN
+        CALL    CHVARS          ;the variables to pass
+        LHLD    VARTAB          ;park them: CHSIZ = STREND - VARTAB,
+        XCHG                    ;CHARY = ARYTAB - VARTAB
+        LHLD    ARYTAB
+        CALL    SUBDE
+        SHLD    CHARY
+        LHLD    STREND
+        CALL    SUBDE
+        SHLD    CHSIZ
+        MOV     B,H
+        MOV     C,L
+        LHLD    FRETOP          ;CHBLK = FRETOP - CHSIZ
+        PUSH    H
+        CALL    SUBBC
+        SHLD    CHBLK
+        POP     D
+        LHLD    STREND
+        CALL    MOVUP
+        LHLD    MEMSIZ          ;the program may only come up to it
+        SHLD    CHMEM
+        LHLD    CHBLK
+        SHLD    MEMSIZ
+        MVI     A,1
+        STA     CHNFLG
+        LDA     CHMRG           ;the new program
+        ORA     A
+        JNZ     CH7
+        CALL    NEWC
+        CALL    LDPROG
+        JMP     CH8
+CH7:    LDA     CHDEL
+        ORA     A
+        JZ      CH7A
+        LHLD    CHDF
+        MOV     B,H
+        MOV     C,L
+        LHLD    CHDL
+        XCHG
+        CALL    DELBC
+CH7A:   CALL    LDMRG
+CH8:    CALL    CHBACK          ;the variables back down
+        CALL    CLRRUN
+        LDA     CHMRG
+        ORA     A
+        JNZ     CH9
+        STA     OPTBAS
+        CALL    CLRDEF
+        LHLD    ARYTAB          ;OPTION BASE allowed if no arrays
+        XCHG
+        LHLD    STREND
+        CALL    SUBDE
+        MOV     A,H
+        ORA     L
+        STA     OPTDIM
+CH9:    CALL    STKBAS
+        LHLD    CHLIN           ;from line, or the start
+        MOV     A,H
+        ORA     L
+        JZ      RUNTOP
+        XCHG
+        JMP     GOLINE
+;
+; CHLET -- the character at HL must be letter B: HL past it
+;
+CHLET:  MOV     A,M
+        CALL    UPPER
+        CMP     B
+        JNZ     SNERR
+        INX     H
+        RET
+;
+; CHBACK -- the parked variables down to VARTAB; MEMSIZ back
+;
+CHBACK: XRA     A
+        STA     CHNFLG
+        LHLD    CHMEM
+        SHLD    MEMSIZ
+        LHLD    CHSIZ
+        MOV     B,H
+        MOV     C,L
+        LHLD    VARTAB
+        XCHG
+        LHLD    CHBLK
+        CALL    MOVDN           ;DE = the new STREND
+        XCHG
+        SHLD    STREND
+        LHLD    CHARY
+        XCHG
+        LHLD    VARTAB
+        DAD     D
+        SHLD    ARYTAB
+        RET
+;
+; CHNABT -- an error while the variables are parked: the new program
+; and the variables go (keeps E)
+;
+CHNABT: PUSH    D
+        XRA     A
+        STA     CHNFLG
+        LHLD    CHMEM
+        SHLD    MEMSIZ
+        CALL    NEWC
+        POP     D
+        RET
+;
+; ================= the variables to pass =================
+;
+; CHVARS -- mark the COMMON variables; remove the ones not passed;
+; copy the strings of the rest out of the program text
+;
+CHVARS: LDA     CHALL
+        ORA     A
+        JNZ     CV3
+        LHLD    TXTTAB          ;each statement of each line
+CV0:    MOV     A,M
+        INX     H
+        ORA     M
+        DCX     H
+        JZ      CV3
+        PUSH    H
+        INX     H
+        INX     H
+        INX     H
+CV1:    CHRGET
+        CPI     TKCOMM
+        CZ      CMARK
+        CALL    SKPSTM
+        MOV     A,M
+        ORA     A
+        JNZ     CV1             ;(at its ':')
+        POP     H               ;the next line
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        XCHG
+        JMP     CV0
+;
+CV3:    XRA     A               ;remove the ones not passed
+        STA     CHARR
+        LHLD    VARTAB
+CV4:    XCHG                    ;simple variables: to ARYTAB
+        LHLD    ARYTAB
+        XCHG
+        COMPAR
+        JZ      CV6
+        PUSH    H
+        CALL    NXTENT
+        XCHG                    ;DE = the next
+        POP     H
+        CALL    CKEEP
+        JMP     CV4
+CV6:    MVI     A,1             ;arrays: to STREND
+        STA     CHARR
+CV7:    XCHG
+        LHLD    STREND
+        XCHG
+        COMPAR
+        JZ      CV9
+        PUSH    H
+        CALL    ANEXT
+        XCHG
+        POP     H
+        CALL    CKEEP
+        JMP     CV7
+;
+CV9:    LHLD    VARTAB          ;strings: simple ones
+CL1:    XCHG
+        LHLD    ARYTAB
+        XCHG
+        COMPAR
+        JZ      CL3
+        PUSH    H
+        MOV     A,M
+        CPI     VTSTR
+        JNZ     CL2
+        INX     H
+        MOV     A,M
+        INX     H
+        CALL    ADDHLA
+        CALL    CPYLIT
+CL2:    POP     H
+        CALL    NXTENT
+        JMP     CL1
+CL3:    XCHG                    ;string arrays: to STREND
+        LHLD    STREND
+        XCHG
+        COMPAR
+        RZ
+        PUSH    H
+        CALL    ANEXT
+        SHLD    CHEND
+        POP     H
+        MOV     A,M
+        CPI     VTSTR
+        JNZ     CL6
+        INX     H               ;the elements: past the name, the
+        MOV     A,M             ;size, the dimensions
+        INX     H
+        CALL    ADDHLA
+        INX     H
+        INX     H
+        MOV     A,M
+        INX     H
+        ADD     A
+        CALL    ADDHLA
+CL5:    XCHG
+        LHLD    CHEND
+        XCHG
+        COMPAR
+        JZ      CL6
+        CALL    CPYLIT
+        INX     H
+        INX     H
+        INX     H
+        JMP     CL5
+CL6:    LHLD    CHEND
+        JMP     CL3
+;
+; CMARK -- mark the variables of the COMMON statement at HL
+;
+CMARK:  CHRGET
+CM1:    RZ
+        CALL    GETNAM          ;HL after the name, A = what follows
+        CPI     '('
+        JZ      CM3
+        LDA     NAMTYP          ;a simple variable
+        CALL    SMPGET          ;DE = its value, if it exists
+        JC      CM5
+        PUSH    H               ;its type byte: before the name
+        XCHG
+        MVI     C,2
+        JMP     CM4
+CM3:    SYNCHK  '('             ;an array: name()
+        SYNCHK  ')'
+        PUSH    H
+        CALL    ARYSR           ;HL = its dimension count
+        JC      CM4A
+        MVI     C,4
+CM4:    LDA     NAMLEN
+        ADD     C
+        MOV     C,A
+        MVI     B,0
+        CALL    SUBBC
+        MOV     A,M
+        ORI     40H
+        MOV     M,A
+CM4A:   POP     H
+CM5:    MOV     A,M
+        CPI     ','
+        RNZ
+        CHRGET
+        JMP     CM1
+;
+; CKEEP -- the entry HL..DE stays (its mark cleared: HL = DE) or goes
+; (HL kept, the rest moved down onto it). Passed: marked, or all with
+; ALL; but a DEF FN only by MERGE.
+;
+CKEEP:  MOV     A,M
+        ORA     A
+        JP      CK1
+        LDA     CHMRG
+        ORA     A
+        JZ      CKDROP
+        MOV     A,M
+CK1:    ANI     40H
+        JNZ     CK2
+        LDA     CHALL
+        ORA     A
+        JZ      CKDROP
+CK2:    MOV     A,M
+        ANI     0BFH
+        MOV     M,A
+        XCHG
+        RET
+CKDROP: SHLD    CKENT
+        XCHG                    ;HL = the next, DE = the entry
+        SHLD    CKNXT
+        CALL    SUBDE           ;the entry's size
+        PUSH    H
+        LHLD    CKNXT           ;the rest, STREND - next, onto it
+        XCHG
+        LHLD    STREND
+        CALL    SUBDE
+        MOV     B,H
+        MOV     C,L
+        LHLD    CKENT
+        XCHG
+        LHLD    CKNXT
+        CALL    MOVDN
+        POP     B
+        LHLD    STREND
+        CALL    SUBBC
+        SHLD    STREND
+        LDA     CHARR
+        ORA     A
+        JNZ     CKD1
+        LHLD    ARYTAB
+        CALL    SUBBC
+        SHLD    ARYTAB
+CKD1:   LHLD    CKENT
+        RET
+;
+; ANEXT -- HL from an array entry to the next
+;
+ANEXT:  INX     H
+        MOV     A,M
+        INX     H
+        CALL    ADDHLA
+        CALL    LDDE
+        DAD     D
+        RET
+;
+; CPYLIT -- the string descriptor at HL: if its text is in the
+; program, a copy in string space. Keeps HL.
+;
+CPYLIT: MOV     A,M
+        ORA     A
+        RZ
+        PUSH    H
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        LHLD    VARTAB          ;TXTTAB <= text < VARTAB?
+        XCHG
+        COMPAR
+        JNC     CPL9
+        XCHG
+        LHLD    TXTTAB
+        XCHG
+        COMPAR
+        JC      CPL9
+        XTHL                    ;HL = the descriptor, stack = text
+        MOV     A,M
+        CALL    GETSPA          ;DE = the space
+        MOV     B,M
+        INX     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        DCX     H
+        DCX     H
+        XTHL
+        CALL    MOVB
+CPL9:   POP     H
+        RET
+;
+; ================= data =================
+;
+CHNFLG: DB      0               ;CHAIN is loading: CLEARC does nothing
+CHMRG:  DB      0               ;MERGE
+CHALL:  DB      0               ;ALL
+CHDEL:  DB      0               ;DELETE
+CHARR:  DB      0               ;CV: in the arrays
+CHLIN:  DW      0               ;the line to start at (0: the first)
+CHDF:   DW      0               ;DELETE's range
+CHDL:   DW      0
+CHSIZ:  DW      0               ;the variables' size
+CHARY:  DW      0               ;and where the arrays begin in them
+CHBLK:  DW      0               ;where they are parked
+CHMEM:  DW      0               ;MEMSIZ
+CHEND:  DW      0
+CKNXT:  DW      0
+CKENT:  DW      0
+;
+        END

@@ -1,0 +1,940 @@
+;
+; BFIO.MAC -- CZBASIC: numbers from text (FIN) and to text (FOUT)
+;
+; FIN reads a number the way MBASIC's line cruncher, VAL, INPUT and
+; READ do: blanks between digits are ignored; &H/&O/& give hex and
+; octal integers; E or D brings an exponent (D: double); a %, ! or #
+; suffix sets the type. Otherwise it is an integer if it has no point
+; or exponent and fits 16 bits, a double if it has more than 7
+; significant digits, else a single. The digits are collected as an
+; exact 64-bit integer, then scaled by a power of ten in double
+; precision.
+;
+; FOUT prints as MBASIC 5.21 does: singles to 6 significant digits,
+; doubles to 16, trailing zeros dropped. Fixed point is used when it
+; needs no more than 6 (single) / 16 (double) digits before the point
+; and 7 / 16 after it (doubles also no more than 14 zeros after the
+; point); otherwise d.dddE+nn (D+nn for doubles). A leading blank or
+; '-' holds the sign.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  FIN,FOUT,FINRAD,FDIGIT,FDIGS,FDEXP,POW10,FBUFF
+        PUBLIC  HALF
+        PUBLIC  FOUTI,P10TAB,FOUTD
+;
+        EXTRN   DFAC,FACLO,FACHI,FAC,FACOV,ARG,ARGLO,ARGX,VALTYP
+        EXTRN   FACSGN,FNORM,FMUL,FDIV,FADD,FCMP,FNEG,FIXFLT,FRCDBL
+        EXTRN   FRCSNG,FRCINT,MOVFM,MOVMF,MOVAM,MOVAF,MOVFA,UPPER
+        EXTRN   FZERO
+        EXTRN   MOVB
+        EXTRN   NEGHL
+;
+        CSEG
+;
+; ================= FIN =================
+;
+; FIN -- the number at HL (leading blanks and a sign allowed) into
+; FAC/VALTYP. HL = just past it (blanks after it are not taken).
+; FINRAD = 16 or 8 for &H / &O constants, else 0.
+;
+FIN:    XRA     A
+        STA     FINRAD
+        STA     FINNEG
+        STA     FINDOT
+        STA     FINDIG
+        STA     FINFLT
+        STA     FINSUF
+        PUSH    H
+        LXI     H,0
+        SHLD    FINDX
+        LXI     H,FINM
+        MVI     B,8
+FIN0:   MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     FIN0
+        POP     H
+FINBL:  MOV     A,M             ;leading blanks
+        CPI     ' '
+        JNZ     FIN1
+        INX     H
+        JMP     FINBL
+FIN1:   CPI     '-'
+        JNZ     FIN2
+        STA     FINNEG
+        INX     H
+        JMP     FIN3
+FIN2:   CPI     '+'
+        JNZ     FIN3
+        INX     H
+FIN3:   SHLD    FINEND          ;(nothing taken yet)
+        MOV     A,M
+        CPI     '&'
+        JZ      FINAMP
+FINLP:  MOV     A,M
+        CPI     ' '
+        JZ      FINSP
+        CPI     '.'
+        JZ      FINPT
+        CPI     '0'
+        JC      FINEX
+        CPI     '9'+1
+        JNC     FINEX
+        INX     H               ;a digit
+        SHLD    FINEND
+        SUI     '0'
+        MOV     C,A
+        LDA     FINDIG
+        ORA     A
+        JNZ     FIND1
+        ORA     C               ;a leading zero counts for nothing
+        JZ      FIND3
+FIND1:  LDA     FINDIG          ;17 digits kept, the rest only scale
+        CPI     17
+        JNC     FIND4
+        INR     A
+        STA     FINDIG
+        PUSH    H
+        CALL    M10ADD          ;FINM = FINM * 10 + C
+        POP     H
+FIND3:  LDA     FINDOT          ;after the point: one place down
+        ORA     A
+        JZ      FINLP
+        CALL    FDXDEC
+        JMP     FINLP
+FIND4:  LDA     FINDOT          ;a dropped digit before the point
+        ORA     A
+        JNZ     FINLP
+        PUSH    H
+        LHLD    FINDX
+        INX     H
+        SHLD    FINDX
+        POP     H
+        JMP     FINLP
+FINSP:  INX     H               ;a blank inside the number
+        JMP     FINLP
+FINPT:  LDA     FINDOT          ;the point (a second one ends it)
+        ORA     A
+        JNZ     FINEX
+        INR     A
+        STA     FINDOT
+        STA     FINFLT
+        INX     H
+        SHLD    FINEND
+        JMP     FINLP
+;
+FINEX:  LHLD    FINEND          ;an exponent must follow directly
+        MOV     A,M
+        CALL    UPPER
+        CPI     'E'
+        JZ      FINE
+        CPI     'D'
+        JNZ     FINSFX
+FINE:   MOV     C,A             ;(E or D)
+        INX     H
+        MVI     B,0             ;its sign
+        MOV     A,M
+        CPI     '-'
+        JNZ     FINE1
+        INR     B
+        INX     H
+        JMP     FINE2
+FINE1:  CPI     '+'
+        JNZ     FINE2
+        INX     H
+FINE2:  MOV     A,M             ;at least one digit, or it isn't one
+        SUI     '0'
+        CPI     10
+        JNC     FINSFX
+        LXI     D,0
+FINE3:  MOV     A,M
+        SUI     '0'
+        CPI     10
+        JNC     FINE4
+        INX     H
+        PUSH    H
+        MOV     H,D             ;DE = DE * 10 + digit (capped)
+        MOV     L,E
+        DAD     H
+        DAD     H
+        DAD     D
+        DAD     H
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        XCHG
+        MOV     A,D             ;keep it below 256
+        ORA     A
+        JZ      FINE3A
+        LXI     D,255
+FINE3A: POP     H
+        JMP     FINE3
+FINE4:  SHLD    FINEND
+        MVI     A,1
+        STA     FINFLT
+        MOV     A,C
+        CPI     'D'
+        JNZ     FINE5
+        MVI     A,VTDBL
+        STA     FINSUF
+FINE5:  MOV     A,B             ;FINDX += (-)exponent
+        ORA     A
+        JZ      FINE6
+        MOV     A,E
+        CMA
+        MOV     E,A
+        MOV     A,D
+        CMA
+        MOV     D,A
+        INX     D
+FINE6:  LHLD    FINDX
+        DAD     D
+        SHLD    FINDX
+;
+FINSFX: LHLD    FINEND          ;a type suffix right after it
+        MOV     A,M
+        MVI     B,VTINT
+        CPI     '%'
+        JZ      FINS1
+        MVI     B,VTSNG
+        CPI     '!'
+        JZ      FINS1
+        MVI     B,VTDBL
+        CPI     '#'
+        JNZ     FINVAL
+FINS1:  INX     H
+        SHLD    FINEND
+        MOV     A,B
+        STA     FINSUF
+;
+; FINVAL -- the type and the value
+;
+FINVAL: LDA     FINSUF
+        ORA     A
+        JNZ     FINV2
+        LDA     FINFLT          ;no point or exponent: an integer
+        ORA     A               ;if it fits
+        JNZ     FINV1
+        LHLD    FINDX
+        MOV     A,H
+        ORA     L
+        JNZ     FINV1
+        LXI     H,FINM+2        ;FINM < 32768?
+        MVI     B,6
+        XRA     A
+FINV0:  ORA     M
+        INX     H
+        DCR     B
+        JNZ     FINV0
+        ORA     A
+        JNZ     FINV1
+        LHLD    FINM
+        MOV     A,H
+        ORA     A
+        JM      FINV1
+        LDA     FINNEG          ;an integer
+        ORA     A
+        JZ      FINV00
+        CALL    NEGHL
+FINV00: SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        LHLD    FINEND
+        RET
+FINV1:  LDA     FINDIG          ;more than 7 digits: double
+        CPI     8
+        MVI     A,VTDBL
+        JNC     FINV2
+        MVI     A,VTSNG
+FINV2:  STA     FINTYP
+        LXI     H,FINM          ;the digits as a double: FINM is the
+        LXI     D,FACOV         ;whole 64-bit mantissa, guard and all
+        MVI     B,8
+        CALL    MOVB
+        MVI     A,128+64
+        STA     FAC
+        XRA     A
+        STA     FACSGN
+        MVI     A,VTDBL
+        STA     VALTYP
+        CALL    FNORM
+        LHLD    FINDX           ;times 10^FINDX (below 10^-38: 0,
+        MOV     A,H             ;as MBASIC)
+        ORA     A
+        JP      FINV3A
+        MOV     A,L
+        CPI     -38
+        JNC     FINV3A
+        CALL    FZERO
+        JMP     FINV3B
+FINV3A: XCHG
+        CALL    POW10
+FINV3B:
+        LDA     FINNEG
+        ORA     A
+        CNZ     FNEG
+        LDA     FINTYP
+        CPI     VTDBL
+        JZ      FINV5
+        CPI     VTSNG
+        JZ      FINV4
+        CALL    FRCINT          ;% : an integer (Overflow if too big)
+        JMP     FINV5
+FINV4:  CALL    FRCSNG
+FINV5:  LHLD    FINEND
+        RET
+;
+; FDXDEC -- FINDX -= 1
+;
+FDXDEC: PUSH    H
+        LHLD    FINDX
+        DCX     H
+        SHLD    FINDX
+        POP     H
+        RET
+;
+; M10ADD -- FINM = FINM * 10 + C
+;
+M10ADD: LXI     H,FINM          ;FINT = FINM
+        LXI     D,FINT
+        MVI     B,8
+        CALL    MOVB
+        CALL    M10SHL          ;* 4
+        CALL    M10SHL
+        LXI     H,FINM          ;+ FINT: * 5
+        LXI     D,FINT
+        MVI     B,8
+        ORA     A
+M10B:   LDAX    D
+        ADC     M
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     M10B
+        CALL    M10SHL          ;* 2
+        LXI     H,FINM          ;+ C
+        MOV     A,M
+        ADD     C
+        MOV     M,A
+        MVI     B,7
+M10C:   INX     H
+        MOV     A,M
+        ACI     0
+        MOV     M,A
+        DCR     B
+        JNZ     M10C
+        RET
+M10SHL: LXI     H,FINM
+        MVI     B,8
+        ORA     A
+M10S1:  MOV     A,M
+        RAL
+        MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     M10S1
+        RET
+;
+; FINAMP -- &H hex, &O or & octal: a 16-bit integer
+;
+FINAMP: INX     H
+        MOV     A,M
+        CALL    UPPER
+        LXI     D,0
+        CPI     'H'
+        JZ      FINHX
+        CPI     'O'
+        JNZ     FINOC
+        INX     H
+FINOC:  MVI     A,8
+        STA     FINRAD
+FINOC1: MOV     A,M
+        SUI     '0'
+        CPI     8
+        JNC     FINAE
+        XCHG
+        DAD     H
+        DAD     H
+        DAD     H
+        ADD     L
+        MOV     L,A
+        XCHG
+        INX     H
+        JMP     FINOC1
+FINHX:  INX     H
+        MVI     A,16
+        STA     FINRAD
+FINHX1: MOV     A,M
+        CALL    UPPER
+        SUI     '0'
+        CPI     10
+        JC      FINHX2
+        SUI     'A'-'0'
+        CPI     6
+        JNC     FINAE
+        ADI     10
+FINHX2: XCHG
+        DAD     H
+        DAD     H
+        DAD     H
+        DAD     H
+        ADD     L
+        MOV     L,A
+        XCHG
+        INX     H
+        JMP     FINHX1
+FINAE:  SHLD    FINEND
+        XCHG
+        LDA     FINNEG
+        ORA     A
+        JZ      FINV00
+        CALL    NEGHL
+        JMP     FINV00
+;
+; ================= powers of ten =================
+;
+; POW10 -- FAC (double) = FAC * 10^DE (DE signed)
+;
+POW10:  MOV     A,D
+        ORA     E
+        RZ
+        MOV     A,D
+        ORA     A
+        MVI     A,0
+        JP      PW1
+        MOV     A,E             ;negative: divide by 10^-DE
+        CMA
+        MOV     E,A
+        MOV     A,D
+        CMA
+        MOV     D,A
+        INX     D
+        MVI     A,1
+PW1:    STA     PWDIV
+        MOV     A,D             ;beyond 99 it's out of range anyway
+        ORA     A
+        JNZ     PW2
+        MOV     A,E
+        CPI     100
+        JC      PW3
+PW2:    MVI     E,99
+PW3:    MOV     A,E             ;steps of 10^32
+        CPI     33
+        JC      PW4
+        SUI     32
+        MOV     E,A
+        PUSH    D
+        LXI     H,P10BIG+8
+        CALL    PWOP
+        POP     D
+        JMP     PW3
+PW4:    CPI     16              ;10^16 .. 10^32: 10^16 * 10^(n-16)
+        JC      PW5
+        SUI     16
+        PUSH    PSW
+        LXI     H,PWVAL         ;keep the value
+        CALL    MOVMF
+        POP     PSW
+        CALL    P10ADR          ;FAC = 10^(n-16)
+        CALL    MOVFM
+        LXI     H,P10BIG        ;* 10^16
+        CALL    MOVAM
+        CALL    FMUL
+        LXI     H,PWPOW         ;that's the power
+        CALL    MOVMF
+        LXI     H,PWVAL
+        CALL    MOVFM
+        LXI     H,PWPOW
+        JMP     PWOP
+PW5:    CALL    P10ADR
+;
+; PWOP -- FAC = FAC * (HL) or FAC / (HL) (PWDIV), doubles
+;
+PWOP:   LDA     PWDIV
+        ORA     A
+        JNZ     PWOP1
+        CALL    MOVAM
+        JMP     FMUL
+PWOP1:  CALL    MOVAF
+        CALL    MOVFM
+        JMP     FDIV
+;
+; P10ADR -- HL = the table entry for 10^A (A = 0..15)
+;
+P10ADR: ADD     A
+        ADD     A
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        LXI     H,P10TAB
+        DAD     D
+        RET
+;
+; ================= FOUT =================
+;
+; FOUT -- the number in FAC as text in FBUFF: HL = FBUFF, 0-terminated.
+; FAC is changed (it ends up double).
+;
+FOUT:   LXI     H,FBUFF         ;the sign
+        MVI     M,' '
+        GETYPE
+        JM      FOUTI
+        FSIGN
+        JZ      FOUT0
+        JP      FOUT1
+        MVI     M,'-'
+        LDA     FACHI           ;make it positive
+        ANI     7FH
+        STA     FACHI
+FOUT1:  LDA     VALTYP          ;D = 6 or 16 digits
+        CPI     VTDBL
+        MVI     A,6
+        JNZ     FOUT2
+        MVI     A,16
+FOUT2:  STA     FOUTD
+        CALL    FDIGIT          ;FDIGS, FDEXP
+        LDA     FOUTD           ;n = digits without trailing zeros
+        MOV     C,A
+        LXI     H,FDIGS-1
+        MOV     E,C
+        MVI     D,0
+        DAD     D
+FOUT3:  MOV     A,M
+        CPI     '0'
+        JNZ     FOUT4
+        DCX     H
+        DCR     C
+        JNZ     FOUT3
+        INR     C               ;(can't happen: the first digit isn't 0)
+FOUT4:  MOV     A,C
+        STA     FOUTN
+        LDA     FDEXP           ;E = K + 1: the digits before the point
+        INR     A
+        STA     FOUTE
+        MOV     B,A
+        LDA     FOUTD           ;fixed point?
+        CPI     16
+        JZ      FOUT5
+        MOV     A,B             ;single: E <= 6, n - E <= 7
+        CPI     7
+        JP      FOUTX           ;(E is small and signed)
+        MOV     A,C
+        SUB     B
+        CPI     8
+        JP      FOUTX
+        JMP     FOUTF
+FOUT5:  MOV     A,B             ;double: -14 <= E <= 16, n - E <= 16
+        CPI     17
+        JP      FOUTX
+        CPI     -14
+        JM      FOUTX
+        MOV     A,C
+        SUB     B
+        CPI     17
+        JP      FOUTX
+;
+; FOUTF -- fixed point
+;
+FOUTF:  LXI     H,FBUFF+1
+        LXI     D,FDIGS
+        LDA     FOUTE
+        ORA     A
+        JZ      FOF2
+        JP      FOF3
+        MOV     B,A             ;E < 0: . then -E zeros
+FOF2:   MVI     M,'.'
+        INX     H
+        LDA     FOUTE
+FOF2A:  ORA     A
+        JZ      FOF2B
+        MVI     M,'0'
+        INX     H
+        INR     A
+        JMP     FOF2A
+FOF2B:  LDA     FOUTN           ;then the digits
+        MOV     B,A
+        CALL    FOCPY
+        JMP     FOEND
+FOF3:   MOV     B,A             ;E > 0: E digits (zeros past n)
+        LDA     FOUTN
+        MOV     C,A
+FOF4:   MOV     A,C
+        ORA     A
+        MVI     A,'0'
+        JZ      FOF5
+        LDAX    D
+        INX     D
+        DCR     C
+FOF5:   MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     FOF4
+        MOV     A,C             ;digits left: . and them
+        ORA     A
+        JZ      FOEND
+        MVI     M,'.'
+        INX     H
+        MOV     B,C
+        CALL    FOCPY
+        JMP     FOEND
+;
+; FOUTX -- d.dddE+nn (D for a double)
+;
+FOUTX:  LXI     H,FBUFF+1
+        LXI     D,FDIGS
+        LDAX    D
+        INX     D
+        MOV     M,A
+        INX     H
+        LDA     FOUTN
+        DCR     A
+        JZ      FOX1
+        MVI     M,'.'
+        INX     H
+        MOV     B,A
+        CALL    FOCPY
+FOX1:   MVI     M,'E'
+        LDA     FOUTD
+        CPI     16
+        JNZ     FOX2
+        MVI     M,'D'
+FOX2:   INX     H
+        LDA     FDEXP           ;K, signed
+        MVI     M,'+'
+        ORA     A
+        JP      FOX3
+        MVI     M,'-'
+        CMA
+        INR     A
+FOX3:   INX     H
+        MVI     B,'0'-1         ;two digits
+FOX4:   INR     B
+        SUI     10
+        JNC     FOX4
+        ADI     10+'0'
+        MOV     M,B
+        INX     H
+        MOV     M,A
+        INX     H
+FOEND:  MVI     M,0
+        LXI     H,FBUFF
+        RET
+;
+FOCPY:  LDAX    D               ;B digits from DE to HL
+        MOV     M,A
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     FOCPY
+        RET
+;
+FOUT0:  LXI     H,FBUFF+1       ;zero
+        MVI     M,'0'
+        INX     H
+        JMP     FOEND
+;
+; FOUTI -- an integer: sign and digits
+;
+FOUTI:  LHLD    FACLO
+        MOV     A,H
+        ORA     A
+        JP      FOI1
+        MVI     A,'-'
+        STA     FBUFF
+        CALL    NEGHL
+FOI1:   LXI     D,FBUFF+1
+        LXI     B,-10000
+        CALL    FOID
+        LXI     B,-1000
+        CALL    FOID
+        LXI     B,-100
+        CALL    FOID
+        LXI     B,-10
+        CALL    FOID
+        MOV     A,L
+        ADI     '0'
+        STAX    D
+        INX     D
+        XCHG
+        JMP     FOEND
+FOID:   MVI     A,'0'-1         ;(HL unsigned, so 32768 works)
+FOID1:  INR     A
+        DAD     B
+        JC      FOID1
+        PUSH    PSW
+        MOV     A,L
+        SUB     C
+        MOV     L,A
+        MOV     A,H
+        SBB     B
+        MOV     H,A
+        POP     PSW
+        CPI     '0'
+        JNZ     FOID2
+        PUSH    H               ;a leading zero?
+        LXI     H,FBUFF+1
+        MOV     A,E
+        CMP     L
+        POP     H
+        MVI     A,'0'
+        RZ                      ;(nothing out yet)
+FOID2:  STAX    D
+        INX     D
+        RET
+;
+; ================= digits =================
+;
+; FDIGIT -- the positive number in FAC as FOUTD significant digits
+; (rounded) in FDIGS, and FDEXP = K with FAC = d.ddd * 10^K.
+;
+FDIGIT: CALL    FRCDBL
+        LDA     FAC             ;K0 = floor((e2 - 1) * 77 / 256)
+        SUI     129
+        MOV     L,A
+        SBB     A
+        MOV     H,A
+        MOV     D,H             ;* 77 = 64 + 8 + 4 + 1
+        MOV     E,L
+        DAD     H
+        DAD     H
+        PUSH    H               ;*4
+        DAD     H
+        PUSH    H               ;*8
+        DAD     H
+        DAD     H
+        DAD     H               ;*64
+        POP     B
+        DAD     B
+        POP     B
+        DAD     B
+        DAD     D
+        MOV     A,H             ;/256, floor
+        STA     FDEXP
+        LDA     FOUTD           ;scale by 10^(D-1-K0)
+        DCR     A
+        MOV     B,A
+        LDA     FDEXP
+        CMA
+        INR     A
+        ADD     B
+        MOV     E,A
+        SBB     A               ;(sign-extend: done below)
+        MOV     A,E
+        MOV     D,A
+        MVI     D,0
+        ORA     A
+        JP      FDG1
+        MVI     D,0FFH
+FDG1:   CALL    POW10
+        LXI     H,FDTMP         ;y >= 10^D: one place too many
+        CALL    MOVMF
+        CALL    MOVAF
+        LDA     FOUTD
+        CALL    P10AD2
+        CALL    MOVFM
+        CALL    FCMP            ;sign(y - 10^D)
+        ORA     A
+        JM      FDG2
+        LXI     H,FDTMP         ;y /= 10, K += 1
+        CALL    MOVFM
+        CALL    MOVAF
+        LXI     H,P10TAB+8
+        CALL    MOVFM
+        CALL    FDIV
+        LXI     H,FDEXP
+        INR     M
+        JMP     FDG3
+FDG2:   LXI     H,FDTMP         ;y < 10^(D-1): one too few
+        CALL    MOVAM
+        LDA     FOUTD
+        DCR     A
+        CALL    P10AD2
+        CALL    MOVFM
+        CALL    FCMP            ;sign(y - 10^(D-1))
+        PUSH    PSW
+        LXI     H,FDTMP
+        CALL    MOVFM
+        POP     PSW
+        ORA     A
+        JP      FDG3
+        LXI     H,P10TAB+8      ;y *= 10, K -= 1
+        CALL    MOVAM
+        CALL    FMUL
+        LXI     H,FDEXP
+        DCR     M
+FDG3:   LXI     H,HALF          ;round: + 0.5, whole part
+        CALL    MOVAM
+        CALL    FADD
+        CALL    FIXFLT
+        CALL    MANINT          ;FDGN = the integer (7 bytes)
+        LDA     FOUTD           ;D digits, last first
+        MOV     C,A
+        LXI     H,FDIGS-1
+        MOV     E,C
+        MVI     D,0
+        DAD     D
+FDG4:   PUSH    H
+        PUSH    B
+        CALL    DIV10
+        POP     B
+        POP     H
+        ADI     '0'
+        MOV     M,A
+        DCX     H
+        DCR     C
+        JNZ     FDG4
+        LXI     H,FDGN          ;anything left: it rounded up to 10^D
+        MVI     B,7
+        XRA     A
+FDG5:   ORA     M
+        INX     H
+        DCR     B
+        JNZ     FDG5
+        ORA     A
+        RZ
+        LXI     H,FDIGS         ;"1000..."
+        MVI     M,'1'
+        LDA     FOUTD
+        DCR     A
+        MOV     B,A
+FDG6:   INX     H
+        MVI     M,'0'
+        DCR     B
+        JNZ     FDG6
+        LXI     H,FDEXP
+        INR     M
+        RET
+;
+; P10AD2 -- HL = 10^A in the table (A = 0..16)
+;
+P10AD2: CPI     16
+        JNZ     P10ADR
+        LXI     H,P10BIG
+        RET
+;
+; MANINT -- the whole number in FAC (double, 0 <= x < 2^56) as a
+; 7-byte integer in FDGN
+;
+MANINT: LXI     H,DFAC          ;the mantissa, top bit put back
+        LXI     D,FDGN
+        MVI     B,7
+        CALL    MOVB
+        LDA     FAC
+        ORA     A
+        JZ      MANI0
+        LDA     FDGN+6
+        ORI     80H
+        STA     FDGN+6
+        LDA     FAC             ;shift right 56 - (FAC - 128)
+        MOV     B,A
+        MVI     A,128+56
+        SUB     B
+        RZ
+        MOV     C,A
+MANI2:  LXI     H,FDGN+6
+        MVI     B,7
+        ORA     A
+MANI3:  MOV     A,M
+        RAR
+        MOV     M,A
+        DCX     H
+        DCR     B
+        JNZ     MANI3
+        DCR     C
+        JNZ     MANI2
+        RET
+MANI0:  LXI     H,FDGN          ;0
+        MVI     B,7
+        XRA     A
+MANI4:  MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     MANI4
+        RET
+;
+; DIV10 -- FDGN /= 10 (7 bytes, 3 for a single's digits), A = the
+; remainder
+;
+DIV10:  LXI     H,FDGN+6
+        MVI     B,7
+        LDA     FOUTD
+        CPI     16
+        JZ      D10A
+        LXI     H,FDGN+2
+        MVI     B,3
+D10A:   MVI     C,0             ;remainder
+D10L:   MOV     E,M
+        MVI     D,8
+D10B:   MOV     A,E             ;next bit of the byte into the
+        ADD     A               ;remainder; the quotient bit into
+        MOV     E,A             ;the byte's low end
+        MOV     A,C
+        RAL
+        MOV     C,A
+        CPI     10
+        JC      D10N
+        SUI     10
+        MOV     C,A
+        MOV     A,E
+        ORI     1
+        MOV     E,A
+D10N:   DCR     D
+        JNZ     D10B
+        MOV     M,E
+        DCX     H
+        DCR     B
+        JNZ     D10L
+        MOV     A,C
+        RET
+;
+; ================= data =================
+;
+FINRAD: DB      0               ;&H 16, &O 8, else 0
+FINNEG: DB      0
+FINDOT: DB      0
+FINDIG: DB      0               ;significant digits kept
+FINFLT: DB      0               ;point or exponent seen
+FINSUF: DB      0               ;type from a suffix / D, else 0
+FINTYP: DB      0
+FINDX:  DW      0               ;decimal exponent
+FINEND: DW      0               ;text past the number
+FINM:   DS      8               ;the digits as an integer
+FINT:   DS      8
+PWDIV:  DB      0
+PWVAL:  DS      8
+PWPOW:  DS      8
+FOUTD:  DB      0               ;digits: 6 or 16
+FOUTN:  DB      0               ;significant digits
+FOUTE:  DB      0               ;digits before the point
+FDEXP:  DB      0               ;K
+FDTMP:  DS      8
+FDGN:   DS      7
+FDIGS:  DS      17              ;the digits
+FBUFF:  DS      32              ;FOUT's text
+;
+HALF:   DB      0,0,0,0,0,0,0,80H       ;0.5
+;
+P10TAB:                                 ;10^0 .. 10^15, exact
+        DB      000H,000H,000H,000H,000H,000H,000H,081H ;1E0
+        DB      000H,000H,000H,000H,000H,000H,020H,084H ;1E1
+        DB      000H,000H,000H,000H,000H,000H,048H,087H ;1E2
+        DB      000H,000H,000H,000H,000H,000H,07AH,08AH ;1E3
+        DB      000H,000H,000H,000H,000H,040H,01CH,08EH ;1E4
+        DB      000H,000H,000H,000H,000H,050H,043H,091H ;1E5
+        DB      000H,000H,000H,000H,000H,024H,074H,094H ;1E6
+        DB      000H,000H,000H,000H,080H,096H,018H,098H ;1E7
+        DB      000H,000H,000H,000H,020H,0BCH,03EH,09BH ;1E8
+        DB      000H,000H,000H,000H,028H,06BH,06EH,09EH ;1E9
+        DB      000H,000H,000H,000H,0F9H,002H,015H,0A2H ;1E10
+        DB      000H,000H,000H,040H,0B7H,043H,03AH,0A5H ;1E11
+        DB      000H,000H,000H,010H,0A5H,0D4H,068H,0A8H ;1E12
+        DB      000H,000H,000H,02AH,0E7H,084H,011H,0ACH ;1E13
+        DB      000H,000H,080H,0F4H,020H,0E6H,035H,0AFH ;1E14
+        DB      000H,000H,0A0H,031H,0A9H,05FH,063H,0B2H ;1E15
+P10BIG:                                 ;10^16, 10^32
+        DB      000H,000H,004H,0BFH,0C9H,01BH,00EH,0B6H ;1E16
+        DB      0B6H,070H,02BH,0A8H,0ADH,0C5H,01DH,0EBH ;1E32
+;
+        END

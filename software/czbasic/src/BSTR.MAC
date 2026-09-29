@@ -1,0 +1,1061 @@
+;
+; BSTR.MAC -- CZBASIC: strings
+;
+; A string value is a 3-byte descriptor (length, address); FAC holds
+; the descriptor's address (VALTYP 3). String data lives in the string
+; space, allocated downward from MEMSIZ to FRETOP, or -- for literals
+; and DATA -- in the program text itself. Expression results are
+; temporary descriptors on TEMPST, which is emptied at the start of
+; every statement (STKFRE), so none are left behind.
+;
+; Two descriptors never share string-space data: assignment takes over
+; a temporary's data, shares program text, and copies anything else.
+; GARBAG compacts the string space the MBASIC way: the highest live
+; string still below the new top moves up to it, until none is left.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  STRLIT,STRCAT,STRCMP,STRASG,STRTMP,FRETMD,FRESTR
+        PUBLIC  GARBAG,STKFRE,MKSTR,PUTTMP,GETSPA,MIDSTM
+        PUBLIC  LEFTS,RIGHTS,MIDS,LENFN,ASCFN,CHRFN,STRFN,VALFN
+        PUBLIC  SPACFN,HEXFN,OCTFN,INSTR,STRNGS,INKEY,FREFN
+        PUBLIC  TEMPST,TEMPPT,RETBYT,BYTARG
+;
+        EXTRN   FACLO,ARGLO,VALTYP,FRETOP,MEMSIZ,STREND,TXTTAB,VARTAB
+        EXTRN   ARYTAB,FRMEVL,FRMSTR,GETBYT,CHKSTR,CHKNUM,FRCINT,PTRGET
+        EXTRN   FOUT,FIN,FACUNS,FLTUNS,CONST,CONIN
+        EXTRN   SNERR,FCERR,LSERR,OSERR,STERR,TMERR
+        EXTRN   MOVB
+        EXTRN   SUBDE
+        EXTRN   LDDE,LHLI
+;
+        CSEG
+;
+; ================= temporaries and space =================
+;
+; STKFRE -- no temporaries (keeps all registers)
+;
+STKFRE: PUSH    H
+        LXI     H,TEMPST
+        SHLD    TEMPPT
+        POP     H
+        RET
+;
+; PUTTMP -- a temporary descriptor (B = length, DE = address): FAC =
+; it, VALTYP = string. Keeps BC, DE, HL.
+;
+PUTTMP: PUSH    H
+        LHLD    TEMPPT
+        PUSH    D
+        LXI     D,TEMPND
+        MOV     A,L
+        CMP     E
+        JNZ     PUTT1
+        MOV     A,H
+        CMP     D
+        JZ      STERR           ;String formula too complex
+PUTT1:  POP     D
+        SHLD    FACLO
+        MOV     M,B
+        INX     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        SHLD    TEMPPT
+        MVI     A,VTSTR
+        STA     VALTYP
+        POP     H
+        RET
+;
+; GETSPA -- A bytes of string space: DE = their address (collecting
+; garbage if need be; Out of string space if they don't fit). Keeps
+; BC, HL.
+;
+GETSPA: PUSH    H
+        PUSH    B
+        MOV     C,A
+        MVI     B,0
+        CALL    GS1
+        JNC     GS2
+        CALL    GARBAG
+        CALL    GS1
+        JC      OSERR
+GS2:    POP     B
+        POP     H
+        RET
+GS1:    LHLD    FRETOP          ;DE = FRETOP - BC, not below STREND
+        MOV     A,L
+        SUB     C
+        MOV     E,A
+        MOV     A,H
+        SBB     B
+        MOV     D,A
+        RC
+        LHLD    STREND
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        RC
+        XCHG
+        SHLD    FRETOP
+        XCHG
+        RET
+;
+; MKSTR -- a new temporary string of A bytes: FAC = it, DE = its data
+;
+MKSTR:  PUSH    PSW
+        CALL    GETSPA
+        POP     PSW
+        MOV     B,A
+        JMP     PUTTMP
+;
+; FRETMD -- drop FAC's descriptor if it is the newest temporary (its
+; data stays). FRESTR -- the same, and give its space back if it is
+; the lowest string. Both return HL = the descriptor, B = length,
+; DE = address.
+;
+FRESTR: CALL    FRETMD
+        LDA     FRSTMP
+        ORA     A
+        RZ
+        PUSH    H
+        LHLD    FRETOP          ;data at FRETOP: free it
+        MOV     A,L
+        CMP     E
+        JNZ     FRS1
+        MOV     A,H
+        CMP     D
+        JNZ     FRS1
+        MOV     A,B
+        ADD     L
+        MOV     L,A
+        MVI     A,0
+        ADC     H
+        MOV     H,A
+        SHLD    FRETOP
+FRS1:   POP     H
+        RET
+FRETMD: XRA     A
+        STA     FRSTMP
+        LHLD    TEMPPT
+        DCX     H
+        DCX     H
+        DCX     H
+        XCHG
+        LHLD    FACLO
+        MOV     A,L
+        CMP     E
+        JNZ     FRT1
+        MOV     A,H
+        CMP     D
+        JNZ     FRT1
+        SHLD    TEMPPT          ;(its slot is free again)
+        MVI     A,1
+        STA     FRSTMP
+FRT1:   MOV     B,M
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        DCX     H
+        DCX     H
+        RET
+;
+; ISTMP -- Z if HL is a temporary descriptor (TEMPST..TEMPPT)
+;
+ISTMP:  PUSH    D
+        XCHG
+        LXI     H,TEMPST-1      ;HL > TEMPST-1
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        JNC     ISTN
+        LHLD    TEMPPT          ;and HL < TEMPPT
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        JNC     ISTN
+        XCHG
+        XRA     A
+        POP     D
+        RET
+ISTN:   XCHG
+        ORI     1
+        POP     D
+        RET
+;
+; INSPC -- C if DE (a string's data) is in the string space
+;
+INSPC:  PUSH    H
+        LHLD    FRETOP          ;DE >= FRETOP
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        JC      INSNO
+        LHLD    MEMSIZ          ;and DE < MEMSIZ
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        POP     H
+        RET
+INSNO:  POP     H
+        ORA     A
+        RET
+;
+; INTXT -- C if DE is in the program text (TXTTAB..VARTAB)
+;
+INTXT:  PUSH    H
+        LHLD    TXTTAB
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        JC      INSNO
+        LHLD    VARTAB
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        POP     H
+        RET
+;
+; ================= assignment =================
+;
+; STRASG -- the string variable whose descriptor is at DE = the string
+; in FAC. Keeps HL.
+;
+STRASG: PUSH    H
+        XCHG
+        SHLD    SAVAR
+        LHLD    FACLO
+        CALL    ISTMP           ;a temporary...
+        MOV     C,M             ;C = length, DE = data
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        JNZ     STA1
+        CALL    INSPC           ;...in the string space: take it
+        JC      STA3
+STA1:   CALL    INTXT           ;program text: share it
+        JC      STA3
+        MOV     A,C             ;anything else: copy it
+        ORA     A
+        JZ      STA3
+        CALL    GETSPA          ;DE = new space (data may move:
+        LHLD    FACLO           ;look again)
+        CALL    LHLI
+        PUSH    D
+        MOV     B,C
+        CALL    MOVB
+        POP     D
+STA3:   LHLD    SAVAR           ;store the descriptor
+        MOV     M,C
+        INX     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        CALL    FRETMD
+        POP     H
+        RET
+;
+; STRTMP -- make FAC's string a temporary that owns its data (copy it
+; if it is a variable's or not in the string space). Keeps HL.
+;
+STRTMP: PUSH    H
+        LHLD    FACLO
+        CALL    ISTMP
+        MOV     C,M
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        JNZ     STT1
+        CALL    INSPC
+        JC      STT3
+STT1:   PUSH    B               ;a copy
+        LHLD    FACLO
+        PUSH    H
+        MOV     A,C
+        CALL    MKSTR           ;DE = new data (FAC = new temporary)
+        POP     H               ;the old descriptor: its data now
+        CALL    LHLI
+        POP     B
+        MOV     A,C
+        ORA     A
+        JZ      STT3
+STT2:   MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     C
+        JNZ     STT2
+STT3:   POP     H
+        RET
+;
+; ================= garbage collection =================
+;
+GARBAG: PUSH    H
+        PUSH    D
+        PUSH    B
+        LHLD    MEMSIZ
+        SHLD    GCTOP
+GCLP:   LXI     H,0             ;the highest string below GCTOP
+        SHLD    GCBEST
+        SHLD    GCADR
+        LXI     H,TEMPST        ;temporaries
+GC1:    XCHG
+        LHLD    TEMPPT
+        MOV     A,E
+        CMP     L
+        JNZ     GC2
+        MOV     A,D
+        CMP     H
+        JZ      GC3
+GC2:    XCHG
+        CALL    GCCHK
+        INX     H
+        INX     H
+        INX     H
+        JMP     GC1
+GC3:    LHLD    VARTAB          ;simple variables
+GC4:    XCHG
+        LHLD    ARYTAB
+        MOV     A,E
+        CMP     L
+        JNZ     GC5
+        MOV     A,D
+        CMP     H
+        JZ      GC7
+GC5:    XCHG
+        MOV     B,M             ;type
+        INX     H
+        MOV     A,M             ;name length
+        INX     H
+        ADD     L
+        MOV     L,A
+        JNC     GC6
+        INR     H
+GC6:    MOV     A,B
+        CPI     VTSTR
+        CZ      GCCHK
+        MOV     A,B             ;past the value
+        ORA     A
+        JP      GC6A
+        MVI     A,2
+GC6A:   ADD     L
+        MOV     L,A
+        JNC     GC4
+        INR     H
+        JMP     GC4
+GC7:    LHLD    ARYTAB          ;arrays
+GC8:    XCHG
+        LHLD    STREND
+        MOV     A,E
+        CMP     L
+        JNZ     GC9
+        MOV     A,D
+        CMP     H
+        JZ      GC12
+GC9:    XCHG
+        MOV     B,M             ;type
+        INX     H
+        MOV     A,M
+        INX     H
+        ADD     L
+        MOV     L,A
+        JNC     GC9A
+        INR     H
+GC9A:   CALL    LDDE           ;DE = size
+        PUSH    H
+        DAD     D
+        XTHL                    ;(stack: the next array)
+        MOV     A,B
+        CPI     VTSTR
+        JNZ     GC11
+        MOV     A,M             ;elements start past the counts
+        INX     H
+        ADD     A
+        ADD     L
+        MOV     L,A
+        JNC     GC10
+        INR     H
+GC10:   XCHG                    ;DE = element
+        POP     H               ;HL = the end
+        PUSH    H
+        MOV     A,E
+        CMP     L
+        JNZ     GC10A
+        MOV     A,D
+        CMP     H
+        JZ      GC11
+GC10A:  XCHG
+        CALL    GCCHK
+        INX     H
+        INX     H
+        INX     H
+        JMP     GC10
+GC11:   POP     H
+        JMP     GC8
+GC12:   LHLD    GCBEST          ;none left: done
+        MOV     A,H
+        ORA     L
+        JZ      GCDONE
+        MOV     C,M             ;move it up to just below GCTOP
+        MVI     B,0
+        LHLD    GCTOP
+        MOV     A,L
+        SUB     C
+        MOV     L,A
+        MOV     A,H
+        SBB     B
+        MOV     H,A
+        SHLD    GCTOP
+        XCHG                    ;DE = the new place
+        LHLD    GCADR           ;HL = the old one
+        PUSH    D
+        DAD     B               ;move it from the top down
+        XCHG
+        DAD     B
+        XCHG
+        INR     C
+GC13:   DCR     C
+        JZ      GC14
+        DCX     H
+        DCX     D
+        MOV     A,M
+        STAX    D
+        JMP     GC13
+GC14:   POP     D
+        LHLD    GCBEST          ;the descriptor points there now
+        INX     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        JMP     GCLP
+GCDONE: LHLD    GCTOP
+        SHLD    FRETOP
+        POP     B
+        POP     D
+        POP     H
+        RET
+;
+; GCCHK -- the descriptor at HL: the best so far if its string is in
+; the string space, below GCTOP and above GCADR. Keeps BC, HL.
+;
+GCCHK:  MOV     A,M
+        ORA     A
+        RZ                      ;empty
+        PUSH    H
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        LHLD    STREND          ;>= STREND
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        JC      GCC1
+        LHLD    GCTOP           ;< GCTOP
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        JNC     GCC1
+        LHLD    GCADR           ;>= the best so far
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        JC      GCC1
+        XCHG
+        SHLD    GCADR
+        POP     H
+        SHLD    GCBEST
+        RET
+GCC1:   POP     H
+        RET
+;
+; ================= operators =================
+;
+; STRLIT -- the literal at HL ('"'): a temporary pointing into the
+; text; HL after it
+;
+STRLIT: INX     H
+        MOV     D,H
+        MOV     E,L
+        MVI     B,0
+SL1:    MOV     A,M
+        ORA     A
+        JZ      SL2
+        CPI     '"'
+        JZ      SL2
+        INX     H
+        INR     B
+        JMP     SL1
+SL2:    CALL    PUTTMP
+        MOV     A,M
+        CPI     '"'
+        JZ      SL3
+        DCX     H               ;(the end of the line: stay there)
+SL3:    CHRGET
+        RET
+;
+; STRCAT -- FAC = ARG's string + FAC's
+;
+STRCAT: LHLD    ARGLO
+        SHLD    SCLEFT
+        MOV     A,M
+        LHLD    FACLO
+        SHLD    SCRGHT
+        ADD     M
+        JC      LSERR           ;String too long
+        STA     SCLEN
+        CALL    GETSPA          ;DE = the new data
+        PUSH    D
+        LHLD    SCLEFT
+        CALL    SCCOPY
+        LHLD    SCRGHT
+        CALL    SCCOPY
+        POP     D
+        LDA     SCLEN
+        MOV     B,A
+        JMP     PUTTMP
+SCCOPY: MOV     C,M             ;copy the string at descriptor HL to DE
+        CALL    LHLI
+SCC1:   MOV     A,C
+        ORA     A
+        RZ
+        MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     C
+        JMP     SCC1
+;
+; STRCMP -- A = sign(ARG's string - FAC's), compared byte by byte
+;
+STRCMP: LHLD    FACLO           ;C, DE = the right
+        MOV     C,M
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        LHLD    ARGLO           ;B, HL = the left
+        MOV     B,M
+        CALL    LHLI
+SCM1:   MOV     A,B
+        ORA     A
+        JZ      SCM3
+        MOV     A,C
+        ORA     A
+        JZ      SCMGT           ;left longer
+        LDAX    D
+        CMP     M
+        JC      SCMGT           ;right < left
+        JNZ     SCMLT
+        INX     H
+        INX     D
+        DCR     B
+        DCR     C
+        JMP     SCM1
+SCM3:   MOV     A,C             ;left ended: equal or less
+        ORA     A
+        RZ
+SCMLT:  MVI     A,0FFH
+        RET
+SCMGT:  MVI     A,1
+        RET
+;
+; ================= functions =================
+;
+; SARG1 -- "(string," for LEFT$ RIGHT$ MID$: DE = its descriptor
+;
+SARG1:  CHRGET
+        SYNCHK  '('
+        CALL    FRMSTR
+        XCHG
+        LHLD    FACLO
+        XCHG
+        SYNCHK  ','
+        RET
+;
+; LEFT$(s$,n) RIGHT$(s$,n) MID$(s$,n[,m])
+;
+LEFTS:  CALL    SARG1
+        PUSH    D
+        CALL    GETBYT
+        SYNCHK  ')'
+        MOV     C,E             ;count
+        POP     D
+        PUSH    H
+        MVI     B,0             ;from the start
+        JMP     SUBSTR
+RIGHTS: CALL    SARG1
+        PUSH    D
+        CALL    GETBYT
+        SYNCHK  ')'
+        MOV     C,E
+        POP     D
+        PUSH    H
+        LDAX    D               ;start = length - n (or 0)
+        SUB     C
+        MOV     B,A
+        JNC     SUBSTR
+        MVI     B,0
+        JMP     SUBSTR
+MIDS:   CALL    SARG1
+        PUSH    D
+        CALL    GETBYT          ;n, 1..255
+        ORA     A
+        JZ      FCERR
+        PUSH    PSW
+        MVI     E,255           ;m (default all)
+        MOV     A,M
+        CPI     ','
+        JNZ     MIDS1
+        CHRGET
+        CALL    GETBYT
+MIDS1:  SYNCHK  ')'
+        MOV     C,E
+        POP     PSW
+        DCR     A
+        MOV     B,A
+        POP     D
+        PUSH    H
+;
+; SUBSTR -- the substring of the string at descriptor DE from offset
+; B, C bytes (both clipped to it). (Stack: the text pointer.)
+;
+SUBSTR: LDAX    D               ;length - offset
+        SUB     B
+        JNC     SUB1
+        XRA     A               ;offset past the end: ""
+SUB1:   CMP     C
+        JNC     SUB2
+        MOV     C,A             ;count clipped
+SUB2:   PUSH    D
+        PUSH    B
+        MOV     A,C
+        CALL    MKSTR           ;DE = the new data
+        POP     B
+        POP     H               ;the old descriptor (updated by any GC)
+        INX     H
+        MOV     A,M
+        INX     H
+        MOV     H,M
+        ADD     B               ;+ offset
+        MOV     L,A
+        JNC     SUB3
+        INR     H
+SUB3:   MOV     A,C
+        ORA     A
+        JZ      SUB5
+SUB4:   MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     C
+        JNZ     SUB4
+SUB5:   POP     H
+        RET
+;
+; The one-argument functions (argument in FAC; the text pointer is
+; kept by the caller)
+;
+LENFN:  CALL    CHKSTR
+        CALL    FRESTR
+        MOV     A,B
+        JMP     RETBYT
+ASCFN:  CALL    CHKSTR
+        CALL    FRESTR
+        MOV     A,B
+        ORA     A
+        JZ      FCERR
+        LDAX    D
+RETBYT: MOV     L,A             ;FAC = integer A
+        MVI     H,0
+        SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        RET
+CHRFN:  CALL    BYTARG
+        PUSH    PSW
+        MVI     A,1
+        CALL    MKSTR
+        POP     PSW
+        STAX    D
+        RET
+SPACFN: CALL    BYTARG
+        MVI     C,' '
+FILSTR: PUSH    PSW             ;A copies of C
+        CALL    MKSTR
+        POP     PSW
+FIL1:   ORA     A
+        RZ
+        MOV     B,A
+        MOV     A,C
+        STAX    D
+        INX     D
+        MOV     A,B
+        DCR     A
+        JMP     FIL1
+;
+; BYTARG -- FAC as an integer 0..255: A
+;
+BYTARG: CALL    CHKNUM
+        CALL    FRCINT
+        MOV     A,H
+        ORA     A
+        JNZ     FCERR
+        MOV     A,L
+        RET
+;
+STRFN:  CALL    CHKNUM          ;STR$: as PRINT shows it
+        CALL    FOUT            ;HL = the text
+TXTSTR: MOV     D,H             ;a temporary copy of the 0-ended text
+        MOV     E,L
+        MVI     B,0
+TXS1:   MOV     A,M
+        ORA     A
+        JZ      TXS2
+        INX     H
+        INR     B
+        JMP     TXS1
+TXS2:   PUSH    D
+        MOV     A,B
+        CALL    MKSTR
+        POP     H
+        MOV     A,B
+        ORA     A
+        RZ
+        JMP     MOVB
+;
+VALFN:  CALL    CHKSTR          ;VAL
+        CALL    FRESTR
+        MOV     A,B
+        ORA     A
+        JNZ     VAL1
+        LXI     H,0             ;"" is 0
+        SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        RET
+VAL1:   XCHG                    ;0 after it for FIN, for a moment
+        MOV     C,B
+        MVI     B,0
+        DAD     B
+        MOV     B,M
+        MVI     M,0
+        PUSH    H
+        PUSH    B
+        MOV     A,L
+        SUB     C
+        MOV     L,A
+        MOV     A,H
+        SBI     0
+        MOV     H,A
+        CALL    FIN
+        POP     B
+        POP     H
+        MOV     M,B
+        RET
+;
+HEXFN:  MVI     C,4             ;HEX$: 4 bits a digit
+        JMP     RADIX
+OCTFN:  MVI     C,3             ;OCT$: 3
+RADIX:  PUSH    B
+        CALL    FACUNS          ;DE = the number (unsigned)
+        XCHG
+        POP     B
+        LXI     D,RDBUF+7       ;digits from the right
+        XRA     A
+        STAX    D
+RDX1:   MOV     A,L
+        MOV     B,C
+        PUSH    PSW
+RDX2:   MOV     A,H             ;HL >>= C
+        ORA     A
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        DCR     B
+        JNZ     RDX2
+        POP     PSW
+        ANI     0FH
+        CPI     4
+        MOV     B,A
+        MOV     A,C
+        CPI     4
+        MOV     A,B
+        JZ      RDX3
+        ANI     7
+RDX3:   ADI     '0'
+        CPI     '9'+1
+        JC      RDX4
+        ADI     'A'-'9'-1
+RDX4:   DCX     D
+        STAX    D
+        MOV     A,H
+        ORA     L
+        JNZ     RDX1
+        XCHG
+        JMP     TXTSTR
+;
+FREFN:  GETYPE                  ;FRE(x$) collects garbage first
+        JNZ     FRE1
+        CALL    FRESTR
+        CALL    GARBAG
+FRE1:   LHLD    STREND          ;FRETOP - STREND
+        XCHG
+        LHLD    FRETOP
+        CALL    SUBDE
+        SHLD    FACLO
+        JMP     FLTUNS
+;
+; INSTR([n,] s1$, s2$) -- where s2$ is in s1$ (from n), or 0
+;
+INSTR:  CHRGET
+        SYNCHK  '('
+        CALL    FRMEVL
+        MVI     A,1             ;n = 1 unless given
+        STA     INSN
+        GETYPE
+        JZ      INS1
+        PUSH    H
+        CALL    BYTARG
+        POP     H
+        ORA     A
+        JZ      FCERR
+        STA     INSN
+        SYNCHK  ','
+        CALL    FRMSTR
+INS1:   PUSH    H
+        LHLD    FACLO
+        XTHL
+        SYNCHK  ','
+        CALL    FRMSTR
+        SYNCHK  ')'
+        POP     D               ;DE = s1's descriptor
+        PUSH    H
+        LHLD    FACLO           ;HL = s2's
+        MOV     C,M             ;C = len2
+        CALL    LHLI
+        SHLD    INSP2
+        XCHG
+        MOV     B,M             ;B = len1
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M             ;DE = s1's data
+        LDA     INSN            ;n > len1: 0
+        DCR     A
+        CMP     B
+        JZ      INS1A
+        JNC     INS0
+INS1A:  MOV     L,A             ;DE += n-1, B -= n-1
+        MOV     A,B
+        SUB     L
+        MOV     B,A
+        MOV     A,L
+        ADD     E
+        MOV     E,A
+        JNC     INS1B
+        INR     D
+INS1B:  MOV     A,C             ;"" is found at once
+        ORA     A
+        JZ      INSFND
+INS2:   MOV     A,B             ;room for s2 here?
+        CMP     C
+        JC      INS0
+        PUSH    D
+        PUSH    B
+        LHLD    INSP2
+INS3:   LDAX    D
+        CMP     M
+        JNZ     INS4
+        INX     D
+        INX     H
+        DCR     C
+        JNZ     INS3
+        POP     B               ;found
+        POP     D
+        JMP     INSFND
+INS4:   POP     B
+        POP     D
+        INX     D
+        DCR     B
+        LDA     INSN
+        INR     A
+        STA     INSN
+        JMP     INS2
+INSFND: LDA     INSN
+        JMP     INSRET
+INS0:   XRA     A
+INSRET: POP     H
+        PUSH    H
+        CALL    RETBYT
+        POP     H
+        RET
+;
+; STRING$(n, c or s$)
+;
+STRNGS: CHRGET
+        SYNCHK  '('
+        CALL    GETBYT
+        PUSH    PSW
+        SYNCHK  ','
+        CALL    FRMEVL
+        SYNCHK  ')'
+        GETYPE
+        JZ      STRN1
+        PUSH    H
+        CALL    BYTARG
+        POP     H
+        JMP     STRN2
+STRN1:  PUSH    H               ;a string: its first character
+        CALL    FRESTR
+        MOV     A,B
+        ORA     A
+        JZ      FCERR
+        LDAX    D
+        POP     H
+STRN2:  MOV     C,A
+        POP     PSW
+        PUSH    H
+        CALL    FILSTR
+        POP     H
+        RET
+;
+; INKEY$ -- the key waiting, or ""
+;
+INKEY:  PUSH    H
+        CALL    CONST
+        MVI     A,0
+        JZ      INK1
+        CALL    CONIN
+        PUSH    PSW
+        MVI     A,1
+        CALL    MKSTR
+        POP     PSW
+        STAX    D
+        POP     H
+        CHRGET
+        RET
+INK1:   CALL    MKSTR
+        POP     H
+        CHRGET
+        RET
+;
+; MID$(v$, n[, m]) = s$ -- replace characters of v$ in place
+;
+MIDSTM: SYNCHK  '('
+        CALL    PTRGET          ;the variable
+        CALL    CHKSTR
+        PUSH    D
+        SYNCHK  ','
+        CALL    GETBYT          ;n
+        ORA     A
+        JZ      FCERR
+        PUSH    PSW
+        MVI     E,255
+        MOV     A,M
+        CPI     ','
+        JNZ     MIDST1
+        CHRGET
+        CALL    GETBYT          ;m
+MIDST1: PUSH    D
+        SYNCHK  ')'
+        SYNCHK  TKEQ
+        CALL    FRMSTR          ;the replacement
+        POP     B               ;C = m
+        POP     PSW
+        STA     INSN            ;n
+        MOV     A,C
+        STA     MIDM
+        POP     D               ;the variable's descriptor
+        PUSH    H
+        PUSH    D
+        LDA     FACLO           ;(keep the replacement's descriptor)
+        LHLD    FACLO
+        SHLD    MIDR
+        POP     H               ;the variable's data must be its own
+        PUSH    H
+        SHLD    FACLO
+        CALL    STRTMP          ;(FAC = a copy if it isn't)
+        LHLD    FACLO           ;and the variable takes that copy
+        POP     D
+        PUSH    D
+        MVI     B,3
+        CALL    MOVB
+        POP     H               ;HL = the variable's descriptor
+        MOV     B,M             ;B = its length
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        LDA     INSN            ;n > length: error
+        DCR     A
+        CMP     B
+        JNC     FCERR
+        ADD     E               ;DE = where to start
+        MOV     E,A
+        JNC     MIDST3
+        INR     D
+MIDST3: LDA     INSN            ;count = min(m, len - n + 1, len(r))
+        DCR     A
+        CMA
+        INR     A
+        ADD     B
+        MOV     B,A
+        LDA     MIDM
+        CMP     B
+        JNC     MIDST4
+        MOV     B,A
+MIDST4: LHLD    MIDR
+        MOV     A,M
+        CMP     B
+        JNC     MIDST5
+        MOV     B,A
+MIDST5: CALL    LHLI
+MIDST6: MOV     A,B
+        ORA     A
+        JZ      MIDST7
+        MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     B
+        JMP     MIDST6
+MIDST7: POP     H
+        RET
+;
+; ================= data =================
+;
+TEMPPT: DW      TEMPST          ;next free temporary
+TEMPST: DS      3*16            ;temporaries
+TEMPND:
+FRSTMP: DB      0               ;FRETMD freed one
+SAVAR:  DW      0
+GCTOP:  DW      0
+GCBEST: DW      0
+GCADR:  DW      0
+SCLEFT: DW      0
+SCRGHT: DW      0
+SCLEN:  DB      0
+INSN:   DB      0
+INSP2:  DW      0
+MIDM:   DB      0
+MIDR:   DW      0
+RDBUF:  DS      8
+;
+        END

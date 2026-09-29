@@ -1,0 +1,636 @@
+;
+; BLINE.MAC -- CZBASIC: the program text
+;
+; Finding, inserting and deleting lines; NEW and the variable reset
+; (CLEARC); LIST, LLIST and DELETE; converting run-time line pointers
+; back to line numbers (UNLINK) and relinking a loaded program; the
+; token-aware text skippers.
+;
+; Link fields are fixed without scanning the text: when a line of S
+; bytes is removed or inserted at P, every link that points past P
+; moves by S (ADJLNK).
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  FNDLIN,FNDLN1,INSLIN,NEWC,CLEARC,STKINI,UNLINK
+        PUBLIC  RELINK,SKPITM,SKPSTM,SKPEOL,LIST,LLIST,DELETE,NEW
+        PUBLIC  PTRFLG,LINRNG,DATPTR,OPTBAS,OPTDIM,GETSTK,DELLIN
+        PUBLIC  MOVUP,MOVDN,DATSKP,CLRRUN,CLRDEF,DELBC
+;
+        EXTRN   TXTTAB,VARTAB,ARYTAB,STREND,FRETOP,MEMSIZ,MEMTOP
+        EXTRN   STKTOP,STKSIZ,CONTXT,DEFTBL,DOTLIN,PRTFLG,TRCFLG
+        EXTRN   AUTFLG,ONELIN,INERR,OMERR,ULERR,FCERR,SNERR,KBUF
+        EXTRN   DETOK,STROUT,CRLF,READY,ISCNTC,EVLRST,LINREF
+        EXTRN   FILCLS,CHNFLG
+        EXTRN   SUBDE
+        EXTRN   LHLI,LHLM
+;
+        CSEG
+;
+; FNDLIN -- find line DE, from the start (FNDLN1: from line HL).
+; Returns HL = that line, or the first line after it (or the end
+; mark); C if it exists. Keeps BC, DE.
+;
+FNDLIN: LHLD    TXTTAB
+FNDLN1: PUSH    H
+        MOV     A,M             ;link 0: the end
+        INX     H
+        ORA     M
+        JZ      FNDEND
+        CALL    LHLI
+        COMPAR                  ;number : DE
+        POP     H
+        JZ      FNDYES
+        RNC                     ;passed it: not there (NC)
+        CALL    LHLM            ;next line
+        JMP     FNDLN1
+FNDYES: STC
+        RET
+FNDEND: POP     H               ;(NC from the ORA)
+        RET
+;
+; INSLIN -- line DE with the crunched text in KBUF (BC bytes with its
+; 0): replace it, insert it, or (just the 0) delete it. Then the
+; variables are cleared.
+;
+INSLIN: PUSH    B
+        PUSH    D
+        CALL    UNLINK          ;no line pointers while lines move
+        POP     D
+        XCHG
+        SHLD    DOTLIN
+        SHLD    INSNUM
+        XCHG
+        CALL    FNDLIN          ;HL = where it is or goes
+        POP     B
+        PUSH    PSW             ;(C: it exists)
+        MOV     A,B             ;just the 0: delete
+        ORA     A
+        JNZ     INSL1
+        MOV     A,C
+        DCR     A
+        JNZ     INSL1
+        POP     PSW
+        JNC     ULERR           ;deleting a line that isn't there
+        CALL    DELLIN
+        JMP     CLEARC
+INSL1:  POP     PSW
+        JNC     INSL2
+        PUSH    B
+        CALL    DELLIN          ;replace: the old one goes first
+        POP     B
+INSL2:  SHLD    INSP            ;P
+        MOV     H,B
+        MOV     L,C
+        SHLD    INSLEN
+        INX     H               ;S = length + 4
+        INX     H
+        INX     H
+        INX     H
+        SHLD    INSS
+        XCHG                    ;room? VARTAB + S + 32 < MEMSIZ
+        LHLD    VARTAB
+        DAD     D
+        LXI     D,32
+        DAD     D
+        XCHG
+        LHLD    MEMSIZ
+        COMPAR
+        JC      OMERR
+        JZ      OMERR
+        LHLD    INSS            ;links past P += S
+        MOV     B,H
+        MOV     C,L
+        LHLD    INSP
+        CALL    ADJLNK
+        LHLD    VARTAB          ;move [P,VARTAB) up by S
+        PUSH    H               ;(old end)
+        XCHG
+        LHLD    INSS
+        DAD     D
+        SHLD    VARTAB          ;new end
+        LHLD    INSP            ;BC = old end - P
+        MOV     A,E
+        SUB     L
+        MOV     C,A
+        MOV     A,D
+        SBB     H
+        MOV     B,A
+        LHLD    VARTAB
+        XCHG                    ;DE = new end
+        POP     H               ;HL = old end
+        CALL    MOVUP
+        LHLD    INSP            ;the new line at P: link = P + S
+        XCHG
+        LHLD    INSS
+        DAD     D
+        XCHG
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        XCHG                    ;line number
+        LHLD    INSNUM
+        XCHG
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        XCHG                    ;the tokens
+        LHLD    INSLEN
+        MOV     B,H
+        MOV     C,L
+        LXI     H,KBUF
+        CALL    MOVDN
+        JMP     CLEARC
+;
+; DELLIN -- delete the line at HL (HL is kept: the next line is there
+; now)
+;
+DELLIN: SHLD    INSP
+        MOV     E,M             ;DE = the next line, P + S
+        INX     H
+        MOV     D,M
+        XCHG
+        SHLD    INSNXT
+        XCHG
+        LHLD    INSP            ;S = next - P
+        MOV     A,E
+        SUB     L
+        MOV     L,A
+        MOV     A,D
+        SBB     H
+        MOV     H,A
+        SHLD    INSS
+        MOV     A,L             ;links past P -= S
+        CMA
+        MOV     C,A
+        MOV     A,H
+        CMA
+        MOV     B,A
+        INX     B
+        LHLD    INSP
+        CALL    ADJLNK
+        LHLD    INSNXT          ;BC = VARTAB - (P + S)
+        XCHG
+        LHLD    VARTAB
+        MOV     A,L
+        SUB     E
+        MOV     C,A
+        MOV     A,H
+        SBB     D
+        MOV     B,A
+        PUSH    B
+        LHLD    INSS            ;VARTAB -= S
+        XCHG
+        LHLD    VARTAB
+        CALL    SUBDE
+        SHLD    VARTAB
+        POP     B
+        LHLD    INSP
+        XCHG                    ;DE = P
+        LHLD    INSNXT          ;HL = P + S
+        CALL    MOVDN
+        LHLD    INSP
+        RET
+;
+; ADJLNK -- add BC to every link that points past HL (= P)
+;
+ADJLNK: SHLD    ADJP
+        LHLD    TXTTAB
+ADJ1:   MOV     E,M             ;DE = the link, HL = its high byte
+        INX     H
+        MOV     D,M
+        MOV     A,D
+        ORA     E
+        RZ                      ;the end
+        PUSH    D
+        PUSH    H
+        LHLD    ADJP
+        COMPAR                  ;P : link, C if P < link
+        JNC     ADJ2
+        XCHG
+        DAD     B
+        XCHG
+        POP     H
+        MOV     M,D
+        DCX     H
+        MOV     M,E
+        JMP     ADJ3
+ADJ2:   POP     H
+ADJ3:   POP     H               ;on to the (old) next line
+        JMP     ADJ1
+;
+; MOVUP -- copy the BC bytes below HL to below DE, top first (moves a
+; block up). MOVDN -- copy BC bytes from HL to DE, bottom first.
+;
+MOVUP:  MOV     A,B
+        ORA     C
+        RZ
+        DCX     H
+        DCX     D
+        MOV     A,M
+        STAX    D
+        DCX     B
+        JMP     MOVUP
+MOVDN:  MOV     A,B
+        ORA     C
+        RZ
+        MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCX     B
+        JMP     MOVDN
+;
+; ================= NEW, CLEAR =================
+;
+; NEW -- delete the program and the variables
+;
+NEW:    RNZ                     ;(NEW with something after it: error)
+        CALL    NEWC
+        JMP     READY
+;
+NEWC:   LHLD    TXTTAB          ;an empty program
+        XRA     A
+        MOV     M,A
+        INX     H
+        MOV     M,A
+        INX     H
+        SHLD    VARTAB
+        STA     PTRFLG
+        STA     AUTFLG
+        STA     TRCFLG
+;
+; CLEARC -- clear the variables: no variables, arrays, strings or
+; FN definitions; DEFtypes single; OPTION BASE 0; files closed; and
+; CLRRUN. Not while CHAIN loads a program (CHNFLG): it keeps them.
+;
+CLEARC: LDA     CHNFLG
+        ORA     A
+        RNZ
+        LHLD    VARTAB
+        SHLD    ARYTAB
+        SHLD    STREND
+        LHLD    MEMSIZ
+        SHLD    FRETOP
+        CALL    FILCLS          ;(BFILE.MAC)
+        XRA     A
+        STA     OPTBAS
+        STA     OPTDIM
+        CALL    CLRDEF
+;
+; CLRRUN -- RESTORE; no CONT; ON ERROR off; no string temporaries
+;
+CLRRUN: XRA     A
+        STA     INERR
+        LXI     H,0
+        SHLD    CONTXT
+        SHLD    ONELIN
+        LHLD    TXTTAB          ;RESTORE
+        DCX     H
+        SHLD    DATPTR
+        JMP     EVLRST          ;string temporaries (BEVAL.MAC)
+;
+; CLRDEF -- every letter's DEFtype single
+;
+CLRDEF: LXI     H,DEFTBL
+        MVI     B,26
+CLRDF:  MVI     M,VTSNG
+        INX     H
+        DCR     B
+        JNZ     CLRDF
+        RET
+;
+; STKINI -- the stack at MEMTOP, STKSIZ bytes; strings below it
+;
+STKINI: LHLD    MEMTOP
+        SHLD    STKTOP
+        XCHG
+        LHLD    STKSIZ
+        MOV     A,E
+        SUB     L
+        MOV     L,A
+        MOV     A,D
+        SBB     H
+        MOV     H,A
+        JC      OMERR
+        SHLD    MEMSIZ
+        XCHG                    ;must leave room for the program
+        LHLD    VARTAB
+        LXI     B,32
+        DAD     B
+        COMPAR                  ;VARTAB+32 : MEMSIZ
+        JNC     OMERR
+        RET
+;
+; GETSTK -- make sure C more words fit on the stack (Out of memory
+; if not). Clobbers A, BC.
+;
+GETSTK: PUSH    D
+        PUSH    H
+        LHLD    MEMSIZ
+        MVI     B,0
+        DAD     B
+        DAD     B
+        LXI     D,48            ;room for BIOS calls
+        DAD     D
+        XCHG
+        LXI     H,0
+        DAD     SP
+        COMPAR                  ;SP : limit
+        POP     H
+        POP     D
+        JC      OMERR
+        RET
+;
+; ================= LIST, LLIST, DELETE =================
+;
+; LINRNG -- a line range at HL: [n][-[m]], "." for the current line.
+; Returns BC = first, DE = last (0 and 65535 when not given).
+;
+LINRNG: LXI     D,0
+        XCHG
+        SHLD    RNGLO
+        LXI     H,0FFFFH
+        SHLD    RNGHI
+        XCHG
+        DCX     H
+        CHRGET
+        JZ      LRDONE          ;nothing: everything
+        CPI     TKMINU
+        JZ      LRDASH
+        CALL    LINREF          ;DE = n (BEXEC.MAC), CHRGET after
+        XCHG
+        SHLD    RNGLO
+        SHLD    RNGHI
+        XCHG
+        CPI     TKMINU
+        JNZ     LRDONE
+        LXI     D,0FFFFH        ;n- : to the end unless m follows
+        XCHG
+        SHLD    RNGHI
+        XCHG
+LRDASH: CHRGET
+        JZ      LRDONE
+        CALL    LINREF
+        XCHG
+        SHLD    RNGHI
+        XCHG
+LRDONE: PUSH    H
+        LHLD    RNGLO
+        MOV     B,H
+        MOV     C,L
+        LHLD    RNGHI
+        XCHG
+        POP     H
+        DCX     H               ;(A and the end-of-statement flag)
+        CHRGET
+        RET
+;
+; LLIST -- LIST to the printer. LIST [range]
+;
+LLIST:  MVI     A,1
+        STA     PRTFLG
+LIST:   CALL    LINRNG
+        JNZ     SNERR           ;something after the range
+        PUSH    D               ;last
+        MOV     D,B
+        MOV     E,C
+        CALL    FNDLIN          ;HL = the first line to list
+        POP     D
+LSTLP:  MOV     A,M             ;the end?
+        INX     H
+        ORA     M
+        DCX     H
+        JZ      LSTEND
+        PUSH    D
+        PUSH    H
+        INX     H               ;past the last line asked for?
+        CALL    LHLI
+        XCHG
+        COMPAR                  ;last : number
+        JC      LSTEN2
+        XCHG
+        SHLD    DOTLIN
+        POP     H
+        CALL    DETOK           ;HL = BUF, DE = the next line
+        PUSH    D
+        CALL    STROUT
+        CALL    CRLF
+        CALL    ISCNTC          ;^C stops the listing
+        POP     H
+        POP     D
+        JMP     LSTLP
+LSTEN2: POP     H
+        POP     D
+LSTEND: XRA     A
+        STA     PRTFLG
+        JMP     READY
+;
+; DELETE [range] -- delete lines; back to command level
+;
+DELETE: CALL    LINRNG
+        JNZ     SNERR
+        CALL    DELBC
+        CALL    CLEARC
+        JMP     READY
+;
+; DELBC -- delete lines BC to DE (CHAIN's DELETE too)
+;
+DELBC:  PUSH    B
+        PUSH    D
+        CALL    UNLINK
+        POP     D
+        POP     B
+        PUSH    D
+        MOV     D,B
+        MOV     E,C
+        CALL    FNDLIN          ;the first line must exist (unless 0)
+        POP     D
+        JC      DELLP
+        MOV     A,B
+        ORA     C
+        JNZ     FCERR
+DELLP:  MOV     A,M             ;the end?
+        INX     H
+        ORA     M
+        DCX     H
+        JZ      DELEND
+        PUSH    H               ;past the last?
+        INX     H
+        CALL    LHLI
+        XCHG
+        COMPAR                  ;last : number
+        XCHG
+        POP     H
+        JC      DELEND
+        PUSH    D
+        CALL    DELLIN
+        POP     D
+        JMP     DELLP
+DELEND: RET
+;
+; ================= text scanning =================
+;
+; SKPITM -- step HL over one item of program text in code context:
+; a constant with its value, a 0FFH/0FEH pair, a whole string, REM
+; (to the end of the line) or DATA (to its ':'). HL must not be at
+; the line's 0.
+;
+SKPITM: MOV     A,M
+        INX     H
+        CPI     '"'
+        JZ      SKSTR
+        CPI     TKREM
+        JZ      SKPEOL
+        CPI     TKDATA
+        JZ      SKDATA
+        CPI     TKFUNC
+        JZ      SK1
+        CPI     TKCZ
+        JZ      SK1
+        CPI     TCOCT
+        RC                      ;00-0A: characters
+        CPI     TCBYT
+        JC      SK2             ;0B-0E: 2 bytes
+        JZ      SK1             ;0F: 1 byte
+        CPI     TCINT
+        JZ      SK2
+        CPI     TCSNG
+        JZ      SK4
+        CPI     TCDBL
+        RNZ
+        INX     H               ;1F: 8 bytes
+        INX     H
+        INX     H
+        INX     H
+SK4:    INX     H
+        INX     H
+SK2:    INX     H
+SK1:    INX     H
+        RET
+SKSTR:  MOV     A,M             ;to after the closing quote
+        ORA     A
+        RZ
+        INX     H
+        CPI     '"'
+        RZ
+        JMP     SKSTR
+DATSKP:
+SKDATA: MOV     A,M             ;to the ':' outside quotes, or the 0
+        ORA     A
+        RZ
+        CPI     ':'
+        RZ
+        INX     H
+        CPI     '"'
+        JNZ     SKDATA
+        CALL    SKSTR
+        JMP     SKDATA
+;
+; SKPEOL -- HL to the line's 0. SKPSTM -- HL to the end of the
+; statement at HL (its ':' or the 0).
+;
+SKPEOL: MOV     A,M
+        ORA     A
+        RZ
+        CALL    SKPITM
+        JMP     SKPEOL
+SKPSTM: MOV     A,M
+        ORA     A
+        RZ
+        CPI     ':'
+        RZ
+        CALL    SKPITM
+        JMP     SKPSTM
+;
+; UNLINK -- turn the run-time line pointers (TCPTR) back into line
+; numbers (TCLIN), before lines move or the text is saved
+;
+UNLINK: LDA     PTRFLG
+        ORA     A
+        RZ
+        XRA     A
+        STA     PTRFLG
+        LHLD    TXTTAB
+UNL1:   MOV     A,M             ;link 0: done
+        INX     H
+        ORA     M
+        RZ
+        INX     H               ;past the line number
+        INX     H
+        INX     H
+UNL2:   MOV     A,M
+        ORA     A
+        JZ      UNL4
+        CPI     TCPTR
+        JNZ     UNL3
+        PUSH    H
+        INX     H               ;DE = the line it points at
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        XCHG
+        INX     H               ;its number
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        POP     H
+        MVI     M,TCLIN
+        INX     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        JMP     UNL2
+UNL3:   CALL    SKPITM
+        JMP     UNL2
+UNL4:   INX     H               ;the next line follows its 0
+        JMP     UNL1
+;
+; RELINK -- rebuild every link from the text (after a binary LOAD);
+; also sets VARTAB past the end mark
+;
+RELINK: LHLD    TXTTAB
+RL1:    MOV     A,M
+        INX     H
+        ORA     M
+        DCX     H
+        JZ      RL3
+        PUSH    H
+        INX     H
+        INX     H
+        INX     H
+        INX     H
+        CALL    SKPEOL
+        INX     H               ;the next line
+        XCHG
+        POP     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        XCHG
+        JMP     RL1
+RL3:    INX     H
+        INX     H
+        SHLD    VARTAB
+        RET
+;
+; ================= data =================
+;
+PTRFLG: DB      0               ;the text holds line pointers
+DATPTR: DW      0               ;READ: the next DATA item
+OPTBAS: DB      0               ;OPTION BASE
+OPTDIM: DB      0               ;an array exists (OPTION BASE too late)
+INSP:   DW      0               ;line editing: P, S, and so on
+INSS:   DW      0
+INSLEN: DW      0
+INSNUM: DW      0
+INSNXT: DW      0
+ADJP:   DW      0
+RNGLO:  DW      0
+RNGHI:  DW      0
+;
+        END

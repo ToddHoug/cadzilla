@@ -1,0 +1,1006 @@
+;
+; BEVAL.MAC -- CZBASIC: expressions
+;
+; FRMEVL evaluates the expression at HL into FAC (VALTYP = its type);
+; HL ends at the character after it. Operators by precedence, highest
+; first (MBASIC's values):
+;       ^ 7FH   unary - 7DH   * / 7CH   \ 7BH   MOD 7AH   + - 79H
+;       relations 64H   NOT 5AH   AND 50H   OR 46H   XOR 3CH
+;       EQV 32H   IMP 28H
+; all left to right. EXPR parses with a minimum precedence: an
+; operand, then while the next operator binds tighter, its right side
+; (recursively). A pending left operand waits on the value stack
+; (VSTK: its bytes, then its type byte).
+;
+; Arithmetic on two integers stays integer, overflowing into single
+; for + - *; otherwise both sides go to the wider of their types (/
+; and ^ at least single). \ MOD and the logical operators work on
+; integers. Relations give -1 (true) or 0.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  FRMEVL,FRMNUM,FRMSTR,EXPR,GETINT,GETBYT,EVLRST
+        PUBLIC  PSHVAL,POPARG,LTYPE,CVTARG,SWAPFT,INEG,DIVU
+        PUBLIC  SGNFN,INTFN,ABSFN,FIXFN,CINTFN,CSNGFN,CDBLFN,CHKNUM
+        PUBLIC  CHKSTR,NEGVAL,VSP
+;
+        EXTRN   DFAC,FACLO,FACHI,FAC,ARG,ARGLO,VALTYP,FACSGN
+        EXTRN   FADD,FSUB,FMUL,FDIV,FCMP,FNEG,FRCINT,FRCSNG,FRCDBL
+        EXTRN   FRCTYP,FLTINT,FLTUNS,INTFLT,FIXFLT,MOVFM,SWAPFA,FACADR
+        EXTRN   ICMP,GETSTK,SNERR,TMERR,MOERR,OMERR,FCERR,OVERR,WARN
+        EXTRN   ISLET,PTRGET,STRLIT,STRCAT,STRCMP,FNCALL,VARPTR
+        EXTRN   INSTR,STRNGS,INKEY,USRFN,XGOF,ERRNUM,ERRLIN,FNTAB
+        EXTRN   STKFRE,FPWR,GETNAM,NAMTYP,SMPFND
+        EXTRN   VSTK,VSTKE      ;(BINIT.MAC)
+        EXTRN   MOVB
+        EXTRN   NEGHL
+        EXTRN   LHLI
+;
+        CSEG
+;
+; op ids (= token - TKLT for F2..FD)
+;
+OPADD   EQU     1
+OPSUB   EQU     2
+OPMUL   EQU     3
+OPDIV   EQU     4
+OPPOW   EQU     5
+OPAND   EQU     6
+OPOR    EQU     7
+OPXOR   EQU     8
+OPEQV   EQU     9
+OPIMP   EQU     10
+OPMOD   EQU     11
+OPIDV   EQU     12
+OPREL   EQU     13
+;
+; ================= entry points =================
+;
+; FRMEVL -- the expression at HL. FRMNUM / FRMSTR: and it must be a
+; number / a string.
+;
+FRMNUM: CALL    FRMEVL
+CHKNUM: GETYPE
+        RNZ
+        JMP     TMERR
+FRMSTR: CALL    FRMEVL
+CHKSTR: GETYPE
+        RZ
+        JMP     TMERR
+FRMEVL: MVI     C,0
+;
+; EXPR -- an expression of operators binding tighter than C
+;
+EXPR:   PUSH    B
+        MVI     C,12
+        CALL    GETSTK
+        CALL    OPND            ;the first operand
+EXLP:   MOV     A,M             ;an operator?
+        CALL    OPINFO          ;B = precedence (0: none), E = op id
+        MOV     A,B
+        POP     B               ;C = our minimum
+        PUSH    B
+        CMP     C
+        JC      EXDONE
+        JZ      EXDONE
+        MOV     B,A             ;B = its precedence
+        MOV     A,E
+        CPI     OPREL
+        JNZ     EX2
+        CALL    RELMSK          ;D = relation mask, past the tokens
+        JMP     EX3
+EX2:    CHRGET                  ;past the operator
+EX3:    PUSH    D               ;the operator
+        CALL    PSHVAL          ;the left side waits
+        MOV     C,B
+        CALL    EXPR            ;the right side
+        POP     D
+        CALL    POPARG          ;left side -> ARG (type LTYPE)
+        CALL    APPLY
+        JMP     EXLP
+EXDONE: POP     B
+        RET
+;
+; GETINT -- an integer expression: DE (and A = E). GETBYT -- 0..255: A
+;
+; The common arguments skip the evaluator: an integer constant (with a
+; - before it) or a simple numeric variable, followed by what ends an
+; argument (, ) : or the end of the line). Anything else -- 3+X, A(I),
+; -X, a string -- is evaluated from the start as before, so results
+; and errors are the same.
+;
+GETINT: PUSH    H               ;(the start, for the evaluator)
+        DCX     H
+        CHRGET
+        MVI     C,0             ;C = 1 after a -
+        CPI     TKMINU
+        JNZ     GTI1
+        INR     C
+        CHRGET
+GTI1:   CPI     TCBYT           ;10..255
+        JNZ     GTI2
+        INX     H
+        MOV     E,M
+        MVI     D,0
+        JMP     GTI4
+GTI2:   CPI     TCINT           ;a 16-bit integer
+        JNZ     GTI3
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        JMP     GTI4
+GTI3:   SUI     TCDIG           ;0..9
+        CPI     10
+        JNC     GTIV
+        MOV     E,A
+        MVI     D,0
+GTI4:   CHRGET                  ;it must end the argument
+        CALL    GTIEND
+        JNZ     GTISL
+        MOV     A,C             ;- : negate it
+        ORA     A
+        JZ      GTIOK
+        XCHG
+        CALL    NEGHL
+        XCHG
+GTIOK:  XCHG                    ;an integer in FAC too, as FRMNUM leaves
+        SHLD    FACLO
+        XCHG
+        MVI     A,VTINT
+        STA     VALTYP
+GTIX:   POP     B               ;(the start isn't needed)
+        MOV     A,E
+        RET
+;
+GTIV:   MOV     A,C             ;a simple variable (no - before it)?
+        ORA     A
+        JNZ     GTISL
+        MOV     A,M
+        CPI     'A'
+        JC      GTISL
+        CPI     'Z'+1
+        JNC     GTISL
+        CALL    GETNAM          ;HL after the name, A = what follows
+        CALL    GTIEND          ;(an array's ( fails here too)
+        JNZ     GTISL
+        LDA     NAMTYP
+        CPI     VTSTR
+        JZ      GTISL
+        STA     VALTYP
+        CALL    SMPFND          ;DE = its value (made if new, as PTRGET)
+        LDA     NAMTYP
+        STA     VALTYP
+        CPI     VTINT
+        JNZ     GTIV1
+        PUSH    H
+        XCHG
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        POP     H
+        JMP     GTIOK
+GTIV1:  XCHG                    ;single/double: to FAC, then rounded
+        CALL    MOVFM
+        XCHG
+        PUSH    H
+        CALL    FRCINT
+        XCHG
+        POP     H
+        JMP     GTIX
+;
+GTISL:  POP     H               ;the evaluator, from the start
+        CALL    FRMNUM
+        PUSH    H
+        CALL    FRCINT
+        XCHG
+        POP     H
+        MOV     A,E
+        RET
+;
+; GTIEND -- Z if A (CHRGET flags: Z at : or the end) ends an argument
+;
+GTIEND: RZ
+        CPI     ','
+        RZ
+        CPI     ')'
+        RET
+GETBYT: CALL    GETINT
+        MOV     A,D
+        ORA     A
+        JNZ     FCERR
+        MOV     A,E
+        RET
+;
+; OPINFO -- A = a character: B = its binary precedence (0 if it isn't
+; an operator), E = its op id
+;
+OPINFO: MVI     B,0
+        CPI     TKGT
+        RC
+        CPI     TKLT+1
+        JC      OPREL1
+        CPI     TKIDIV+1
+        RNC
+        SUI     TKLT
+        MOV     E,A
+        PUSH    H
+        LXI     H,PRECTB-1
+        ADD     L
+        MOV     L,A
+        MVI     A,0
+        ADC     H
+        MOV     H,A
+        MOV     B,M
+        POP     H
+        RET
+OPREL1: MVI     B,64H
+        MVI     E,OPREL
+        RET
+;
+PRECTB: DB      79H,79H,7CH,7CH,7FH     ;+ - * / ^
+        DB      50H,46H,3CH,32H,28H     ;AND OR XOR EQV IMP
+        DB      7AH,7BH                 ;MOD \
+;
+; RELMSK -- a run of > = < tokens: D = mask (> 1, = 2, < 4); CHRGET
+; after them
+;
+RELMSK: MVI     D,0
+RELM1:  MOV     A,M
+        MVI     C,1
+        CPI     TKGT
+        JZ      RELM2
+        MVI     C,2
+        CPI     TKEQ
+        JZ      RELM2
+        MVI     C,4
+        CPI     TKLT
+        RNZ
+RELM2:  MOV     A,D
+        ORA     C
+        MOV     D,A
+        CHRGET
+        JMP     RELM1
+;
+; ================= operands =================
+;
+; OPND -- one operand at HL into FAC; HL after it
+;
+OPND:   DCX     H
+        CHRGET
+        JZ      MOERR           ;nothing there
+        CPI     TCDBL+1         ;the common ones first: a constant,
+        JC      OPCON
+        CPI     'A'             ;a variable (A-Z in crunched text)
+        JC      OPTOK
+        CPI     'Z'+1
+        JC      OVAR
+OPTOK:  CPI     TKMINU
+        JZ      ONEG
+        CPI     TKPLUS
+        JZ      OPLUS
+        CPI     TKNOT
+        JZ      ONOT
+        CPI     '('
+        JZ      OPAREN
+        CPI     '"'
+        JZ      STRLIT          ;(BSTR.MAC)
+        CPI     TKFUNC
+        JZ      FUNC
+        CPI     TKCZ
+        JZ      XGOF           ;(BGFX.MAC, unless /X)
+        CPI     TKFN
+        JZ      FNCALL          ;(BVAR.MAC)
+        CPI     TKERR
+        JZ      OERR
+        CPI     TKERL
+        JZ      OERL
+        CPI     TKVARP
+        JZ      VARPTR
+        CPI     TKINST
+        JZ      INSTR
+        CPI     TKSTRS
+        JZ      STRNGS
+        CPI     TKINKY
+        JZ      INKEY
+        CPI     TKUSR
+        JZ      USRFN
+        CALL    ISLET
+        JNC     SNERR
+;
+; OVAR -- a variable's value
+;
+OVAR:   CALL    PTRGET          ;DE = its value (BVAR.MAC)
+        GETYPE
+        JNZ     OVAR1
+        XCHG                    ;a string: FAC = its descriptor
+        SHLD    FACLO
+        XCHG
+        RET
+OVAR1:  XCHG
+        CALL    MOVFM
+        XCHG
+        RET
+OPCON:  CPI     TCOCT           ;a constant (0BH-1FH)
+        JC      SNERR
+        JMP     OCONST
+;
+ONEG:   CHRGET                  ;unary -
+        MVI     C,7DH
+        CALL    EXPR
+NEGVAL: GETYPE
+        JZ      TMERR
+        JP      FNEG            ;(single/double)
+INEG:   PUSH    H               ;integer: -32768 becomes single 32768
+        LHLD    FACLO
+        MOV     A,H
+        CPI     80H
+        JNZ     INEG1
+        MOV     A,L
+        ORA     A
+        JNZ     INEG1
+        CALL    FLTINT
+        POP     H
+        JMP     FNEG
+INEG1:  CALL    NEGHL
+        SHLD    FACLO
+        POP     H
+        RET
+;
+OPLUS:  CHRGET                  ;unary +
+        MVI     C,7DH
+        JMP     EXPR
+;
+ONOT:   CHRGET                  ;NOT
+        MVI     C,5AH
+        CALL    EXPR
+        CALL    CHKNUM
+        PUSH    H
+        CALL    FRCINT
+        MOV     A,L
+        CMA
+        MOV     L,A
+        MOV     A,H
+        CMA
+        MOV     H,A
+        SHLD    FACLO
+        POP     H
+        RET
+;
+OPAREN: CHRGET                  ;( expression )
+        MVI     C,0
+        CALL    EXPR
+        SYNCHK  ')'
+        RET
+;
+OERR:   PUSH    H               ;ERR
+        LDA     ERRNUM
+        MOV     L,A
+        MVI     H,0
+        JMP     OINT
+OERL:   PUSH    H               ;ERL (65535 in direct mode)
+        LHLD    ERRLIN
+        SHLD    FACLO
+        MOV     A,H
+        ORA     A
+        JP      OINT1
+        CALL    FLTUNS
+        POP     H
+        CHRGET
+        RET
+OINT:   SHLD    FACLO
+OINT1:  MVI     A,VTINT
+        STA     VALTYP
+        POP     H
+        CHRGET
+        RET
+;
+; OCONST -- a constant from the program text
+;
+OCONST: CPI     TCDIG
+        JC      OCN1
+        CPI     TCDIG+10
+        JNC     OCN1
+        SUI     TCDIG           ;0..9
+        PUSH    H
+        MOV     L,A
+        MVI     H,0
+        JMP     OINT
+OCN1:   CPI     TCBYT
+        JNZ     OCN2
+        INX     H               ;10..255
+        MOV     A,M
+        PUSH    H
+        MOV     L,A
+        MVI     H,0
+        JMP     OINT
+OCN2:   CPI     TCSNG
+        JZ      OCNF
+        CPI     TCDBL
+        JZ      OCNF
+        INX     H               ;16-bit: int, &H, &O, line number
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        PUSH    H
+        XCHG
+        CPI     TCLIN
+        JZ      OCNL
+        CPI     TCPTR
+        JNZ     OINT
+        INX     H               ;a line pointer: its number
+        CALL    LHLI
+OCNL:   SHLD    FACLO           ;line numbers are unsigned
+        CALL    FLTUNS
+        POP     H
+        CHRGET
+        RET
+OCNF:   SUI     TCSNG-VTSNG     ;(TCSNG 1DH -> 4, TCDBL 1FH -> 6)
+        CPI     VTSNG
+        JZ      OCNF1
+        MVI     A,VTDBL
+OCNF1:  STA     VALTYP
+        INX     H
+        PUSH    H
+        CALL    MOVFM
+        POP     H
+        LDA     VALTYP
+        DCR     A
+        ADD     L               ;HL at the last byte
+        MOV     L,A
+        MVI     A,0
+        ADC     H
+        MOV     H,A
+        CHRGET
+        RET
+;
+; ================= functions =================
+;
+; FUNC -- 0FFH, 80H+n: LEFT$ RIGHT$ MID$ read their own arguments;
+; RND may have none; the rest take one argument in parentheses, which
+; is in FAC when their routine (FNTAB) is called. HL is kept for them.
+;
+FUNC:   INX     H
+        MOV     A,M
+        SUI     FNLEFT
+        JC      SNERR
+        CPI     FNLAST-FNLEFT+1
+        JNC     SNERR
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        PUSH    H
+        LXI     H,FNTAB
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        POP     H
+        MOV     A,M
+        CPI     FNMID+1         ;LEFT$ RIGHT$ MID$: HL at the token
+        JC      FUNJ
+        PUSH    D
+        CPI     FNRND           ;RND without ( : RND(1)
+        JNZ     FUNC1
+        CHRGET
+        CPI     '('
+        JZ      FUNC2
+        PUSH    H
+        LXI     H,1
+        SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        POP     H
+        JMP     FUNC3
+FUNC1:  CHRGET
+FUNC2:  SYNCHK  '('
+        CALL    FRMEVL
+        SYNCHK  ')'
+FUNC3:  POP     D
+        PUSH    H
+        CALL    FUNJ
+        POP     H
+        RET
+FUNJ:   PUSH    D               ;(to DE, HL kept)
+        RET
+;
+; SGN, INT, ABS, FIX, CINT, CSNG, CDBL (argument in FAC)
+;
+SGNFN:  CALL    CHKNUM
+        GETYPE
+        JP      SGN1
+        LHLD    FACLO           ;integer
+        MOV     A,H
+        ORA     L
+        JZ      SGN2
+        MOV     A,H
+        ORA     A
+        MVI     A,1
+        JP      SGN2
+        MVI     A,0FFH
+        JMP     SGN2
+SGN1:   FSIGN
+SGN2:   MOV     L,A
+        RAL
+        SBB     A
+        MOV     H,A
+SGN3:   SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        RET
+INTFN:  CALL    CHKNUM
+        GETYPE
+        RM
+        JMP     INTFLT
+FIXFN:  CALL    CHKNUM
+        GETYPE
+        RM
+        JMP     FIXFLT
+ABSFN:  CALL    CHKNUM
+        GETYPE
+        JP      ABS1
+        LDA     FACLO+1
+        ORA     A
+        RP
+        JMP     INEG
+ABS1:   LDA     FACHI
+        ANI     7FH
+        STA     FACHI
+        RET
+CINTFN: CALL    CHKNUM
+        JMP     FRCINT
+CSNGFN: CALL    CHKNUM
+        JMP     FRCSNG
+CDBLFN: CALL    CHKNUM
+        JMP     FRCDBL
+;
+; ================= the value stack =================
+;
+; PSHVAL -- push FAC (VALTYP bytes, then the type) on the value
+; stack. Keeps BC, DE, HL.
+;
+PSHVAL: PUSH    H
+        PUSH    D
+        PUSH    B
+        LHLD    VSP             ;room for 9 more bytes?
+        LXI     D,VSTKE-9
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        JNC     OMERR
+        PUSH    H
+        CALL    FACADR          ;HL = the value, B = its size
+        POP     D
+        CALL    MOVB
+        LDA     VALTYP
+        STAX    D
+        INX     D
+        XCHG
+        SHLD    VSP
+        POP     B
+        POP     D
+        POP     H
+        RET
+;
+; POPARG -- pop the top value into ARG; LTYPE = its type. Keeps BC,
+; DE, HL.
+;
+POPARG: PUSH    H
+        PUSH    D
+        PUSH    B
+        LHLD    VSP
+        DCX     H
+        MOV     A,M             ;type = size
+        STA     LTYPE
+        MOV     B,A
+        CMA                     ;HL -= size
+        INR     A
+        ADD     L
+        MOV     L,A
+        MVI     A,0FFH
+        ADC     H
+        MOV     H,A
+        SHLD    VSP
+        LXI     D,ARGLO
+        LDA     LTYPE
+        CPI     VTDBL
+        JNZ     POP1
+        LXI     D,ARG
+POP1:   CALL    MOVB
+        POP     B
+        POP     D
+        POP     H
+        RET
+;
+; EVLRST -- empty the value stack and the string temporaries
+;
+EVLRST: LXI     H,VSTK
+        SHLD    VSP
+        JMP     STKFRE          ;(BSTR.MAC)
+;
+; ================= applying an operator =================
+;
+; APPLY -- FAC = ARG op FAC: E = op id, D = relation mask. Keeps HL.
+;
+APPLY:  PUSH    H
+        MOV     A,E
+        STA     OPID
+        MOV     A,D
+        STA     RELM
+        LDA     LTYPE
+        CPI     VTSTR
+        JZ      APSTR
+        LDA     VALTYP
+        CPI     VTSTR
+        JZ      TMERR
+        MOV     A,E
+        CPI     OPREL
+        JZ      APREL
+        CPI     OPAND
+        JNC     APLOG           ;AND .. \ : integers
+        CPI     OPDIV
+        JZ      APDIV
+        CPI     OPPOW
+        JZ      APPOW
+        LDA     LTYPE           ;+ - * of two integers
+        MOV     B,A
+        LDA     VALTYP
+        ORA     B
+        CPI     VTINT
+        JZ      APINT
+        MVI     A,VTINT         ;else the wider type
+        JMP     APFLT
+APDIV:  MVI     A,VTSNG         ;/ : single at least
+APFLT:  CALL    COMTYP
+        CALL    APFOP
+        POP     H
+        RET
+APFOP:  LDA     OPID
+        CPI     OPADD
+        JZ      FADD
+        CPI     OPSUB
+        JZ      FSUB
+        CPI     OPMUL
+        JZ      FMUL
+        JMP     FDIV
+APPOW:  CALL    FPWR            ;^ (BFMATH.MAC)
+        POP     H
+        RET
+;
+; COMTYP -- both sides to max(A, LTYPE, VALTYP)
+;
+COMTYP: MOV     B,A
+        LDA     LTYPE
+        CMP     B
+        JC      COMT1
+        MOV     B,A
+COMT1:  LDA     VALTYP
+        CMP     B
+        JC      COMT2
+        MOV     B,A
+COMT2:  PUSH    B
+        MOV     A,B
+        CALL    CVTARG
+        POP     B
+        MOV     A,B
+        JMP     FRCTYP
+;
+; CVTARG -- ARG to type A. SWAPFT -- swap FAC and ARG with their types
+;
+CVTARG: MOV     B,A             ;(already that type: nothing to do)
+        LDA     LTYPE
+        CMP     B
+        RZ
+        MOV     A,B
+        PUSH    PSW
+        CALL    SWAPFT
+        POP     PSW
+        CALL    FRCTYP
+SWAPFT: CALL    SWAPFA
+        LDA     LTYPE
+        MOV     B,A
+        LDA     VALTYP
+        STA     LTYPE
+        MOV     A,B
+        STA     VALTYP
+        RET
+;
+; APINT -- + - * on integers; an overflow does it again in single
+;
+APINT:  LHLD    ARGLO           ;DE = left, HL = right
+        XCHG
+        LHLD    FACLO
+        LDA     OPID
+        CPI     OPSUB
+        JZ      ISUB
+        CPI     OPMUL
+        JZ      IMULT
+        MOV     A,D             ;+ : signs alike and the sum's not
+        XRA     H
+        MOV     C,A
+        DAD     D
+        MOV     A,C
+        ORA     A
+        JM      IOK
+        MOV     A,H
+        XRA     D
+        JM      APOVF
+IOK:    SHLD    FACLO
+        POP     H
+        RET
+ISUB:   MOV     A,E             ;- : BC = DE - HL
+        SUB     L
+        MOV     C,A
+        MOV     A,D
+        SBB     H
+        MOV     B,A
+        MOV     A,D             ;signs differ and the result's
+        XRA     H               ;differs from the left's
+        JP      ISUB1
+        MOV     A,D
+        XRA     B
+        JM      APOVF
+ISUB1:  MOV     H,B
+        MOV     L,C
+        JMP     IOK
+IMULT:  CALL    IMUL
+        JNC     IOK
+APOVF:  MVI     A,VTSNG
+        JMP     APFLT
+;
+; IMUL -- HL = DE * HL signed; C on overflow
+;
+IMUL:   MOV     A,D
+        XRA     H
+        STA     IMSGN
+        CALL    ABSDE
+        XCHG
+        CALL    ABSDE
+        MOV     B,D             ;BC = multiplier
+        MOV     C,E
+        XCHG                    ;(DE = multiplicand)
+        LXI     H,0
+        MVI     A,16
+IM1:    DAD     H
+        JC      IMOV
+        PUSH    PSW
+        MOV     A,C
+        ADD     A
+        MOV     C,A
+        MOV     A,B
+        RAL
+        MOV     B,A
+        JNC     IM2
+        DAD     D
+        JC      IMOV1
+IM2:    POP     PSW
+        DCR     A
+        JNZ     IM1
+        LDA     IMSGN
+        ORA     A
+        JM      IMNEG
+        MOV     A,H             ;positive: up to 32767
+        ORA     A
+        JM      IMOV
+        RET                     ;(NC from ORA)
+IMNEG:  MOV     A,H             ;negative: up to 32768
+        CPI     80H
+        JC      IMN1
+        JNZ     IMOV
+        MOV     A,L
+        ORA     A
+        JNZ     IMOV
+IMN1:   CALL    NEGHL
+        ORA     A
+        RET
+IMOV1:  POP     PSW
+IMOV:   STC
+        RET
+;
+; ABSDE -- DE = |DE| (unsigned; -32768 is 8000H). (NEGHL: CZBASIC.MAC)
+;
+ABSDE:  MOV     A,D
+        ORA     A
+        RP
+        MOV     A,E
+        CMA
+        MOV     E,A
+        MOV     A,D
+        CMA
+        MOV     D,A
+        INX     D
+        RET
+;
+; APLOG -- AND OR XOR EQV IMP MOD \ : on integers
+;
+APLOG:  MVI     A,VTINT
+        CALL    CVTARG
+        MVI     A,VTINT
+        CALL    FRCTYP
+        LHLD    ARGLO           ;DE = left, HL = right
+        XCHG
+        LHLD    FACLO
+        LDA     OPID
+        CPI     OPMOD
+        JNC     ALDIV
+        MOV     B,A
+        CPI     OPIMP           ;IMP: NOT left OR right
+        JNZ     AL1
+        MOV     A,D
+        CMA
+        MOV     D,A
+        MOV     A,E
+        CMA
+        MOV     E,A
+        MVI     B,OPOR
+AL1:    MOV     A,B
+        CPI     OPAND
+        JNZ     AL2
+        MOV     A,D
+        ANA     H
+        MOV     H,A
+        MOV     A,E
+        ANA     L
+        MOV     L,A
+        JMP     ALDONE
+AL2:    CPI     OPOR
+        JNZ     AL3
+        MOV     A,D
+        ORA     H
+        MOV     H,A
+        MOV     A,E
+        ORA     L
+        MOV     L,A
+        JMP     ALDONE
+AL3:    MOV     A,D             ;XOR, EQV
+        XRA     H
+        MOV     H,A
+        MOV     A,E
+        XRA     L
+        MOV     L,A
+        MOV     A,B
+        CPI     OPEQV
+        JNZ     ALDONE
+        MOV     A,H
+        CMA
+        MOV     H,A
+        MOV     A,L
+        CMA
+        MOV     L,A
+ALDONE: SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        POP     H
+        RET
+;
+ALDIV:  MOV     A,H             ;\ and MOD
+        ORA     L
+        JZ      ALDZ
+        MOV     A,D             ;remainder: the left's sign
+        STA     DVSGN
+        XRA     H               ;quotient: the signs'
+        STA     IMSGN
+        CALL    ABSDE
+        XCHG
+        CALL    ABSDE
+        MOV     B,D             ;BC = divisor
+        MOV     C,E
+        XCHG                    ;DE = dividend
+        CALL    DIVU            ;DE = quotient, HL = remainder
+        LDA     OPID
+        CPI     OPMOD
+        JZ      ALMOD
+        XCHG
+        LDA     IMSGN
+        ORA     A
+        JP      ALQP
+        CALL    NEGHL
+        JMP     ALDONE
+ALQP:   MOV     A,H             ;(-32768 \ -1)
+        ORA     A
+        JM      OVERR
+        JMP     ALDONE
+ALMOD:  LDA     DVSGN
+        ORA     A
+        JP      ALDONE
+        CALL    NEGHL
+        JMP     ALDONE
+ALDZ:   PUSH    D               ;division by zero: warning, then the
+        MVI     E,EDZ           ;largest integer with the left's sign
+        CALL    WARN
+        POP     D
+        LXI     H,32767
+        MOV     A,D
+        ORA     A
+        JP      ALDONE
+        LXI     H,-32767
+        JMP     ALDONE
+;
+; DIVU -- DE / BC unsigned: DE = quotient, HL = remainder
+;
+DIVU:   LXI     H,0
+        MVI     A,16
+DV1:    PUSH    PSW
+        XCHG                    ;DE <<= 1, its top bit into HL
+        DAD     H
+        XCHG
+        MOV     A,L
+        RAL
+        MOV     L,A
+        MOV     A,H
+        RAL
+        MOV     H,A
+        MOV     A,L             ;HL >= BC: subtract, quotient bit 1
+        SUB     C
+        MOV     L,A
+        MOV     A,H
+        SBB     B
+        MOV     H,A
+        JNC     DV2
+        DAD     B
+        JMP     DV3
+DV2:    INX     D
+DV3:    POP     PSW
+        DCR     A
+        JNZ     DV1
+        RET
+;
+; APREL -- relations: -1 if the relation holds, else 0
+;
+APREL:  MVI     A,VTINT
+        CALL    COMTYP
+        GETYPE
+        JP      APRF
+        LHLD    FACLO           ;integers: sign(left - right)
+        XCHG
+        LHLD    ARGLO
+        CALL    ICMP
+        JMP     APRT
+APRF:   CALL    FCMP            ;sign(ARG - FAC)
+APRT:   MOV     B,A             ;> 1, = 2, < 4
+        MVI     A,2
+        INR     B
+        DCR     B
+        JZ      APRM
+        MVI     A,1
+        JP      APRM
+        MVI     A,4
+APRM:   MOV     B,A
+        LDA     RELM
+        ANA     B
+        LXI     H,0
+        JZ      APRS
+        DCX     H
+APRS:   SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        POP     H
+        RET
+;
+; APSTR -- strings: + joins, relations compare
+;
+APSTR:  LDA     VALTYP
+        CPI     VTSTR
+        JNZ     TMERR
+        LDA     OPID
+        CPI     OPADD
+        JZ      APCAT
+        CPI     OPREL
+        JNZ     TMERR
+        CALL    STRCMP          ;A = sign(left - right) (BSTR.MAC)
+        JMP     APRT
+APCAT:  CALL    STRCAT
+        POP     H
+        RET
+;
+; ================= data =================
+;
+LTYPE:  DB      0               ;type of the value in ARG
+OPID:   DB      0
+RELM:   DB      0
+IMSGN:  DB      0
+DVSGN:  DB      0
+VSP:    DW      VSTK            ;value stack pointer
+;
+        END

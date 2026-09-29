@@ -1,0 +1,370 @@
+;
+; BINPUT.MAC -- CZBASIC: INPUT, LINE INPUT, READ, RESTORE
+;
+; An item (of an INPUT line or a DATA statement) is a number, a
+; "quoted string", or unquoted text with its outer blanks dropped; it
+; ends at a comma (or ':' in DATA) or the end. INPUT checks the whole
+; line first (a wrong item count or a bad number: "?Redo from start")
+; and only then assigns.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  INPUT,LINEST,READ,RESTOR,ITMPAR,INPRM,INASK
+;
+        EXTRN   BUF,TXTTAB,DATPTR,CURLIN,VALTYP,FACLO
+        EXTRN   INLIN,STROUT,OUTCON,PTRGET,LETVAR,FIN,FRCTYP,PUTTMP
+        EXTRN   STRLIT,FNDLIN,SKPSTM,LINREF,CHKSTR
+        EXTRN   SNERR,ODERR,ULERR,STOPBK,FILINP,FILLIN,STKFRE
+        EXTRN   LHLI
+;
+        CSEG
+;
+; INPUT [;]["prompt";|,] var[, var...]
+;
+INPUT:  CPI     '#'
+        JZ      FILINP          ;INPUT #n (BFILE.MAC)
+        CALL    INPRM           ;the ; and the prompt
+        SHLD    INVARS          ;the variable list
+INP1:   CALL    INASK           ;print the prompt, read a line
+        XRA     A               ;pass 1: check the items
+        CALL    INVAR
+        JC      INREDO
+        MVI     A,1             ;pass 2: assign them
+        JMP     INVAR
+INREDO: LXI     H,REDOM
+        CALL    STROUT
+        JMP     INP1
+;
+; INVAR -- the variable list against the line in BUF (A = 1: assign):
+; C if an item is bad or the counts differ. HL = past the list.
+;
+INVAR:  STA     INPASS
+        LXI     H,BUF
+        SHLD    INPTR
+        LHLD    INVARS
+        DCX     H
+        CHRGET
+INV1:   CALL    PTRGET          ;DE = the variable
+        LDA     VALTYP
+        STA     INVTYP
+        PUSH    H
+        PUSH    D
+        LHLD    INPTR
+        MVI     B,0             ;(INPUT: a comma or the end ends it)
+        CALL    ITMPAR          ;FAC = the item, HL at its end
+        JC      INV9
+        SHLD    INPTR
+        POP     D
+        LDA     INPASS
+        ORA     A
+        JZ      INV2
+        LDA     INVTYP          ;assign it
+        CALL    LETVAR
+INV2:   POP     H
+        CALL    STKFRE
+        MOV     A,M             ;more variables?
+        CPI     ','
+        JNZ     INV3
+        PUSH    H               ;then the line needs a comma here
+        LHLD    INPTR
+        MOV     A,M
+        CPI     ','
+        JNZ     INV8
+        INX     H
+        SHLD    INPTR
+        POP     H
+        CHRGET
+        JMP     INV1
+INV3:   PUSH    H               ;no more: the line must end too
+        LHLD    INPTR
+        MOV     A,M
+        POP     H
+        ORA     A
+        RZ
+        STC
+        RET
+INV8:   POP     H
+        STC
+        RET
+INV9:   POP     D
+        POP     H
+        STC
+        RET
+;
+; INPRM -- after INPUT / LINE INPUT: an optional ';' and "prompt"
+; followed by ';' (then "? ") or ','. HL = the variable list.
+;
+INPRM:  PUSH    PSW
+        XRA     A
+        STA     PRMLEN
+        MVI     A,1
+        STA     INQUES
+        POP     PSW
+        CPI     ';'
+        JNZ     IPR1
+        CHRGET
+IPR1:   CPI     '"'
+        RNZ
+        CALL    STRLIT          ;(a temporary pointing at the text)
+        PUSH    PSW
+        PUSH    H
+        LHLD    FACLO          ;keep where it is and how long
+        MOV     A,M
+        STA     PRMLEN
+        CALL    LHLI
+        SHLD    PRMADR
+        POP     H
+        POP     PSW
+        CPI     ';'
+        JZ      IPR2
+        CPI     ','
+        JNZ     SNERR
+        XRA     A
+        STA     INQUES
+IPR2:   CHRGET
+        RET
+;
+; INASK -- the prompt (and "? "), then read a line into BUF (^C stops
+; the program)
+;
+INASK:  LDA     PRMLEN
+        ORA     A
+        JZ      IA1
+        MOV     B,A
+        LHLD    PRMADR
+IA0:    MOV     A,M
+        CALL    OUTCON
+        INX     H
+        DCR     B
+        JNZ     IA0
+IA1:    LDA     INQUES
+        ORA     A
+        JZ      IA2
+        MVI     A,'?'
+        CALL    OUTCON
+        MVI     A,' '
+        CALL    OUTCON
+IA2:    CALL    INLIN
+        JC      STOPBK
+        RET
+;
+; ITMPAR -- the item at HL for type A (B = 1: DATA, where ':' ends it
+; too): FAC = the value, HL at its end (, : or 0). C if it's bad.
+;
+ITMPAR: STA     ITYP
+        MOV     A,B
+        STA     IDATA
+IT0:    MOV     A,M             ;leading blanks
+        CPI     ' '
+        JNZ     IT1
+        INX     H
+        JMP     IT0
+IT1:    LDA     ITYP
+        CPI     VTSTR
+        JZ      ITSTR
+        MOV     A,M             ;a number
+        CALL    ISTERM
+        JZ      ITZERO          ;(nothing: 0)
+        CPI     '"'
+        JZ      ITBAD
+        CALL    FIN
+        CALL    ITEND           ;blanks, then its end
+        RC
+        PUSH    H
+        LDA     ITYP
+        CALL    FRCTYP
+        POP     H
+        ORA     A
+        RET
+ITZERO: PUSH    H
+        LXI     H,0
+        SHLD    FACLO
+        MVI     A,VTINT
+        STA     VALTYP
+        LDA     ITYP
+        CALL    FRCTYP
+        POP     H
+        ORA     A
+        RET
+ITSTR:  MOV     A,M             ;a string
+        CPI     '"'
+        JNZ     ITUNQ
+        INX     H               ;quoted: to the closing quote
+        MOV     D,H
+        MOV     E,L
+        MVI     B,0
+ITQ1:   MOV     A,M
+        ORA     A
+        JZ      ITQ2
+        CPI     '"'
+        JZ      ITQ3
+        INX     H
+        INR     B
+        JMP     ITQ1
+ITQ3:   INX     H
+ITQ2:   CALL    PUTTMP
+        JMP     ITEND
+ITUNQ:  MOV     D,H             ;unquoted: to the end, trailing blanks
+        MOV     E,L             ;dropped
+        MVI     B,0
+        MVI     C,0
+ITU1:   MOV     A,M
+        CALL    ISTERM
+        JZ      ITU2
+        INX     H
+        INR     B
+        CPI     ' '
+        JZ      ITU1
+        MOV     C,B
+        JMP     ITU1
+ITU2:   MOV     B,C
+        CALL    PUTTMP
+        ORA     A
+        RET
+;
+; ITEND -- skip blanks: NC at the item's end, else C
+;
+ITEND:  MOV     A,M
+        CPI     ' '
+        JNZ     ITE1
+        INX     H
+        JMP     ITEND
+ITE1:   CALL    ISTERM
+        RZ                      ;(NC)
+ITBAD:  STC
+        RET
+;
+; ISTERM -- Z if A ends an item (0, ',', and ':' in DATA). Keeps A.
+;
+ISTERM: ORA     A
+        RZ
+        CPI     ','
+        RZ
+        CPI     ':'
+        RNZ
+        PUSH    B               ;':' ends a DATA item only
+        MOV     B,A
+        LDA     IDATA
+        CPI     1
+        MOV     A,B
+        POP     B
+        RET
+;
+; LINE INPUT [;]["prompt";] s$ -- a whole line
+;
+LINEST: SYNCHK  TKINPU
+        CPI     '#'
+        JZ      FILLIN
+        CALL    INPRM
+        XRA     A               ;(no "?")
+        STA     INQUES
+        CALL    PTRGET
+        CALL    CHKSTR
+        PUSH    H
+        PUSH    D
+        CALL    INASK
+        LXI     D,BUF           ;the line as a string
+        MOV     H,D
+        MOV     L,E
+        MVI     B,0
+LIN1:   MOV     A,M
+        ORA     A
+        JZ      LIN2
+        INX     H
+        INR     B
+        JMP     LIN1
+LIN2:   CALL    PUTTMP
+        POP     D
+        MVI     A,VTSTR
+        CALL    LETVAR
+        POP     H
+        RET
+;
+; READ var[, var...]
+;
+READ:   CALL    PTRGET          ;DE = the variable
+        LDA     VALTYP
+        STA     INVTYP
+        PUSH    H
+        PUSH    D
+        CALL    NXTDAT          ;HL = the next item
+        LDA     INVTYP
+        MVI     B,1
+        CALL    ITMPAR
+        JC      RDBAD
+        SHLD    DATPTR
+        POP     D
+        LDA     INVTYP
+        CALL    LETVAR
+        POP     H
+        MOV     A,M
+        CPI     ','
+        RNZ
+        CHRGET
+        JMP     READ
+RDBAD:  LHLD    DATLIN          ;a Syntax error in the DATA line
+        SHLD    CURLIN
+        JMP     SNERR
+;
+; NXTDAT -- HL = the next DATA item (Out of DATA if none)
+;
+NXTDAT: LHLD    DATPTR
+        MOV     A,M
+        CPI     ','
+        JNZ     ND2
+        INX     H
+        RET
+ND2:    MOV     A,M             ;at the end of a statement or line
+        ORA     A
+        JNZ     ND4
+        INX     H               ;the next line
+        MOV     A,M
+        INX     H
+        ORA     M
+        JZ      ODERR
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        XCHG
+        SHLD    DATLIN
+        XCHG
+ND4:    CHRGET                  ;the statement's first token
+        JZ      ND2             ;(an empty statement)
+        CPI     TKDATA
+        JZ      ND6
+        CALL    SKPSTM
+        JMP     ND2
+ND6:    INX     H
+        RET
+;
+; RESTORE [n]
+;
+RESTOR: JZ      RST0
+        CALL    LINREF
+        PUSH    H
+        CALL    FNDLIN
+        JNC     ULERR
+        JMP     RST1
+RST0:   PUSH    H
+        LHLD    TXTTAB
+RST1:   DCX     H
+        SHLD    DATPTR
+        POP     H
+        RET
+;
+; ================= data =================
+;
+REDOM:  DB      '?Redo from start',CR,LF,0
+INVARS: DW      0               ;INPUT's variable list
+INPTR:  DW      0               ;the line, as it's read
+INPASS: DB      0
+INVTYP: DB      0
+PRMLEN: DB      0               ;the prompt
+PRMADR: DW      0
+INQUES: DB      0               ;print "? "
+ITYP:   DB      0
+IDATA:  DB      0
+DATLIN: DW      0               ;the line of the DATA being read
+;
+        END

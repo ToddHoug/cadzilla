@@ -1,0 +1,350 @@
+;
+; BERR.MAC -- CZBASIC: errors, ON ERROR / RESUME / ERROR, warnings
+;
+; An error is raised with E = its number (MBASIC's numbering) and a
+; jump to ERRORE, usually through one of the short entries below or
+; the ERROR macro. With ON ERROR GOTO set and a program running, it
+; is trapped: ERR/ERL are set and the handler line runs. Otherwise
+; the message is printed ("... in nnnn" inside a program) and BASIC
+; returns to command level.
+;
+; Floating-point overflow and division by zero are warnings in
+; MBASIC: the message is printed and execution continues with the
+; largest number -- unless ON ERROR is active, which traps them.
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  ERRORE,SNERR,FCERR,OVERR,OMERR,ULERR,BSERR,DDERR
+        PUBLIC  DZERR,IDERR,TMERR,OSERR,LSERR,STERR,CNERR,UFERR
+        PUBLIC  MOERR,NFERR,RGERR,ODERR,WEERR,WHERR,FNERR
+        PUBLIC  ERRNUM,ERRLIN,ERRTXT,ONELIN,INERR,WARN,ONERR
+        PUBLIC  RESUME,ERRSTM,ERRMSG
+;
+        EXTRN   CURLIN,SAVTXT,SAVSTK,CONTXT,PRTFLG,PTRFIL,TTYPOS
+        EXTRN   CRLF,STROUT,LINPRT,READY,FNDLIN,GETINT,SKPSTM
+        EXTRN   GOLINE,GONE,NEWSTT,LINREF,EDERR,CHNFLG,CHNABT
+;
+        CSEG
+;
+; Error entries: each is MVI E,n and a LXI B that skips the next one
+;
+NFERR:  MVI     E,ENF           ;NEXT without FOR
+        DB      01H
+SNERR:  MVI     E,ESN
+        DB      01H
+RGERR:  MVI     E,ERG
+        DB      01H
+ODERR:  MVI     E,EOD
+        DB      01H
+FCERR:  MVI     E,EFC
+        DB      01H
+OVERR:  MVI     E,EOV
+        DB      01H
+OMERR:  MVI     E,EOM
+        DB      01H
+ULERR:  MVI     E,EUL
+        DB      01H
+BSERR:  MVI     E,EBS
+        DB      01H
+DDERR:  MVI     E,EDD
+        DB      01H
+DZERR:  MVI     E,EDZ
+        DB      01H
+IDERR:  MVI     E,EID
+        DB      01H
+TMERR:  MVI     E,ETM
+        DB      01H
+OSERR:  MVI     E,EOS
+        DB      01H
+LSERR:  MVI     E,ELS
+        DB      01H
+STERR:  MVI     E,EST
+        DB      01H
+CNERR:  MVI     E,ECN
+        DB      01H
+UFERR:  MVI     E,EUF
+        DB      01H
+MOERR:  MVI     E,EMO
+        DB      01H
+FNERR:  MVI     E,EFN
+        DB      01H
+WHERR:  MVI     E,EWH
+        DB      01H
+WEERR:  MVI     E,EWE
+;
+; ERRORE -- raise error E
+;
+ERRORE: LDA     CHNFLG          ;in the middle of a CHAIN: undo it
+        ORA     A
+        CNZ     CHNABT          ;(BCHAIN.MAC)
+        MOV     A,E
+        STA     ERRNUM
+        LHLD    CURLIN
+        SHLD    ERRLIN
+        XRA     A               ;output back to the console
+        STA     PRTFLG
+        STA     PTRFIL
+        LHLD    SAVTXT          ;the failing statement, for RESUME
+        SHLD    ERRTXT
+        LHLD    ONELIN          ;ON ERROR active?
+        MOV     A,H
+        ORA     L
+        JZ      ERRPRT
+        LDA     INERR           ;already in the handler: stop
+        ORA     A
+        JNZ     ERRPRT
+        LDA     CURLIN+1        ;direct mode: not trapped
+        MOV     B,A
+        LDA     CURLIN
+        ANA     B
+        INR     A
+        JZ      ERRPRT
+        INR     A               ;(A = 1) in the handler now
+        STA     INERR
+        LHLD    SAVSTK          ;the stack as the statement found it
+        SPHL
+        LHLD    ONELIN
+        XCHG
+        JMP     GOLINE          ;GOTO the handler (BEXEC.MAC)
+;
+; ERRPRT -- print the message and go back to command level
+;
+ERRPRT: LXI     H,0             ;CONT is no longer possible
+        SHLD    CONTXT
+        LDA     TTYPOS
+        ORA     A
+        CNZ     CRLF
+        LDA     ERRNUM
+        CALL    ERRMSG
+        LHLD    ERRLIN          ;" in nnnn" when a program was running
+        MOV     A,H
+        ANA     L
+        INR     A
+        JZ      ERRP1
+        PUSH    H
+        LXI     H,INMSG
+        CALL    STROUT
+        POP     H
+        CALL    LINPRT
+ERRP1:  CALL    CRLF
+        LDA     ERRNUM          ;syntax error in a program: EDIT it
+        CPI     ESN
+        JNZ     READY
+        LHLD    ERRLIN
+        MOV     A,H
+        ANA     L
+        INR     A
+        JZ      READY
+        JMP     EDERR           ;(BEDIT.MAC)
+;
+; ERRMSG -- print the message for error number A
+;
+ERRMSG: LXI     H,MSGTAB
+EMFIND: MOV     B,A             ;(HL = the table)
+EMLOOP: MOV     A,M
+        INX     H
+        ORA     A
+        JZ      EMUNP           ;not in the table
+        CMP     B
+        JZ      EMPRT
+EMSKIP: MOV     A,M             ;skip that message
+        INX     H
+        ORA     A
+        JNZ     EMSKIP
+        JMP     EMLOOP
+EMUNP:  LXI     H,UNPMSG
+        JMP     STROUT
+;
+; EMPRT -- print the message text at HL, fragments expanded
+;
+EMPRT:  MOV     A,M
+        INX     H
+        ORA     A
+        RZ
+        CPI     ' '
+        JNC     EMP1
+        PUSH    H               ;a fragment
+        LXI     H,FRGTAB
+        CALL    EMFIND
+        POP     H
+        JMP     EMPRT
+EMP1:   OUTCHR
+        JMP     EMPRT
+;
+; WARN -- floating-point overflow or division by zero, E = error
+; number: trapped when ON ERROR is active, else the message and a new
+; line on the console, and the caller carries on. Keeps BC, DE, HL.
+;
+WARN:   PUSH    H
+        LHLD    ONELIN
+        MOV     A,H
+        ORA     L
+        JZ      WARN1
+        LDA     INERR
+        ORA     A
+        JNZ     WARN1
+        LHLD    CURLIN
+        MOV     A,H
+        ANA     L
+        INR     A
+        JNZ     ERRORE          ;a program with ON ERROR: trap it
+WARN1:  POP     H
+        PUSH    B
+        PUSH    D
+        PUSH    H
+        LHLD    PRTFLG          ;PRTFLG and PTRFIL (adjacent)
+        PUSH    H
+        LXI     H,0
+        SHLD    PRTFLG
+        MOV     A,E
+        CALL    ERRMSG
+        CALL    CRLF
+        POP     H
+        SHLD    PRTFLG
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; ================= statements =================
+;
+; ONERR -- ON ERROR GOTO n (BEXEC's ON calls here after ERROR)
+;
+ONERR:  SYNCHK  TKGOTO
+        CALL    LINREF          ;DE = line number (BEXEC.MAC)
+        PUSH    H
+        MOV     A,D
+        ORA     E
+        JZ      ONER0
+        CALL    FNDLIN          ;it must exist
+        JNC     ULERR
+        XCHG
+        SHLD    ONELIN
+        POP     H
+        RET
+ONER0:  LXI     H,0             ;ON ERROR GOTO 0
+        SHLD    ONELIN
+        POP     H
+        LDA     INERR           ;inside the handler: stop on the error
+        ORA     A
+        RZ
+        LDA     ERRNUM
+        MOV     E,A
+        XRA     A
+        STA     INERR
+        JMP     ERRPRT
+;
+; RESUME [0 | NEXT | n]
+;
+RESUME: POP     D               ;(NEWSTT: we don't return)
+        MOV     B,A             ;(the char after RESUME)
+        LDA     INERR
+        ORA     A
+        JNZ     RESUM1
+        MVI     E,ERE
+        JMP     ERRORE
+RESUM1: XRA     A
+        STA     INERR
+        MOV     A,B
+        ORA     A               ;RESUME alone
+        JZ      RESUM0
+        CPI     ':'
+        JZ      RESUM0
+        CPI     TKNEXT
+        JZ      RESUMN
+        CALL    LINREF          ;RESUME n (0: the failing statement)
+        MOV     A,D
+        ORA     E
+        JNZ     GOLINE
+RESUM0: LHLD    ERRLIN          ;run the failing statement again
+        SHLD    CURLIN
+        LHLD    ERRTXT
+        SHLD    SAVTXT
+        JMP     GONE
+RESUMN: LHLD    ERRLIN          ;the statement after it
+        SHLD    CURLIN
+        LHLD    ERRTXT          ;(the separator before it)
+        INX     H
+        CALL    SKPSTM
+        JMP     NEWSTT
+;
+; ERROR n -- raise error n (1..255)
+;
+ERRSTM: CALL    GETINT          ;A = n (DE)
+        MOV     A,D
+        ORA     A
+        JNZ     FCERR
+        ORA     E
+        JZ      FCERR
+        JMP     ERRORE          ;E = n
+;
+INMSG:  DB      ' in ',0
+UNPMSG: DB      'Unprintable error',0
+;
+; The messages: DB number, text, 0; a 0 number ends the table. The
+; text may hold fragment numbers (FRGTAB).
+;
+MSGTAB: DB      ENF,'NEXT',1,'FOR',0
+        DB      ESN,'Syntax ',6,0
+        DB      ERG,'RETURN',1,'GOSUB',0
+        DB      EOD,'O',3,'DATA',0
+        DB      EFC,12,10,' call',0
+        DB      EOV,'O',7,0
+        DB      EOM,'O',3,'memory',0
+        DB      EUL,9,'line',4,0
+        DB      EBS,'Subscript o',3,'range',0
+        DB      EDD,'Duplicate Definition',0
+        DB      EDZ,'Division by zero',0
+        DB      EID,12,' direct',0
+        DB      ETM,'Type mismatch',0
+        DB      EOS,'O',3,'s',8,'space',0
+        DB      ELS,'S',8,'too long',0
+        DB      EST,'S',8,'formula too complex',0
+        DB      ECN,'Can''t continue',0
+        DB      EUF,9,'user',10,0
+        DB      ENR,'No RESUME',0
+        DB      ERE,'RESUME',1,6,0
+        DB      EMO,'Missing operand',0
+        DB      EBO,'Line buffer o',7,0
+        DB      EFN,'FOR Without NEXT',0
+        DB      EWH,'WHILE',1,'WEND',0
+        DB      EWE,'WEND',1,'WHILE',0
+        DB      EFO,'FIELD o',7,0
+        DB      EIE,'Internal ',6,0
+        DB      EBN,11,2,4,0
+        DB      EFF,'File not found',0
+        DB      EBM,11,2,' mode',0
+        DB      EAO,5,'open',0
+        DB      EIO,'Disk I/O ',6,0
+        DB      EFE,5,'exists',0
+        DB      EDF,'Disk full',0
+        DB      EEF,'Input past end',0
+        DB      EBR,11,' record',4,0
+        DB      EBF,11,2,' name',0
+        DB      EDS,'Direct statement in',2,0
+        DB      ETF,'Too many',2,'s',0
+        DB      0
+;
+; FRGTAB -- the words the messages share: a byte 1..31 in a message
+; is the fragment of that number here (same layout as MSGTAB)
+;
+FRGTAB: DB      1,' without ',0
+        DB      2,' file',0
+        DB      3,'ut of ',0
+        DB      4,' number',0
+        DB      5,'File already ',0
+        DB      6,'error',0
+        DB      7,'verflow',0
+        DB      8,'tring ',0
+        DB      9,'Undefined ',0
+        DB      10,' function',0
+        DB      11,'Bad',0
+        DB      12,'Illegal',0
+;
+ERRNUM: DB      0               ;ERR
+ERRLIN: DW      0FFFFH          ;ERL
+ERRTXT: DW      0               ;text pointer of the failing statement
+ONELIN: DW      0               ;ON ERROR handler line (pointer), 0 = off
+INERR:  DB      0               ;1 while the handler runs
+;
+        END

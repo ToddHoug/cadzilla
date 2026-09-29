@@ -1,0 +1,693 @@
+;
+; CZBASIC.MAC -- CZBASIC: start-up, console I/O and the command loop
+;
+; CZBASIC is a BASIC interpreter for CP/M 2.2, compatible with
+; Microsoft BASIC-80 (MBASIC) 5.21, with statements for the CADzilla
+; board's HD63484 ACRTC and Bt453 palette (the CZ... keywords).
+;
+; Memory, low to high:
+;       0100H   BINIT: the start-up code, then the buffers laid over
+;               it (BUF KBUF VSTK and the rest, BINIT.MAC)
+;               the interpreter
+;       GFXBEG  the graphics: BGFX BGTEXT BFONT and the czgfx library
+;               (with /X, the file blocks and the program start here)
+;               the file blocks
+;       TXTTAB  program text (TXTTAB-1 holds 0)
+;       VARTAB  simple variables
+;       ARYTAB  arrays
+;       STREND  free memory
+;       FRETOP  strings, allocated downward to here
+;       MEMSIZ  top of string space
+;       STKTOP  the 8080 stack (CLEAR ,,n sets its size) up to MEMTOP
+;       MEMTOP  = the BDOS page, or /M:
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  TXTTAB,VARTAB,ARYTAB,STREND,FRETOP,MEMSIZ,MEMTOP
+        PUBLIC  STKTOP,STKSIZ,CURLIN,SAVTXT,SAVSTK,CONTXT,CONLIN
+        PUBLIC  DFAC,FACLO,FACHI,FAC,FACOV,ARG,ARGLO,ARGHI,ARGX,ARGOV
+        PUBLIC  VALTYP,FACSGN,ARGSGN,TTYPOS,LPTPOS,TTYWID,LPTWID
+        PUBLIC  PRTFLG,PTRFIL,NULCNT,DEFTBL,TRCFLG,KBCHR,AUTFLG
+        PUBLIC  AUTLIN,AUTINC,BUFLEN,DOTLIN,FILNAM
+        PUBLIC  READY,MAIN,CONOUT,CONIN,CONST,LSTOUT,CRLF,STROUT
+        PUBLIC  LINPRT,INLIN,ISCNTC,GETKEY,OUTCON,SYNCH,CHRGT
+        PUBLIC  OUTDO,GETYP,SIGN,QINLIN,BREAK,LINGET,$MEMRY
+;
+        PUBLIC  NFILES,RECSIZ,CSTS,CIN,COUT,LOUT,CHRGT2
+        PUBLIC  MOVB,SUBDE,SUBBC,NEGHL,LHLI,LHLM,LDDE
+        PUBLIC  XGO,XGOF,NOGFX
+;
+        EXTRN   SNERR,CRUNCH,INSLIN,NEWC,STKINI
+        EXTRN   XSTMT,XFUNC,FCERR
+        EXTRN   GONE,EVLRST,FILOUT,RUNFIL,STKBAS,CONSTK,STOPBK
+        EXTRN   FNDLIN,BUF,KBUF
+;
+        CSEG
+;
+OKMSG:  DB      'Ok',CR,LF,0
+;
+; ================= the command loop =================
+;
+; READY -- back to command level: "Ok", then read commands. Direct
+; statements are crunched into KBUF and executed; numbered lines go
+; into the program.
+;
+READY:  LXI     H,0FFFFH
+        SHLD    CURLIN
+        XRA     A
+        STA     PRTFLG
+        STA     PTRFIL
+        LDA     TTYPOS
+        ORA     A
+        CNZ     CRLF
+        LXI     H,OKMSG
+        CALL    STROUT
+MAIN:   LHLD    CONTXT          ;CONT possible: keep the program's
+        MOV     A,H             ;FOR/GOSUB frames under direct mode
+        ORA     L
+        JZ      MAIN0
+        LHLD    CONSTK
+        SPHL
+        JMP     MAINX
+MAIN0:  CALL    STKBAS          ;else an empty control stack
+MAINX:  LXI     H,0FFFFH
+        SHLD    CURLIN
+        XRA     A
+        STA     PRTFLG
+        STA     PTRFIL
+        CALL    EVLRST          ;reset the evaluator (value stack, temps)
+        LDA     AUTFLG          ;AUTO: offer the next line number
+        ORA     A
+        JZ      MAIN1
+        LHLD    AUTLIN
+        CALL    AUTPRM
+MAIN1:  CALL    INLIN
+        JC      MAINBK          ;^C
+        LDA     AUTFLG
+        ORA     A
+        JNZ     MAINAU
+        CHRGET
+        JC      MAINLN          ;a digit: a program line
+        ORA     A
+        JZ      MAIN            ;empty line
+        CALL    CRUNCH          ;a direct statement: crunch it into KBUF
+        LXI     H,KBUF-1        ;and execute it (BEXEC.MAC)
+        JMP     GONE
+MAINLN: CALL    LINGET          ;DE = line number
+        JC      SNERR           ;too big
+MAINL2: PUSH    D
+        CALL    CRUNCH          ;rest of the line -> KBUF, BC = length
+        POP     D
+        CALL    INSLIN          ;insert/replace/delete line DE
+        JMP     MAIN
+MAINAU: LHLD    AUTLIN          ;AUTO: the line number was the prompt
+        XCHG
+        LHLD    AUTINC          ;next number
+        DAD     D
+        JNC     MAINA1
+        XRA     A               ;past 65535: AUTO ends
+        STA     AUTFLG
+MAINA1: SHLD    AUTLIN
+        LXI     H,BUF-1
+        CHRGET
+        ORA     A
+        JNZ     MAINL2          ;an empty line leaves the line alone
+        JMP     MAIN
+MAINBK: XRA     A               ;^C typed: leave AUTO
+        STA     AUTFLG
+        JMP     READY
+;
+; AUTPRM -- AUTO prompt: print line number HL, then "*" if that line
+; exists, else a blank
+;
+AUTPRM: PUSH    H
+        CALL    LINPRT
+        POP     D
+        CALL    FNDLIN          ;C if the line exists
+        MVI     A,'*'
+        JC      AUTP1
+        MVI     A,' '
+AUTP1:  JMP     OUTCON
+;
+; LINGET -- DE = unsigned decimal line number at HL (ASCII); HL after
+; it, A = the next char with CHRGET flags. C if above 65529.
+;
+LINGET: LXI     D,0
+        DCX     H
+LGLOOP: CHRGET
+        RNC                     ;not a digit (CHRGET: C = digit)
+        PUSH    H
+        PUSH    PSW
+        LXI     H,6553          ;DE > 6553: *10 would be too big
+        COMPAR                  ;(HL - DE)
+        JC      LGBIG
+        MOV     H,D             ;DE*10
+        MOV     L,E
+        DAD     H
+        DAD     H
+        DAD     D
+        DAD     H
+        POP     PSW
+        SUI     '0'
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        XCHG
+        POP     H
+        LXI     B,-65530        ;above 65529?
+        PUSH    H
+        MOV     H,D
+        MOV     L,E
+        DAD     B
+        POP     H
+        JNC     LGLOOP
+        STC
+        RET
+LGBIG:  POP     PSW
+        POP     H
+        STC
+        RET
+;
+; CHRGET below ':' -- skip blanks (space, tab, LF); C if a digit, Z
+; if 0 (end of line)
+;
+CHRGT:  INX     H               ;(callable form of RST 2)
+        MOV     A,M
+        CPI     ':'
+        RNC
+CHRGT2: CPI     ' '
+        JZ      0010H
+        CPI     TAB
+        JZ      0010H
+        CPI     LF
+        JZ      0010H
+        CPI     '0'
+        CMC
+        INR     A
+        DCR     A
+        RET
+;
+; SYNCHK: (HL) must equal the byte after the RST 1
+;
+SYNCH:  MOV     A,M
+        XTHL
+        CMP     M
+        INX     H
+        XTHL
+        JZ      0010H           ;matched: CHRGET
+        JMP     SNERR
+;
+; GETYPE: flags from VALTYP (see BASIC.INC)
+;
+GETYP:  LDA     VALTYP
+        CPI     VTDBL
+        JNC     GETYD
+        SUI     3
+        ORA     A
+        STC
+        RET
+GETYD:  SUI     3               ;NC, NZ, P
+        RET
+;
+; FSIGN: A = 0 (Z) if FAC = 0, 1 if positive, 0FFH if negative
+;
+SIGN:   LDA     FAC
+        ORA     A
+        RZ
+        LDA     FACHI
+        RAL
+        SBB     A
+        RNZ
+        INR     A
+        RET
+;
+; ================= console and printer =================
+;
+; BIOS entries, patched at start-up. BIOS routines may change any
+; register, so the wrappers keep them.
+;
+CSTS:   JMP     0               ;CONST: A = 0FFH if a key is waiting
+CIN:    JMP     0               ;CONIN: A = key
+COUT:   JMP     0               ;CONOUT: C = char
+LOUT:   JMP     0               ;LIST: C = char
+;
+; CONST -- NZ if a key is waiting (a typed-ahead one counts)
+;
+CONST:  LDA     KBCHR
+        ORA     A
+        RNZ
+        PUSH    B
+        PUSH    D
+        PUSH    H
+        CALL    CSTS
+        POP     H
+        POP     D
+        POP     B
+        ORA     A
+        RET
+;
+; CONIN -- A = next key (the typed-ahead one first), no echo
+;
+CONIN:  LDA     KBCHR
+        ORA     A
+        JZ      CONIN1
+        PUSH    PSW
+        XRA     A
+        STA     KBCHR
+        POP     PSW
+        RET
+CONIN1: PUSH    B
+        PUSH    D
+        PUSH    H
+        CALL    CIN
+        POP     H
+        POP     D
+        POP     B
+        ANI     7FH
+        RET
+;
+; CONOUT -- A to the console, all registers kept. LSTOUT -- to LST:
+;
+CONOUT: PUSH    H
+        PUSH    D
+        PUSH    B
+        PUSH    PSW
+        MOV     C,A
+        CALL    COUT
+        JMP     LSTO1
+LSTOUT: PUSH    H
+        PUSH    D
+        PUSH    B
+        PUSH    PSW
+        MOV     C,A
+        CALL    LOUT
+LSTO1:  POP     PSW
+        POP     B
+        POP     D
+        POP     H
+        RET
+;
+; OUTDO (RST 4) -- A to the current output: a file (PTRFIL), the
+; printer (PRTFLG) or the console. Printable characters advance the
+; column and wrap at the device's WIDTH; CR resets it.
+;
+OUTDO:  PUSH    PSW
+        LDA     PTRFIL
+        ORA     A
+        JNZ     OUTFIL
+        LDA     PRTFLG
+        ORA     A
+        JNZ     OUTLPT
+        POP     PSW
+;
+; OUTCON -- A to the console with column tracking and wrap
+;
+OUTCON: PUSH    PSW
+        PUSH    H
+        LXI     H,TTYPOS
+        CPI     ' '
+        JC      OUTCTL
+        PUSH    PSW
+        LDA     TTYWID          ;255 = no wrap
+        INR     A
+        JZ      OUTC2
+        DCR     A
+        CMP     M
+        JNZ     OUTC2
+        CALL    CRLF            ;line full: new line first
+OUTC2:  INR     M
+        POP     PSW
+OUTC3:  POP     H
+        CALL    CONOUT
+        POP     PSW
+        RET
+OUTCTL: CPI     CR
+        JNZ     OUTCB
+        MVI     M,0
+        JMP     OUTC3
+OUTCB:  CPI     BS              ;backspace: back one column
+        JNZ     OUTC3
+        MOV     A,M
+        ORA     A
+        JZ      OUTCB1
+        DCR     M
+OUTCB1: MVI     A,BS
+        JMP     OUTC3
+;
+OUTLPT: POP     PSW             ;to the printer, column in LPTPOS
+        PUSH    PSW
+        PUSH    H
+        LXI     H,LPTPOS
+        CPI     ' '
+        JC      OUTLC
+        PUSH    PSW
+        LDA     LPTWID
+        INR     A
+        JZ      OUTL2
+        DCR     A
+        CMP     M
+        JNZ     OUTL2
+        MVI     A,CR
+        CALL    LSTOUT
+        MVI     A,LF
+        CALL    LSTOUT
+        MVI     M,0
+OUTL2:  INR     M
+        POP     PSW
+OUTL3:  POP     H
+        CALL    LSTOUT
+        POP     PSW
+        RET
+OUTLC:  CPI     CR
+        JNZ     OUTL3
+        MVI     M,0
+        JMP     OUTL3
+;
+OUTFIL: POP     PSW             ;to the open file (BFILE.MAC)
+        JMP     FILOUT
+;
+; CRLF -- CR LF to the current output, then NULL count nulls
+;
+CRLF:   MVI     A,CR
+        OUTCHR
+        MVI     A,LF
+        OUTCHR
+        LDA     PTRFIL          ;no nulls into files
+        ORA     A
+        RNZ
+        LDA     NULCNT
+CRNUL:  ORA     A
+        RZ
+        PUSH    PSW
+        XRA     A
+        OUTCHR
+        POP     PSW
+        DCR     A
+        JMP     CRNUL
+;
+; ================= small shared helpers =================
+;
+; MOVB -- copy B bytes (B > 0) from HL up to DE: HL, DE past them,
+; B = 0, A = the last byte
+;
+MOVB:   MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     MOVB
+        RET
+;
+; SUBDE -- HL = HL - DE; SUBBC -- HL = HL - BC (C = a borrow)
+;
+SUBDE:  MOV     A,L
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        RET
+SUBBC:  MOV     A,L
+        SUB     C
+        MOV     L,A
+        MOV     A,H
+        SBB     B
+        MOV     H,A
+        RET
+;
+; LHLI -- HL = the word at HL+1. LHLM -- HL = the word at HL. (A lost,
+; flags kept)
+;
+LHLI:   INX     H
+LHLM:   MOV     A,M
+        INX     H
+        MOV     H,M
+        MOV     L,A
+        RET
+;
+; LDDE -- DE = the word at HL, HL past it
+;
+LDDE:   MOV     E,M
+        INX     H
+        MOV     D,M
+        INX     H
+        RET
+;
+; XGO, XGOF -- a CADzilla statement / function (BGFX.MAC); Illegal
+; function call when /X gave the graphics code's memory to programs
+;
+XGO:    CALL    GFXCHK
+        JMP     XSTMT
+XGOF:   CALL    GFXCHK
+        JMP     XFUNC
+GFXCHK: LDA     NOGFX
+        ORA     A
+        RZ
+        JMP     FCERR
+;
+; NEGHL -- HL = -HL (flags kept)
+;
+NEGHL:  MOV     A,L
+        CMA
+        MOV     L,A
+        MOV     A,H
+        CMA
+        MOV     H,A
+        INX     H
+        RET
+;
+; STROUT -- print the 0-terminated string at HL (HL past it)
+;
+STROUT: MOV     A,M
+        INX     H
+        ORA     A
+        RZ
+        OUTCHR
+        JMP     STROUT
+;
+; LINPRT -- print HL as an unsigned decimal number, no blanks
+;
+LINPRT: LXI     D,-10000
+        MVI     B,0             ;0 while leading zeros are suppressed
+        CALL    LPDIG
+        LXI     D,-1000
+        CALL    LPDIG
+        LXI     D,-100
+        CALL    LPDIG
+        LXI     D,-10
+        CALL    LPDIG
+        MOV     A,L
+        ADI     '0'
+        OUTCHR
+        RET
+LPDIG:  MVI     A,'0'-1
+LPD1:   INR     A
+        DAD     D
+        JC      LPD1
+        PUSH    PSW             ;undo the last subtraction
+        CALL    SUBDE
+        POP     PSW
+        CPI     '0'
+        JNZ     LPD2
+        INR     B
+        DCR     B
+        RZ                      ;a leading zero
+LPD2:   MVI     B,1
+        OUTCHR
+        RET
+;
+; ISCNTC -- the break check, once per statement: ^C stops the
+; program, ^S pauses until the next key, anything else is kept for
+; INKEY$/INPUT
+;
+ISCNTC: LDA     KBCHR           ;a key already waiting: don't look
+        ORA     A
+        RNZ
+        PUSH    B
+        PUSH    D
+        PUSH    H
+        CALL    CSTS
+        POP     H
+        POP     D
+        POP     B
+        ORA     A
+        RZ
+        CALL    CONIN1
+        CPI     CTRLS
+        JNZ     ISCN1
+        CALL    CONIN1          ;paused: the next key resumes
+ISCN1:  CPI     CTRLC
+        JZ      BREAK
+        CPI     CTRLS
+        RZ
+        STA     KBCHR
+        RET
+;
+; BREAK -- ^C: "Break in nnnn" (BEXEC.MAC does the stop)
+;
+BREAK:  JMP     STOPBK
+;
+; GETKEY -- wait for a key (no echo), A = key
+;
+GETKEY: JMP     CONIN
+;
+; ================= line input =================
+;
+; INLIN -- read a line from the console into BUF with echo and the
+; MBASIC editing keys:
+;   BS, DEL     erase the last character
+;   ^U, ^X      cancel the line (echo "#", new line)
+;   ^R          retype the line
+;   LF          continue on the next screen line
+;   ^C          abandon: C set
+;   CR          end: the line is 0-terminated at BUF
+; Returns HL = BUF-1 (so CHRGET reads the first char), NC.
+;
+QINLIN: MVI     A,'?'           ;INPUT's "? " prompt, then read
+        CALL    OUTCON
+        MVI     A,' '
+        CALL    OUTCON
+INLIN:  LXI     H,BUF
+        MVI     B,0             ;characters so far
+INLP:   CALL    CONIN
+        CPI     CTRLC
+        JZ      INCC
+        CPI     CR
+        JZ      INCR
+        CPI     LF
+        JZ      INLF
+        CPI     BS
+        JZ      INBS
+        CPI     DEL
+        JZ      INBS
+        CPI     CTRLU
+        JZ      INCAN
+        CPI     CTRLX
+        JZ      INCAN
+        CPI     CTRLR
+        JZ      INRET
+        CPI     TAB
+        JZ      INCH
+        CPI     ' '
+        JC      INLP            ;other controls are ignored
+INCH:   MOV     C,A
+        MOV     A,B
+        CPI     BUFLEN-1
+        JNC     INBEL           ;full
+        MOV     M,C
+        INX     H
+        INR     B
+        MOV     A,C
+        CALL    OUTCON
+        JMP     INLP
+INBEL:  MVI     A,07H
+        CALL    CONOUT
+        JMP     INLP
+INBS:   MOV     A,B
+        ORA     A
+        JZ      INLP
+        DCX     H
+        DCR     B
+        MVI     A,BS
+        CALL    OUTCON
+        MVI     A,' '
+        CALL    OUTCON
+        MVI     A,BS
+        CALL    OUTCON
+        JMP     INLP
+INCAN:  MVI     A,'#'
+        CALL    OUTCON
+        CALL    CRLFC
+        JMP     INLIN
+INRET:  MVI     M,0             ;^R: retype what we have
+        CALL    CRLFC
+        PUSH    H
+        LXI     H,BUF
+        CALL    STRCON
+        POP     H
+        JMP     INLP
+INLF:   CALL    CRLFC           ;LF: a new screen line, same line
+        JMP     INLP
+INCC:   MVI     A,'^'
+        CALL    OUTCON
+        MVI     A,'C'
+        CALL    OUTCON
+        CALL    CRLFC
+        STC
+        RET
+INCR:   MVI     M,0
+        CALL    CRLFC
+        LXI     H,BUF-1
+        ORA     A
+        RET
+;
+; CRLFC / STRCON -- CR LF / a string to the console only
+;
+CRLFC:  MVI     A,CR
+        CALL    OUTCON
+        MVI     A,LF
+        JMP     OUTCON
+STRCON: MOV     A,M
+        INX     H
+        ORA     A
+        RZ
+        CALL    OUTCON
+        JMP     STRCON
+;
+; ================= variables =================
+;
+$MEMRY: DW      0               ;first free byte (L80 fills it in)
+;
+TXTTAB: DW      0               ;program text
+VARTAB: DW      0               ;simple variables
+ARYTAB: DW      0               ;arrays
+STREND: DW      0               ;end of arrays
+FRETOP: DW      0               ;bottom of the strings
+MEMSIZ: DW      0               ;top of string space
+STKTOP: DW      0               ;initial stack pointer
+STKSIZ: DW      0               ;stack size (CLEAR ,,n)
+MEMTOP: DW      0               ;top of memory for BASIC
+CURLIN: DW      0FFFFH          ;current line, 0FFFFH in direct mode
+SAVTXT: DW      0               ;text pointer at the current statement
+SAVSTK: DW      0               ;stack pointer at the current statement
+CONTXT: DW      0               ;CONT: text pointer, 0 = can't continue
+CONLIN: DW      0               ;CONT: line number
+DOTLIN: DW      0               ;"." -- the last line listed/edited
+;
+FACOV:  DS      1               ;rounding byte below the double
+DFAC:   DS      4               ;double: the low 4 mantissa bytes
+FACLO:  DS      2               ;single mantissa lo, mid; integer
+FACHI:  DS      1               ;single mantissa hi + sign
+FAC:    DS      1               ;exponent (0 = zero)
+ARGOV:  DS      1
+ARG:    DS      4               ;second operand, same layout
+ARGLO:  DS      2
+ARGHI:  DS      1
+ARGX:   DS      1
+FACSGN: DS      1               ;signs while the FP routines work
+ARGSGN: DS      1
+VALTYP: DB      VTSNG           ;type of the value in FAC
+;
+TTYPOS: DB      0               ;console column
+LPTPOS: DB      0               ;printer column
+TTYWID: DB      80              ;console WIDTH (255 = infinite)
+LPTWID: DB      132             ;printer WIDTH
+PRTFLG: DB      0               ;1: output to the printer (LPRINT, LLIST)
+PTRFIL: DB      0               ;file number PRINT# etc. write to, 0 none
+NULCNT: DB      0               ;NULL count
+TRCFLG: DB      0               ;TRON
+KBCHR:  DB      0               ;a key typed ahead (0 = none)
+AUTFLG: DB      0               ;AUTO mode
+AUTLIN: DW      10              ;AUTO: next line number
+AUTINC: DW      10              ;AUTO: increment
+DEFTBL: DS      26              ;DEFINT etc.: type per letter A..Z
+NFILES: DB      3               ;/F: number of files
+RECSIZ: DW      128             ;/S: random record size
+NOGFX:  DB      0               ;/X: no graphics, their memory freed
+FILNAM: DB      0               ;command-line program name
+        DS      15
+;
+BUFLEN  EQU     256             ;(BUF and KBUF are in BINIT.MAC)
+;
+        END
+

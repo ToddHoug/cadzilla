@@ -1,0 +1,306 @@
+;
+; BPRINT.MAC -- CZBASIC: PRINT, LPRINT, WRITE, TAB, SPC, POS, WIDTH,
+; NULL
+;
+; As MBASIC 5.21 prints (see the T02 test):
+;   - a number is its FOUT text (a blank or - first) and a blank after
+;   - an item that no longer fits on the line (column + length >
+;     WIDTH, the line not empty) starts a new line first; longer lines
+;     wrap at WIDTH
+;   - ',' moves to the next 14-column zone, or to a new line from the
+;     last whole zone on; ';' and juxtaposition print nothing between
+;   - TAB(n) moves to column n (1-based), on a new line if it is past
+;   - a PRINT ending in , ; TAB or SPC doesn't end the line
+;
+        INCLUDE BASIC.INC
+;
+        PUBLIC  PRINT,LPRINT,WRITE,WIDTH,NULL,POSFN,LPOSFN,PRNUM
+        PUBLIC  PRSTR,FITCHK,PRINTF,WRITEF
+;
+        EXTRN   TTYPOS,LPTPOS,TTYWID,LPTWID,PRTFLG,PTRFIL,NULCNT
+        EXTRN   FRMEVL,GETBYT,GETINT,FOUT,FRESTR,CRLF,SNERR,FCERR
+        EXTRN   RETBYT,CHKNUM,FRCINT,USING,PRTFIL,WRTFIL,FILCOL
+;
+        CSEG
+;
+; LPRINT -- PRINT to the printer
+;
+LPRINT: PUSH    PSW
+        MVI     A,1
+        STA     PRTFLG
+        POP     PSW
+        CALL    PRINT
+        XRA     A
+        STA     PRTFLG
+        RET
+;
+; PRINT [#n,] [USING f$;] items
+;
+PRINT:  JZ      PRCR            ;nothing: end the line
+        CPI     '#'
+        JZ      PRTFIL          ;(BFILE.MAC)
+PRT2:   CPI     TKUSIN
+        JZ      USING           ;(BUSING.MAC)
+        CPI     TKTAB
+        JZ      PRTAB
+        CPI     TKSPC
+        JZ      PRSPC
+        CPI     ','
+        JZ      PRCOMA
+        CPI     ';'
+        JZ      PRSEMI
+        CALL    FRMEVL          ;an expression
+        PUSH    H
+        GETYPE
+        JZ      PRS1
+        CALL    PRNUM
+        JMP     PRNXT
+PRS1:   CALL    PRSTR
+PRNXT:  POP     H
+        MOV     A,M             ;the next item
+        ORA     A
+        JZ      PRCR
+        CPI     ':'
+        JZ      PRCR
+        JMP     PRT2
+PRCR:   JMP     CRLF
+;
+; PRINTF -- PRINT's items (PRINT #n: the file is chosen)
+;
+PRINTF: JZ      PRCR
+        JMP     PRT2
+;
+; PRNUM -- print the number in FAC and a blank, on a new line if it
+; doesn't fit
+;
+PRNUM:  CALL    FOUT            ;HL = its text
+        PUSH    H
+        MVI     B,0             ;length
+PRN1:   MOV     A,M
+        ORA     A
+        JZ      PRN2
+        INX     H
+        INR     B
+        JMP     PRN1
+PRN2:   CALL    FITCHK
+        POP     H
+PRN3:   MOV     A,M
+        ORA     A
+        JZ      PRN4
+        OUTCHR
+        INX     H
+        JMP     PRN3
+PRN4:   MVI     A,' '
+        OUTCHR
+        RET
+;
+; PRSTR -- print the string in FAC (a new line first if it doesn't
+; fit on this one)
+;
+PRSTR:  CALL    FRESTR          ;B = length, DE = data
+        CALL    FITCHK
+PRSTR1: MOV     A,B
+        ORA     A
+        RZ
+        LDAX    D
+        OUTCHR
+        INX     D
+        DCR     B
+        JMP     PRSTR1
+;
+; FITCHK -- B more characters: if the line isn't empty and they'd go
+; past WIDTH, a new line first. Keeps BC, DE.
+;
+FITCHK: CALL    GETPW           ;A = column, C = width
+        ORA     A
+        RZ
+        ADD     B
+        JC      FITNL
+        CMP     C
+        RC
+        RZ
+FITNL:  PUSH    B
+        PUSH    D
+        CALL    CRLF
+        POP     D
+        POP     B
+        RET
+;
+; GETPW -- A = the column, C = the width of the current device (a
+; file: C = 255). Keeps B, DE, HL.
+;
+GETPW:  LDA     PTRFIL
+        ORA     A
+        MVI     C,255
+        JNZ     GETPW2
+        LDA     PRTFLG
+        ORA     A
+        JNZ     GETPW1
+        LDA     TTYWID
+        MOV     C,A
+        LDA     TTYPOS
+        RET
+GETPW1: LDA     LPTWID
+        MOV     C,A
+        LDA     LPTPOS
+        RET
+GETPW2: JMP     FILCOL          ;(a file's own column)
+;
+; ',' -- the next zone
+;
+PRCOMA: CALL    GETPW
+        MOV     B,A
+        MVI     E,0             ;E = the last whole zone's column:
+PRC1:   MOV     A,E             ;the largest 14k with 14k+28 <= width
+        ADI     28
+        JC      PRC2
+        CMP     C
+        JZ      PRC1A
+        JNC     PRC2
+PRC1A:  MOV     A,E
+        ADI     14
+        MOV     E,A
+        JMP     PRC1
+PRC2:   MOV     A,B             ;there or past it: a new line
+        CMP     E
+        JNC     PRCNL
+PRC3:   MOV     A,B             ;spaces: 14 - column mod 14
+PRC4:   SUI     14
+        JNC     PRC4
+        CMA
+        INR     A
+        MOV     B,A
+        CALL    SPACES
+        JMP     PRSEP
+PRCNL:  CALL    CRLF
+PRSEP:  CHRGET                  ;past , ; ) : a PRINT ending here
+        RZ                      ;doesn't end the line
+        JMP     PRT2
+PRSEMI: JMP     PRSEP
+;
+; TAB(n) -- to column n (1-based); SPC(n) -- n blanks (mod WIDTH)
+;
+PRTAB:  CHRGET
+        CALL    GETBYT
+        SYNCHK  ')'
+        PUSH    H
+        MOV     A,E             ;column (0-based) = n - 1
+        ORA     A
+        JZ      PRTB1
+        DCR     A
+PRTB1:  MOV     E,A
+        CALL    GETPW
+        MOV     B,A
+        MOV     A,E
+        CMP     C               ;past the width: mod width
+        JC      PRTB2
+        SUB     C
+        MOV     E,A
+PRTB2:  MOV     A,B             ;past it already: a new line
+        CMP     E
+        JZ      PRTB4
+        JC      PRTB3
+        CALL    CRLF
+        MVI     B,0
+PRTB3:  MOV     A,E
+        SUB     B
+        MOV     B,A
+        CALL    SPACES
+PRTB4:  POP     H
+        DCX     H               ;(so PRSEP reads the char after ')')
+        JMP     PRSEP
+PRSPC:  CHRGET
+        CALL    GETBYT
+        SYNCHK  ')'
+        PUSH    H
+        CALL    GETPW           ;n mod width
+        MOV     A,E
+PRSP1:  CMP     C
+        JC      PRSP2
+        SUB     C
+        JMP     PRSP1
+PRSP2:  MOV     B,A
+        CALL    SPACES
+        POP     H
+        DCX     H
+        JMP     PRSEP
+;
+; SPACES -- B blanks
+;
+SPACES: MOV     A,B
+        ORA     A
+        RZ
+        MVI     A,' '
+        OUTCHR
+        DCR     B
+        JMP     SPACES
+;
+; WRITE [#n,] items -- values separated by commas, strings in quotes,
+; numbers without blanks
+;
+WRITE:  JZ      CRLF
+        CPI     '#'
+        JZ      WRTFIL          ;(BFILE.MAC)
+WRITEF:
+WRT1:   JZ      CRLF
+        CALL    FRMEVL
+        PUSH    H
+        GETYPE
+        JZ      WRT3
+        CALL    FOUT            ;a number, its sign blank dropped
+        MOV     A,M
+        CPI     ' '
+        JNZ     WRT2
+        INX     H
+WRT2:   MOV     A,M
+        ORA     A
+        JZ      WRT4
+        OUTCHR
+        INX     H
+        JMP     WRT2
+WRT3:   MVI     A,'"'           ;a string in quotes
+        OUTCHR
+        CALL    FRESTR
+        CALL    PRSTR1
+        MVI     A,'"'
+        OUTCHR
+WRT4:   POP     H
+        MOV     A,M
+        CPI     ','
+        JNZ     CRLF
+        OUTCHR
+        CHRGET
+        JMP     WRT1
+;
+; WIDTH [LPRINT] n
+;
+WIDTH:  CPI     TKLPRI
+        JZ      WID2
+        CALL    GETBYT
+        CPI     15
+        JC      FCERR
+        STA     TTYWID
+        RET
+WID2:   CHRGET
+        CALL    GETBYT
+        CPI     15
+        JC      FCERR
+        STA     LPTWID
+        RET
+;
+; NULL n
+;
+NULL:   CALL    GETBYT
+        STA     NULCNT
+        RET
+;
+; POS(x) / LPOS(x) -- the column, from 1
+;
+POSFN:  LDA     TTYPOS
+        INR     A
+        JMP     RETBYT
+LPOSFN: LDA     LPTPOS
+        INR     A
+        JMP     RETBYT
+;
+        END
