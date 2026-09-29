@@ -8,6 +8,8 @@ schematics/*.kicad_prl
 # Build outputs
 software/*/build/*
 !software/*/build/.gitkeep
+# L80 symbol files (/Y), written into src/ for the debugger's SYMBOLS LOAD
+software/*/src/*.SYM
 
 # altairsim working disks -- pristine/ is the tracked master; each project has its own
 # work/ (mutated in place, never shared between projects)
