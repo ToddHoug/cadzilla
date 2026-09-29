@@ -188,11 +188,13 @@ Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
 | `GAREA x1,y1,x2,y2` | set the area rectangle (low corner, high corner; both inside) | |
 | `GAFULL` | the area is the whole screen again | |
 | `GGETCP` | read the CP back: HL = X, DE = Y | clears ARD |
+| `GRDOT x,y` | read the pixel at x,y: A = its color | C (A = 0) if x,y is off the screen; moves RWP |
 | `GPAT name,<w0,...>` | define a pattern table (data) | `DW n`, then n words |
 | `GTILE name,<c0,...,c15>` | define a `CMPRAM` 4x4 color tile (data) | c0..c3 is the bottom row |
 | `GLDPAT tbl[,pra]` | load a table into the pattern RAM from word pra | HL ends up past the table |
 | `GPSCAN x0,y0,x1,y1[,zx,zy]` | pattern scan window, zoom, pointer to x0,y0 | clobbers HL |
 | `GPPTR x,y` | put the pattern pointer at column x, row y | clobbers HL |
+| `GPDEF` | the pattern RAM, scan window and pointer back as `GINIT` leaves them | |
 | `GLSTYL pat[,zoom]` | line style: pattern row 0 = pat, a 16x1 window | `GLSTYL 0FFFFH` is solid again |
 | `GPTN x,y,w,h[,dir]` | draw the pattern RAM as a w x h picture at x,y | dir 0..7 = x45 degrees CCW, `+PTSLNT` slants it |
 
@@ -208,13 +210,13 @@ macros are thin wrappers around them.
 
 | Module | Routines |
 |---|---|
-| `CZINIT` | `CZINIT` (HL = mode descriptor), `CZCLS` (A = color); data `CZM640`, `CZM800`, `CZM1K`, `CZXMAX`, `CZYMAX` |
+| `CZINIT` | `CZINIT` (HL = mode descriptor), `CZCLS` (A = color), `CZPDEF` (the pattern defaults); data `CZM640`, `CZM800`, `CZM1K`, `CZXMAX`, `CZYMAX` |
 | `CZDRAW` | `CZCOL`, `CZMOVE`, `CZLINE`, `CZRECT`, `CZFRCT`, `CZDOT`, `CZRMOV`, `CZRLIN`, `CZRRCT`, `CZRFRC` |
 | `CZPOLY` | `CZPLL`, `CZPLG` (HL = point table) |
 | `CZCURV` | `CZCRCL` (HL = radius, round the CP), `CZELPS` (HL = rx, DE = ry, round the CP), `CZARC` (A = `OPAARC`/`OPRARC`/`OPAEAR`/`OPREAR` + `DIRCW`, HL = parameter table) |
 | `CZFILL` | `CZPANT` (A = edge color), `CZFLOD` (A = region color), `CZGCPY` (A = transform, +10H for RGCPY; HL = Xs,Ys,DX,DY table) |
-| `CZPAT` | `CZLPAT` (A = start word, HL = table), `CZLSTY` (HL = pattern, A = zoom), `CZPTN` (HL = size: H = height-1, L = width-1; A = direction) |
-| `CZMODE` | `CZOPM`, `CZCMOD`, `CZAMOD` (A = field value), `CZCOL0`, `CZCCMP` (A = color), `CZAMIN`, `CZAMAX` (HL = X, DE = Y), `CZAFUL`, `CZGCP` (returns HL = X, DE = Y) |
+| `CZPAT` | `CZLPAT` (A = start word, HL = table), `CZLSTY` (HL = pattern, A = zoom), `CZPTN` (HL = size: H = height-1, L = width-1; A = direction), `CZPSCN` (HL = table: DB x0,y0,x1,y1,zx,zy -- the scan window at run time) |
+| `CZMODE` | `CZOPM`, `CZCMOD`, `CZAMOD` (A = field value), `CZCOL0`, `CZCCMP` (A = color), `CZAMIN`, `CZAMAX` (HL = X, DE = Y), `CZAFUL`, `CZGCP` (returns HL = X, DE = Y), `CZRDOT` (HL = X, DE = Y: A = the pixel's color; C if off the screen) |
 | `CZPAL` | `CZPALD` (load the default palette), `CZPALS` (A = index, B/C/E = R/G/B) |
 | `CZCORE` | `CZWREG` (B = register, HL = value), `CZPUTW` (HL → FIFO), `CZWAIT`, `CZXY` (A = opcode, HL/DE), `CZXYM` (the same, with the drawing mode), `CZCMD` (A = opcode: the command word with the drawing mode), `CZWPR` (A = drawing parameter register, HL = value), `CZSEND` (HL = table, BC = words), `CZRTAB`, `CZLDW`, `CZABT`; data `CZDM`, the drawing mode byte |
 
@@ -321,8 +323,9 @@ region of one color, recoloring it.
 ### Not in czgfx yet
 
 The ACRTC commands czgfx has no routine for are the word-address block
-commands CPY, SCPY, DRD, DWT and DMOD, and the read-back commands other
-than the CP (RD, RPTN, most of RPR). `GCOPY` covers copying on screen,
+commands CPY, SCPY, DRD, DWT and DMOD, WT and MOD, and the read-backs
+other than the CP and a single pixel (RPTN, most of RPR; `CZRDOT` uses
+RD). `GCOPY` covers copying on screen,
 in pixel units. For any of these, send the command word yourself: use
 `CZCMD##` (with the drawing mode) or `CZPUTW##`, then `CZPUTW##` for each
 parameter.

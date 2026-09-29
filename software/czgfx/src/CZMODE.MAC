@@ -1,5 +1,6 @@
 ;
-; CZMODE.MAC -- czgfx: drawing mode, CL0/CCMP, the area, reading CP
+; CZMODE.MAC -- czgfx: drawing mode, CL0/CCMP, the area, reading back
+; (the CP, a pixel)
 ;
 ; The drawing mode byte CZDM (in CZCORE) is the low byte of every
 ; drawing command: AREA (bits 7-5), COL (4-3), OPM (2-0), with the
@@ -9,7 +10,7 @@
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZOPM,CZCMOD,CZAMOD,CZCOL0,CZCCMP
-        PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP
+        PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP,CZRDOT
         EXTRN   CZDM,CZWPR,CZPUTW,CZXMAX,CZYMAX
 ;
         CSEG
@@ -103,6 +104,86 @@ CZGCP:  LXI     H,0C12H         ;RPR CPX
         CALL    RDW
         XCHG
         POP     H
+        RET
+;
+; CZRDOT -- read the pixel at X = HL, Y = DE: A = its palette index,
+; NC; or C (A = 0) if X,Y is off the screen. RD reads the word at RWP:
+; word address (CZYMAX-Y) * words per raster + X/2, even X in the low
+; byte. A raster is 16*m words (m = (CZXMAX+1)/32: 20, 25 or 32), so
+; RWP, the address shifted left 4, is rows*m*256 + (X AND NOT 1)*8:
+; Pr0C = 40H (the base screen) + address bits 19-12, Pr0D = bits 11-0
+; shifted left 4. Leaves RWP past the word. Preserves BC, DE, HL.
+;
+CZRDOT: PUSH    B
+        PUSH    D
+        PUSH    H
+        MOV     B,H             ;BC = X
+        MOV     C,L
+        LHLD    CZYMAX          ;DE = rows from the top: CZYMAX - Y
+        MOV     A,L
+        SUB     E
+        MOV     E,A
+        MOV     A,H
+        SBB     D
+        MOV     D,A
+        JC      RDOFF
+        LHLD    CZXMAX          ;X <= CZXMAX?
+        MOV     A,L
+        SUB     C
+        MOV     A,H
+        SBB     B
+        JC      RDOFF
+        INX     H               ;A = m
+        DAD     H
+        DAD     H
+        DAD     H
+        MOV     A,H
+        LXI     H,0             ;HL = rows * m, a bit of m at a time
+RDM1:   ORA     A
+        JZ      RDM3
+        RAR
+        JNC     RDM2
+        DAD     D
+RDM2:   XCHG
+        DAD     H
+        XCHG
+        JMP     RDM1
+RDM3:   XCHG                    ;DE = rows * m
+        MOV     A,C             ;HL = (X AND NOT 1) * 8
+        ANI     0FEH
+        MOV     L,A
+        MOV     H,B
+        DAD     H
+        DAD     H
+        DAD     H
+        MOV     A,H             ;+ rows * m * 256
+        ADD     E
+        MOV     H,A
+        MOV     A,D
+        ACI     0
+        PUSH    H
+        MOV     L,A             ;Pr0C: the base screen, bits 19-12
+        MVI     H,40H
+        MVI     A,0CH
+        CALL    CZWPR
+        POP     H               ;Pr0D: bits 11-0, shifted left 4
+        MVI     A,0DH
+        CALL    CZWPR
+        LXI     H,OPRD*100H     ;RD: the word to the read FIFO
+        CALL    CZPUTW
+        CALL    RDW             ;H = the odd pixel, L = the even one
+        MOV     A,C
+        RAR
+        MOV     A,L
+        JNC     RDX
+        MOV     A,H
+        ORA     A               ;(NC)
+        JMP     RDX
+RDOFF:  XRA     A
+        STC
+RDX:    POP     H
+        POP     D
+        POP     B
         RET
 ;
 ; RDW -- HL = the next word from the read FIFO, high byte first

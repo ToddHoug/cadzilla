@@ -80,6 +80,7 @@ OPDOT   EQU     0CCH            ;DOT    (the pixel at CP)
 OPPTN   EQU     0D0H            ;PTN    SZ (pattern RAM drawn at CP)
 OPAGCP  EQU     0E0H            ;AGCPY  Xs,Ys,DX,DY (to CP)
 OPRGCP  EQU     0F0H            ;RGCPY  dXs,dYs,DX,DY
+OPRD    EQU     44H             ;RD     (the word at RWP to the read FIFO)
 CMDDOT  EQU     0CC00H          ;DOT    (whole word, mode 0)
 ;
 ; Direction, added to a curve's high byte (CRCL, ELPS, the arcs):
@@ -422,6 +423,14 @@ GGETCP  MACRO
         CALL    CZGCP##
         ENDM
 ;
+; GRDOT x,y -- read the pixel at x,y (blank: in HL, DE): A = its color,
+; NC; or C with A = 0 if x,y is off the screen
+;
+GRDOT   MACRO   XV,YV
+        CZLXY   XV,YV
+        CALL    CZRDOT##
+        ENDM
+;
 ; ================= pattern RAM =================
 ;
 ; The ACRTC's pattern RAM is 16 words. In the bit color modes (CMSEL,
@@ -492,6 +501,13 @@ GPSCAN  MACRO   X0,Y0,X1,Y1,ZX,ZY
         ENDM
 GPPTR   MACRO   XV,YV
         CZWP    5,<(YV)*1000H+(XV)*10H>
+        ENDM
+;
+; GPDEF -- the pattern RAM back as GINIT leaves it: all ones, the whole
+; 16x16 scan window, no zoom, the pointer at 0,0
+;
+GPDEF   MACRO
+        CALL    CZPDEF##
         ENDM
 ;
 ; GLSTYL pat[,zoom] -- line style: pattern row 0 = pat (bit 0 first),

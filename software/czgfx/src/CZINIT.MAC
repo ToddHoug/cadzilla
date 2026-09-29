@@ -23,7 +23,7 @@
 ;
         INCLUDE CZGFX.INC
 ;
-        PUBLIC  CZINIT,CZM640,CZM800,CZM1K,CZXMAX,CZYMAX,CZCLS
+        PUBLIC  CZINIT,CZM640,CZM800,CZM1K,CZXMAX,CZYMAX,CZCLS,CZPDEF
         EXTRN   CZRTAB,CZSEND,CZPUTW,CZLDW,CZPALD,CZDM
 ;
 DPMLEN  EQU     7               ;words in a mode drawing parameter block
@@ -100,6 +100,22 @@ CLSLP:  CALL    CZLDW
         MOV     H,A
         INX     H
         CALL    CZPUTW
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+;
+; CZPDEF -- the pattern RAM, scan window and pointer back as CZINIT
+; leaves them: all ones, 0..15 x 0..15, no zoom, at 0,0 (the first
+; part of DPCOM). Preserves BC, DE, HL.
+;
+CZPDEF: PUSH    B
+        PUSH    D
+        PUSH    H
+        LXI     H,DPCOM
+        LXI     B,(DPPEND-DPCOM)/2
+        CALL    CZSEND
         POP     H
         POP     D
         POP     B
@@ -242,6 +258,7 @@ DPCOM:  DW      1800H,32        ;WPTN PRA=0, n=32 bytes (8-bit bus)
         DW      0805H,0000H     ;PRC: PPY=PPX=0, zoom counts 0
         DW      0806H,0000H     ;PRC: PSY=PSX=0
         DW      0807H,0F0F0H    ;PRC: PEY=PEX=15, no pattern zoom
+DPPEND:                         ;(the pattern part ends: CZPDEF)
         DW      0800H,0000H     ;CL0 = 0
         DW      0801H,0FFFFH    ;CL1 = 0FFH (bright white)
         DW      0802H,0000H     ;CCMP

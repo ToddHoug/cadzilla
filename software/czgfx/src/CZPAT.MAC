@@ -4,11 +4,12 @@
 ; Loading the ACRTC's 16-word pattern RAM (WPTN), a one-row line style,
 ; and PTN, which draws the pattern RAM itself as a small picture. The
 ; scan window and pointer (PRC, Pr05-07) are set with CZWPR -- the
-; GPSCAN and GPPTR macros. See CZGFX.INC for the pattern layout.
+; GPSCAN and GPPTR macros -- or at run time with CZPSCN; CZPDEF (in
+; CZINIT) puts all of it back. See CZGFX.INC for the pattern layout.
 ;
         INCLUDE CZGFX.INC
 ;
-        PUBLIC  CZLPAT,CZLSTY,CZPTN
+        PUBLIC  CZLPAT,CZLSTY,CZPTN,CZPSCN
         EXTRN   CZPUTW,CZSEND,CZLDW,CZWPR,CZCMD
 ;
         CSEG
@@ -64,6 +65,57 @@ CZLSTY: PUSH    B
         CALL    CZWPR
         POP     H
         POP     B
+        RET
+;
+; CZPSCN -- the scan window and zoom, with the pointer at its start, at
+; run time (GPSCAN takes constants): HL = a 6-byte table x0,y0,x1,y1
+; (0-15), zx,zy (0-15: each bit drawn zx+1 times across, zy+1 up).
+; Returns HL past the table. Preserves BC, DE.
+;
+CZPSCN: PUSH    D
+        CALL    PSXY            ;DE = y0*1000H + x0*10H
+        XCHG
+        MVI     A,06H           ;Pr06: the window's start
+        CALL    CZWPR
+        PUSH    H
+        XCHG
+        CALL    PSXY            ;DE = y1*1000H + x1*10H, + the zooms
+        MOV     A,M
+        ANI     0FH
+        ORA     E
+        MOV     E,A
+        INX     H
+        MOV     A,M
+        ANI     0FH
+        ORA     D
+        MOV     D,A
+        INX     H
+        XCHG                    ;(DE = past the table)
+        MVI     A,07H           ;Pr07: its end and the zoom
+        CALL    CZWPR
+        POP     H
+        MVI     A,05H           ;Pr05: the pointer at the start
+        CALL    CZWPR
+        XCHG
+        POP     D
+        RET
+;
+; PSXY -- DE = the nibbles at HL, HL+1 as y*1000H + x*10H; HL += 2
+;
+PSXY:   MOV     A,M
+        INX     H
+        CALL    PSNIB
+        MOV     E,A
+        MOV     A,M
+        INX     H
+        CALL    PSNIB
+        MOV     D,A
+        RET
+PSNIB:  ANI     0FH
+        RLC
+        RLC
+        RLC
+        RLC
         RET
 ;
 ; CZPTN -- draw the pattern RAM as a picture at CP: HL = size, H =
