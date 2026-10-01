@@ -65,8 +65,17 @@ address:
 | 0   | HSPOL | Horizontal sync polarity: 0 = positive sync pulse, 1 = negative sync pulse |
 | 1   | VSPOL | Vertical sync polarity: 0 = positive sync pulse, 1 = negative sync pulse |
 | 2   | AMODE | Address mode: 0 = single access mode, 1 = interleaved access mode |
-| 3   | OLEN  | Overlay enable (TBD) — set to 0 for now |
-| 4–7 | —     | Reserved |
+| 3   | OLEN  | Overlay enable: 0 = overlay plane blanked (shift register loads zeros), 1 = overlay pixels displayed over the frame buffer |
+| 4   | OLSEL | Overlay select: 0 = lower half, 1 = upper half of the overlay memory — selects which 64K-word half of the 128K-word overlay SRAM a drawing-mode CHR screen addresses |
+| 5–7 | —     | Reserved |
+
+The overlay (U19, 1 bit per pixel, mapped 1:1 onto frame-buffer pixels) is
+drawn by targeting an ACRTC screen with the CHR bit set in its Memory Width
+register. A CHR screen only has a 64K-word address space, so OLSEL selects
+which 64K-word half of the 128K-word overlay SRAM that screen addresses.
+OLSEL is cleared to 0 by reset. A CHR screen must never be displayed —
+overlay display is driven by the frame buffer's own display cycles,
+independent of OLSEL.
 
 ### Configuration DIP switch (SW1)
 
