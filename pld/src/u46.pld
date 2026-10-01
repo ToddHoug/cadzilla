@@ -19,6 +19,8 @@ Device   G16V8AS ;
  * Pin 1 is an ordinary input. Change to G16V8 (auto) or G16V8MA if
  * product-term output enables are ever needed.
  *
+ * Speed grade: GAL16V8-15 (15 ns) or faster.
+ *
  * ~DLDEN, ~DHDEN and ~DH2LEN drive the active-low 74F245 ~OE (pin 19)
  * inputs. Pins 11 and 16 are unconnected.
  *

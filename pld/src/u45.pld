@@ -21,6 +21,10 @@ Device   G16V8MA ;
  * product term. Pins 1 and 11 are ordinary inputs; pins 12 and 19 have no
  * feedback.
  *
+ * Speed grade: GAL16V8-15 (15 ns) or faster. A slower part would not lengthen the
+ * guaranteed R/W-before-CS lead: it is set by the minimum tpd, which is
+ * 3 ns for both the -15 and the -25.
+ *
  * ~DTACK (pin 11) is pulled up by R1 (10K).
  *
  * Polarity: pins declared with '!' are active-low; write their equations

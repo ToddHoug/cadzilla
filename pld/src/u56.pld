@@ -16,6 +16,8 @@ Device   G16V8AS ;
  * Simple mode (G16V8AS): combinatorial only, per the schematic note
  * ("U55-U58 should only require combinatorial logic").
  *
+ * Speed grade: GAL16V8-15 (15 ns) or faster.
+ *
  * Display cycles (GAI = 8) access all 8 banks at once (16 pixels).
  * Drawing cycles access the one bank selected by MA0-MA2, and only when
  * CHR = 0; CHR = 1 drawing cycles target the overlay U19 (see U55).

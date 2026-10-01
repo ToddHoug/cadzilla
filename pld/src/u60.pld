@@ -17,6 +17,8 @@ Device   G16V8MA ;
  * Complex mode (G16V8MA): pins 14-17 are used as inputs. Simple mode
  * cannot use pins 15/16 as inputs. Pins 12 and 19 are output-only.
  *
+ * Speed grade: GAL16V8-15 (15 ns) or faster.
+ *
  * ~HSYNC (pin 17) and ~VSYNC (pin 16) come from the ACRTC; HSPOL and
  * VSPOL come from the U41 control latch. Pin 19 is unconnected.
  *

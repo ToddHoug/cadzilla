@@ -1,7 +1,7 @@
 Name     U55 ;
 PartNo   00 ;
 Date     10/01/26 ;
-Revision 02 ;
+Revision 03 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -15,9 +15,16 @@ Device   G16V8AS ;
  * enable, address mux select, address latch enable, and the overlay
  * SRAM (U19) controls.
  *
- * Simple mode (G16V8AS): combinatorial only, per the schematic note
- * ("U55-U58 should only require combinatorial logic; 2CLK on pin 1 as
- * a backup"). In registered mode pin 11 (~AS here) would become /OE.
+ * Simple mode (G16V8AS): combinatorial only. 2CLK on pin 1 is used as
+ * an ordinary input to end ~MWE. In registered mode pin 11 (~AS here)
+ * would become /OE.
+ *
+ * Speed grade: GAL16V8-10 (10 ns) or faster. At 1024x768 the ~OLOE path
+ * (MCYC -> ~OLOE -> SRAM tDOE -> 74F245 -> MAD) has to meet the ACRTC's
+ * 40 ns read-data setup within a 123 ns data half, and ALE must close the
+ * 74ALS573s (7 ns hold) before the ACRTC drops the address. ~MWE must
+ * rise within the ACRTC's 10 ns write-data hold after 2CLK falls
+ * (+ >= 1.2 ns through the 74F245): -10 leaves 1.2 ns, -7 leaves 3.7 ns.
  *
  * Overlay: U19 (128K x 16) holds 1 bpp overlay pixels mapped 1:1 onto
  * frame-buffer pixels. OADISP drives the U52-U54 address mux select:
@@ -39,7 +46,7 @@ Device   G16V8AS ;
  *************************************************************************/
 
 /* ---- Inputs ---- */
-PIN 1  = TWOCLK    ; /* net 2CLK - ACRTC 2CLK from U48 pin 14 (backup clock)    */
+PIN 1  = TWOCLK    ; /* net 2CLK - ACRTC 2CLK from U48 pin 14                   */
 PIN 2  = MA0       ; /* latched ACRTC address MA0 (U49 Q0)                      */
 PIN 3  = MA1       ; /* latched ACRTC address MA1 (U49 Q1)                      */
 PIN 4  = MA2       ; /* latched ACRTC address MA2 (U49 Q2)                      */
@@ -69,7 +76,11 @@ ALE    = AS ;                             /* '573 transparent while ~AS low  */
 OADISP = !DRAW ;                          /* 1 = U19 display address (>> 3)  */
 MDIR1  = DRAW & !MRD ;                    /* 1 = MAD -> SRAM (write)         */
 MDIR2  = DRAW & !MRD ;
-MWE    = DRAW & !MRD & MCYC ;             /* shared ~WE; chip enables decide */
+/* ~MWE ends on 2CLK falling: the edge the ACRTC's 10 ns write-data hold
+ * is measured from. MCYC only selects the data half, and has long settled
+ * by the time 2CLK rises, so its 0-40 ns delay can't stretch the write
+ * past the data. Shared by U11-U19; the chip enables pick the target. */
+MWE    = DRAW & !MRD & MCYC & TWOCLK ;
 
 /* Overlay U19: every display cycle; drawing cycles only for CHR screens */
 OLCE   = !DRAW # DRAW & CHR ;

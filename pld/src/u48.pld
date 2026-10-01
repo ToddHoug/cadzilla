@@ -19,6 +19,10 @@ Device   G16V8MS ;
  * (tied to GND, registered outputs always enabled). CXCLK is also on
  * pin 2 for combinatorial use.
  *
+ * Speed grade: GAL16V8-7 (7.5 ns) required. PCLK is a combinatorial
+ * copy of the 65 MHz dot clock, and the registered outputs must settle
+ * well within one PCLK.
+ *
  * PCLK (12) is a combinatorial, non-inverted copy of CXCLK taken from
  * pin 2, not a registered output. Routing it through the GAL gives it
  * about the same delay as PLOAD and the other outputs.
