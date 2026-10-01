@@ -1,7 +1,7 @@
 Name     U57 ;
 PartNo   00 ;
-Date     09/30/26 ;
-Revision 01 ;
+Date     10/01/26 ;
+Revision 02 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -25,7 +25,7 @@ Device   G16V8AS ;
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
- * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ * Pin/net assignments taken from the KiCad schematic, 10/01/26.
  *************************************************************************/
 
 /* ---- Inputs ---- */
@@ -53,11 +53,15 @@ PIN 19 = !MOE0     ; /* net ~{MOE}0 - SRAM U11 ~OE (pin 41)                     
 
 /* ---- Equations ---- */
 
-/* MOE7 = ... ;  TODO: bank 7 SRAM output enable */
-/* MOE6 = ... ;  TODO: bank 6 SRAM output enable */
-/* MOE5 = ... ;  TODO: bank 5 SRAM output enable */
-/* MOE4 = ... ;  TODO: bank 4 SRAM output enable */
-/* MOE3 = ... ;  TODO: bank 3 SRAM output enable */
-/* MOE2 = ... ;  TODO: bank 2 SRAM output enable */
-/* MOE1 = ... ;  TODO: bank 1 SRAM output enable */
-/* MOE0 = ... ;  TODO: bank 0 SRAM output enable */
+/* Output enables, data half only: all banks on display cycles; on
+ * drawing reads only the selected bank, and none for CHR cycles. */
+DRAWFB = DRAW & !CHR ;                    /* drawing to the frame buffer */
+
+MOE0  = MCYC & (!DRAW # DRAWFB & MRD & !MA2 & !MA1 & !MA0) ;
+MOE1  = MCYC & (!DRAW # DRAWFB & MRD & !MA2 & !MA1 & MA0) ;
+MOE2  = MCYC & (!DRAW # DRAWFB & MRD & !MA2 & MA1 & !MA0) ;
+MOE3  = MCYC & (!DRAW # DRAWFB & MRD & !MA2 & MA1 & MA0) ;
+MOE4  = MCYC & (!DRAW # DRAWFB & MRD & MA2 & !MA1 & !MA0) ;
+MOE5  = MCYC & (!DRAW # DRAWFB & MRD & MA2 & !MA1 & MA0) ;
+MOE6  = MCYC & (!DRAW # DRAWFB & MRD & MA2 & MA1 & !MA0) ;
+MOE7  = MCYC & (!DRAW # DRAWFB & MRD & MA2 & MA1 & MA0) ;

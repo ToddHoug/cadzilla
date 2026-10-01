@@ -76,8 +76,8 @@ host interface options:
 | Switch          | Function | On | Off |
 |-----------------|----------|----|-----|
 | SW1-1 – SW1-5   | I/O base address (address bits 7:3) | — | — |
-| SW1-6           | 16-bit host mode select | HD63484 set to 16-bit host interface mode at reset | HD63484 set to 8-bit host interface mode at reset |
-| SW1-7           | 16-bit address decode enable | Decodes full 16-bit I/O address | Decodes only 8-bit I/O address |
+| SW1-6           | HD63484 host bus width | 8-bit host interface: DACK\* follows RESET\*, so it is low during reset | 16-bit host interface: DACK\* is pulled high |
+| SW1-7           | 16-bit address decode enable | Decodes the full 16-bit I/O address (A15–A8 must be 00h) | Decodes only the 8-bit I/O address |
 | SW1-8           | Interrupt enable | HD63484 interrupt request connected to the S-100 bus | Interrupt request disconnected from the S-100 bus |
 
 ### Frame buffer and feature support

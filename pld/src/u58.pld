@@ -1,7 +1,7 @@
 Name     U58 ;
 PartNo   00 ;
-Date     09/30/26 ;
-Revision 01 ;
+Date     10/01/26 ;
+Revision 02 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -26,7 +26,7 @@ Device   G16V8AS ;
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
- * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ * Pin/net assignments taken from the KiCad schematic, 10/01/26.
  *************************************************************************/
 
 /* ---- Inputs ---- */
@@ -54,11 +54,15 @@ PIN 19 = !MDEN0    ; /* net ~{MDEN}0 - 74F245 U20/U21 CE (pin 19)               
 
 /* ---- Equations ---- */
 
-/* MDEN7 = ... ;  TODO: bank 7 memory data-buffer enable */
-/* MDEN6 = ... ;  TODO: bank 6 memory data-buffer enable */
-/* MDEN5 = ... ;  TODO: bank 5 memory data-buffer enable */
-/* MDEN4 = ... ;  TODO: bank 4 memory data-buffer enable */
-/* MDEN3 = ... ;  TODO: bank 3 memory data-buffer enable */
-/* MDEN2 = ... ;  TODO: bank 2 memory data-buffer enable */
-/* MDEN1 = ... ;  TODO: bank 1 memory data-buffer enable */
-/* MDEN0 = ... ;  TODO: bank 0 memory data-buffer enable */
+/* Data-buffer enables, data half of drawing cycles only: the selected
+ * bank's U20-U35 pair, none for CHR cycles or display cycles. */
+DRAWFB = DRAW & !CHR ;                    /* drawing to the frame buffer */
+
+MDEN0 = MCYC & DRAWFB & !MA2 & !MA1 & !MA0 ;
+MDEN1 = MCYC & DRAWFB & !MA2 & !MA1 & MA0 ;
+MDEN2 = MCYC & DRAWFB & !MA2 & MA1 & !MA0 ;
+MDEN3 = MCYC & DRAWFB & !MA2 & MA1 & MA0 ;
+MDEN4 = MCYC & DRAWFB & MA2 & !MA1 & !MA0 ;
+MDEN5 = MCYC & DRAWFB & MA2 & !MA1 & MA0 ;
+MDEN6 = MCYC & DRAWFB & MA2 & MA1 & !MA0 ;
+MDEN7 = MCYC & DRAWFB & MA2 & MA1 & MA0 ;

@@ -1,7 +1,7 @@
 Name     U46 ;
 PartNo   00 ;
-Date     09/30/26 ;
-Revision 01 ;
+Date     10/01/26 ;
+Revision 02 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -19,11 +19,12 @@ Device   G16V8AS ;
  * Pin 1 is an ordinary input. Change to G16V8 (auto) or G16V8MA if
  * product-term output enables are ever needed.
  *
- * Pins 11 and 16 are unconnected.
+ * ~DLDEN, ~DHDEN and ~DH2LEN drive the active-low 74F245 ~OE (pin 19)
+ * inputs. Pins 11 and 16 are unconnected.
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
- * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ * Pin/net assignments taken from the KiCad schematic, 10/01/26.
  *************************************************************************/
 
 /* ---- Inputs ---- */
@@ -39,22 +40,39 @@ PIN 9  = IODEC     ; /* board I/O address match from U60 pin 18                 
 /* PIN 11 = unconnected (I10 / ~OE) */
 
 /* ---- Outputs ---- */
-PIN 12 = DH2LEN    ; /* 74F245 U40 CE (pin 19)                                  */
-PIN 13 = DHDEN     ; /* 74F245 U39 CE (pin 19)                                  */
-PIN 14 = DLDEN     ; /* 74F245 U38 CE (pin 19)                                  */
-PIN 15 = HDIR      ; /* 74F245 U38/U39/U40 DIR (pin 1)                          */
+PIN 12 = !DH2LEN   ; /* net ~{DH2LEN} - 74F245 U40 ~OE (pin 19): HD0-7 -> DI    */
+PIN 13 = !DHDEN    ; /* net ~{DHDEN} - 74F245 U39 ~OE (pin 19): DI <-> HD8-15   */
+PIN 14 = !DLDEN    ; /* net ~{DLDEN} - 74F245 U38 ~OE (pin 19): DO <-> HD0-7    */
+PIN 15 = HDIR      ; /* 74F245 U38/U39/U40 DIR (pin 1); 1 = S-100 -> HD         */
 PIN 17 = !CTRL_WR  ; /* net ~{CTRL_WR} - U41 74LS273 CP (pin 11)                */
-PIN 18 = DAC_A1    ; /* Bt453 C0 (U47 pin 24)                                   */
-PIN 19 = DAC_A0    ; /* Bt453 C1 (U47 pin 25)                                   */
+PIN 18 = DAC_A1    ; /* Bt453 C1 (U47 pin 25)                                   */
+PIN 19 = DAC_A0    ; /* Bt453 C0 (U47 pin 24)                                   */
 /* PIN 16 = unconnected */
 /* PIN 10 = GND, PIN 20 = +5V */
 
 /* ---- Equations ---- */
 
-/* DH2LEN = ... ;  TODO: data buffer enable */
-/* DHDEN = ... ;  TODO: data buffer enable */
-/* DLDEN = ... ;  TODO: data buffer enable */
-/* HDIR = ... ;  TODO: host buffer direction */
-/* CTRL_WR = ... ;  TODO: control latch write */
-/* DAC_A1 = ... ;  TODO: Bt453 register address bit */
-/* DAC_A0 = ... ;  TODO: Bt453 register address bit */
+/* Board I/O cycle (IODEC = address match from U60) */
+IOSEL   = IODEC & (sINP # sOUT) ;
+X16     = SXTRQ & !SA2 & SA1 & !SA0 ;      /* 16-bit transfer to +2 only   */
+RDEN    = IOSEL & sINP & pDBIN ;           /* slave may drive DI/DO now    */
+
+/* Bt453 register select: C1C0 = SA1..0 */
+DAC_A0  = SA0 ;
+DAC_A1  = SA1 ;
+
+/* Host data buffers; HDIR = 1 is S-100 -> HD (writes)
+ *   U38 DO <-> HD0-7 : all writes except +3, and the low byte of a
+ *                      16-bit read
+ *   U40 HD0-7 -> DI  : 8-bit reads of +0, +2 and +4..+7
+ *                      (+1 MODE is write-only, +3 is 16-bit only)
+ *   U39 DI <-> HD8-15: 16-bit transfers only (high byte) */
+HDIR    = sOUT ;
+DLDEN   = IOSEL & sOUT & !(!SA2 & SA1 & SA0)
+        # RDEN & X16 ;
+DH2LEN  = RDEN & !X16 & (SA2 # !SA0) ;
+DHDEN   = IOSEL & sOUT & X16
+        # RDEN & X16 ;
+
+/* MODE register write at +1: U41 '273 latches on the rising edge */
+CTRL_WR = IOSEL & sOUT & pWR & !SA2 & !SA1 & SA0 ;

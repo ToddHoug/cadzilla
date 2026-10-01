@@ -1,7 +1,7 @@
 Name     U56 ;
 PartNo   00 ;
-Date     09/30/26 ;
-Revision 01 ;
+Date     10/01/26 ;
+Revision 02 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -25,7 +25,7 @@ Device   G16V8AS ;
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
- * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ * Pin/net assignments taken from the KiCad schematic, 10/01/26.
  *************************************************************************/
 
 /* ---- Inputs ---- */
@@ -53,11 +53,15 @@ PIN 19 = !MCE0     ; /* net ~{MCE}0 - SRAM U11 ~CE (pin 6)                      
 
 /* ---- Equations ---- */
 
-/* MCE7 = ... ;  TODO: bank 7 SRAM chip enable */
-/* MCE6 = ... ;  TODO: bank 6 SRAM chip enable */
-/* MCE5 = ... ;  TODO: bank 5 SRAM chip enable */
-/* MCE4 = ... ;  TODO: bank 4 SRAM chip enable */
-/* MCE3 = ... ;  TODO: bank 3 SRAM chip enable */
-/* MCE2 = ... ;  TODO: bank 2 SRAM chip enable */
-/* MCE1 = ... ;  TODO: bank 1 SRAM chip enable */
-/* MCE0 = ... ;  TODO: bank 0 SRAM chip enable */
+/* Chip enables: all banks on display cycles; on drawing cycles only the
+ * bank selected by MA2..0, and none for CHR (overlay) cycles. */
+DRAWFB = DRAW & !CHR ;                    /* drawing to the frame buffer */
+
+MCE0  = !DRAW # DRAWFB & !MA2 & !MA1 & !MA0 ;
+MCE1  = !DRAW # DRAWFB & !MA2 & !MA1 & MA0 ;
+MCE2  = !DRAW # DRAWFB & !MA2 & MA1 & !MA0 ;
+MCE3  = !DRAW # DRAWFB & !MA2 & MA1 & MA0 ;
+MCE4  = !DRAW # DRAWFB & MA2 & !MA1 & !MA0 ;
+MCE5  = !DRAW # DRAWFB & MA2 & !MA1 & MA0 ;
+MCE6  = !DRAW # DRAWFB & MA2 & MA1 & !MA0 ;
+MCE7  = !DRAW # DRAWFB & MA2 & MA1 & MA0 ;

@@ -1,7 +1,7 @@
 Name     U45 ;
 PartNo   00 ;
-Date     09/30/26 ;
-Revision 01 ;
+Date     10/01/26 ;
+Revision 02 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -17,14 +17,15 @@ Device   G16V8MA ;
  *
  * Complex mode (G16V8MA): RDY and ~SIXTN are open-collector S-100 bus
  * lines, so those outputs must only be driven while asserted, using .OE
- * product terms (emulated open collector). Pins 1 and 11 are ordinary
- * inputs; pins 12 and 19 have no feedback.
+ * product terms (emulated open collector). Each output enable is a single
+ * product term. Pins 1 and 11 are ordinary inputs; pins 12 and 19 have no
+ * feedback.
  *
  * ~DTACK (pin 11) is pulled up by R1 (10K).
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
- * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ * Pin/net assignments taken from the KiCad schematic, 10/01/26.
  *************************************************************************/
 
 /* ---- Inputs ---- */
@@ -52,16 +53,42 @@ PIN 19 = !DAC_CS   ; /* net ~{DAC_CS} - Bt453 ~CS (U47 pin 26)                  
 
 /* ---- Equations ---- */
 
-/* CRT_RS = ... ;  TODO: ACRTC register select */
-/* CRT_CS = ... ;  TODO: ACRTC chip select */
-/* CRT_RW = ... ;  TODO: ACRTC read/write */
-/* RDY = ... ;  TODO: wait-state request (open collector: use .OE) */
-/* SIXTN = ... ;  TODO: 16-bit transfer ack (open collector: use .OE) */
-/* DAC_WR = ... ;  TODO: Bt453 write strobe */
-/* DAC_RD = ... ;  TODO: Bt453 read strobe */
-/* DAC_CS = ... ;  TODO: Bt453 chip select */
+/* Board I/O cycle (IODEC = address match from U60) */
+IOSEL   = IODEC & (sINP # sOUT) ;
+CRTSEL  = IOSEL & !SA2 & !SA0 ;            /* ACRTC: +0 (RS=0), +2 (RS=1) */
+DACSEL  = IOSEL & SA2 ;                    /* Bt453: +4..+7, C1C0 = SA1..0 */
 
-/* Open-collector emulation - drive only while asserted:
- * SIXTN     = 'b'1 ;   SIXTN.OE  = <16-bit cycle acknowledged> ;
- * RDY       = 'b'0 ;   RDY.OE    = <insert wait state> ;
- */
+/* ACRTC. CS, R/W and RS are sampled on 2CLK edges, and R/W and RS need
+ * 10-20 ns more setup than CS.
+ *   - R/W = !sOUT rests at 1 (read) between cycles, so it is already
+ *     settled when a read CS falls.
+ *   - A write CS also waits for the R/W pin (pin 14 feedback) to go low,
+ *     so R/W always changes first.
+ *   - CS comes from status, not pDBIN/pWR. RDY must be low by T2, and an
+ *     8080 asserts pWR only after its wait states. */
+CRT_RW    = !sOUT ;
+CRT_CS    = CRTSEL & sINP
+          # CRTSEL & sOUT & !CRT_RW ;
+CRT_RS    = SA1 ;
+CRT_CS.OE = 'b'1 ;
+CRT_RS.OE = 'b'1 ;
+CRT_RW.OE = 'b'1 ;
+
+/* Open-collector outputs. A complex-mode output enable is a single product
+ * term, so both use the CRT_CS pin (pin 13 feedback), which already holds
+ * the board, I/O-cycle and ACRTC-port decode.
+ *   RDY:   pull low (wait) until the ACRTC answers with ~DTACK. CS and
+ *          ~DTACK both last to the end of the cycle.
+ *   SIXTN: 16-bit transfers only to the ACRTC data register at +2. */
+RDY       = 'b'0 ;
+RDY.OE    = CRT_CS & !DTACK ;
+SIXTN     = 'b'1 ;
+SIXTN.OE  = CRT_CS & SXTRQ & SA1 ;
+
+/* Bt453: CS for the whole cycle (35 ns setup/hold around RD/WR) */
+DAC_CS    = DACSEL ;
+DAC_RD    = DACSEL & sINP & pDBIN ;
+DAC_WR    = DACSEL & sOUT & pWR ;
+DAC_CS.OE = 'b'1 ;
+DAC_RD.OE = 'b'1 ;
+DAC_WR.OE = 'b'1 ;

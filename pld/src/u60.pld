@@ -1,7 +1,7 @@
 Name     U60 ;
 PartNo   00 ;
-Date     09/30/26 ;
-Revision 01 ;
+Date     10/01/26 ;
+Revision 02 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -22,7 +22,7 @@ Device   G16V8MA ;
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
- * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ * Pin/net assignments taken from the KiCad schematic, 10/01/26.
  *************************************************************************/
 
 /* ---- Inputs ---- */
@@ -50,6 +50,16 @@ PIN 18 = IODEC     ; /* U45/U46 pin 9                                           
 
 /* ---- Equations ---- */
 
-/* VSYNC = ... ;  TODO: VGA vertical sync (polarity per VSPOL) */
-/* HSYNC = ... ;  TODO: VGA horizontal sync (polarity per HSPOL) */
-/* IODEC = ... ;  TODO: board I/O address match */
+/* Board I/O address match. IODEC8 = A3-A7 match SW1-1..5 (U44/U43).
+ * With ~EN16 asserted (SW1-7 on), A8-A15 must also be 00h. */
+IODEC    = IODEC8 & !EN16
+         # IODEC8 & !SA8 & !SA9 & !SA10 & !SA11 & !SA12 & !SA13 & !SA14 & !SA15 ;
+
+/* VGA sync polarity: xSPOL = 1 gives a negative (active-low) pulse,
+ * 0 a positive one. xSYNC_IN is true while the ACRTC sync is active. */
+HSYNC    = HSYNC_IN $ HSPOL ;
+VSYNC    = VSYNC_IN $ VSPOL ;
+
+IODEC.OE = 'b'1 ;
+HSYNC.OE = 'b'1 ;
+VSYNC.OE = 'b'1 ;

@@ -1,7 +1,7 @@
 Name     U55 ;
 PartNo   00 ;
-Date     09/30/26 ;
-Revision 01 ;
+Date     10/01/26 ;
+Revision 02 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -35,7 +35,7 @@ Device   G16V8AS ;
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
- * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ * Pin/net assignments taken from the KiCad schematic, 10/01/26.
  *************************************************************************/
 
 /* ---- Inputs ---- */
@@ -63,11 +63,15 @@ PIN 19 = !OLCE     ; /* net ~{OLCE} - overlay SRAM U19 ~CE (pin 6)              
 
 /* ---- Equations ---- */
 
-/* MDIR2 = ... ;  TODO: memory data buffer direction */
-/* MDIR1 = ... ;  TODO: memory data buffer direction */
-/* MWE = ... ;  TODO: SRAM write enable */
-/* OADISP = ... ;  TODO: address mux select */
-/* ALE = ... ;  TODO: address latch enable */
-/* OLDEN = ... ;  TODO: overlay data buffer enable */
-/* OLOE = ... ;  TODO: overlay SRAM output enable */
-/* OLCE = ... ;  TODO: overlay SRAM chip enable */
+/* DRAW = drawing cycle, MCYC high = data half of the memory cycle,
+ * MRD = 1 read / 0 write. CHR is never high on display cycles. */
+ALE    = AS ;                             /* '573 transparent while ~AS low  */
+OADISP = !DRAW ;                          /* 1 = U19 display address (>> 3)  */
+MDIR1  = DRAW & !MRD ;                    /* 1 = MAD -> SRAM (write)         */
+MDIR2  = DRAW & !MRD ;
+MWE    = DRAW & !MRD & MCYC ;             /* shared ~WE; chip enables decide */
+
+/* Overlay U19: every display cycle; drawing cycles only for CHR screens */
+OLCE   = !DRAW # DRAW & CHR ;
+OLOE   = MCYC & (!DRAW # DRAW & CHR & MRD) ;
+OLDEN  = MCYC & DRAW & CHR ;
