@@ -1,0 +1,24 @@
+CZBASIC demo disk
+=================
+
+CZBASIC is an MBASIC 5.21 compatible BASIC with CZ... statements
+for the CADzilla graphics board. See docs/czbasic-manual.pdf for
+the CZ statements and functions.
+
+Graphics demos (each draws, then returns to Ok; SYSTEM leaves):
+  A0>CZBASIC CZDEMO     a tour of the CZ statements (press a key
+                       after each of its four screens)
+  A0>CZBASIC STARBRST   lines from the centre
+  A0>CZBASIC XORBAND    XOR drawing
+  A0>CZBASIC SHAPES     polygon, PAINT, FLOOD, CZPOINT
+  A0>CZBASIC PALANIM    palette animation
+
+MBASIC sample programs (they run unchanged):
+  A0>CZBASIC TICTAK     tic-tac-toe
+  A0>CZBASIC LUNAR      lunar lander
+  A0>CZBASIC STARINS    Star Trek instructions
+  A0>CZBASIC STARTRK /X Star Trek -- /X gives the graphics memory
+                       to the program, which it needs
+
+Type CZBASIC alone for the Ok prompt.
+

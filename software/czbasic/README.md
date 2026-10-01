@@ -25,6 +25,7 @@ A0>CZBASIC STARTRK /X          no graphics: their memory goes to programs
 - [Speed](#speed)
 - [Building](#building)
 - [Testing](#testing)
+- [Demo disk](#demo-disk)
 - [Source layout](#source-layout)
 
 ## Compatibility
@@ -257,6 +258,22 @@ EOF
 It prints `Tnn OK` or a diff for each test. `check.py Tnn` checks a single
 run.
 
+## Demo disk
+
+`demodisk/CZBDEMO.DSK` is a bootable 8MB CP/M 2.2 disk carrying
+`CZBASIC.COM`, the CADzilla demos (`CZDEMO` and the short `STARBRST`,
+`XORBAND`, `SHAPES` and `PALANIM` from `demos/`), the MBASIC sample programs
+(`STARTRK`, `STARINS`, `LUNAR`, `TICTAK`), `PIP`, `STAT`, and a
+`CZBASIC.TXT` readme. No sources are on it. Boot it on its own:
+
+```
+cd software/czbasic/demodisk && altairsim cadzilla.toml
+A0>CZBASIC CZDEMO
+```
+
+Running it writes to the image, as any CP/M disk would. To rebuild it, copy
+a blank 8MB disk, SYSGEN it, and PIP the files on through altairsim.
+
 ## Source layout
 
 | File | Contents |
@@ -275,4 +292,5 @@ run.
 
 `ref/` is gitignored. It holds the MBASIC.COM used for the comparisons and
 the sample programs from the same disk (STARTRK, LUNAR, TICTAK, STARINS).
-They are Microsoft's and are never committed.
+MBASIC.COM is never committed; the four samples, which have been widely
+published, are on the demo disk.
