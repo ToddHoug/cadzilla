@@ -1,7 +1,7 @@
 Name     U48 ;
 PartNo   00 ;
 Date     10/01/26 ;
-Revision 02 ;
+Revision 03 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -23,8 +23,8 @@ Device   G16V8MS ;
  * pin 2, not a registered output. Routing it through the GAL gives it
  * about the same delay as PLOAD and the other outputs.
  * PCLK2 (16), PCLK4 (15) and TWOCLK (14) form the dot-clock divider;
- * PCLK2/PCLK4 go nowhere else. SLOT (17, unconnected) is a buried
- * register holding the interleaved-mode display-slot phase.
+ * PCLK2/PCLK4 go nowhere else. SLOT (17) also goes nowhere else; it is
+ * a buried register holding the interleaved-mode display-slot phase.
  * PCLK and PLOAD leave via 33R series resistors R11/R12.
  *
  * One display fetch = 8 banks x 16 bits = 16 pixels, loaded into the
@@ -36,10 +36,8 @@ Device   G16V8MS ;
  *   AMODE = 1 (interleaved): 2CLK = PCLK/4, memory cycle = 8 PCLK,
  *                            display and drawing slots alternate; use
  *                            only when PCLK < 32 MHz. SLOT tracks which
- *                            slot is which; it is corrected by any
- *                            ~DRAW-low cycle (always a drawing slot) and
- *                            by the first DISP1-active cycle of a line
- *                            (always a display slot).
+ *                            slot is which and is re-synced on the first
+ *                            DISP1-active cycle of every line.
  * MCYC toggles after each 2CLK falling edge (<= 40 ns, HD63484-8).
  *
  * Polarity: pins declared with '!' are active-low; write their equations
@@ -55,7 +53,6 @@ PIN 4  = !DISP2    ; /* net ~{DISP2} - ACRTC ~DISP2 (U1 pin 62)                 
 PIN 5  = MCYC      ; /* ACRTC MCYC (U1 pin 52)                                  */
 PIN 6  = AMODE     ; /* U41 74LS273 Q2 (pin 6)                                  */
 PIN 7  = OLEN      ; /* U41 74LS273 Q3 (pin 9)                                  */
-PIN 8  = !DRAW     ; /* net ~{DRAW} - ACRTC ~DRAW (U1 pin 54)                   */
 /* PIN 11 = /OE, tied to GND                                              */
 
 /* ---- Outputs ---- */
@@ -64,9 +61,10 @@ PIN 13 = !BLANK    ; /* net ~{BLANK} - Bt453 ~BLANK (U47 pin 21)                
 PIN 14 = TWOCLK    ; /* net 2CLK - ACRTC 2CLK (U1 pin 50), U55-U58 pin 1        */
 PIN 15 = PCLK4     ; /* no other connection (divider state)                     */
 PIN 16 = PCLK2     ; /* no other connection (divider state)                     */
-PIN 17 = SLOT      ; /* unconnected; buried interleaved display-slot register   */
+PIN 17 = SLOT      ; /* net SLOT, no other connection: interleaved slot phase   */
 PIN 18 = OLPLOAD   ; /* net OLPLOAD - 74F676 U6 LD (pin 5)                      */
 PIN 19 = PLOAD     ; /* via R12 -> 74F676 U2-U5,U7-U10 LD (pin 5)               */
+/* PIN 8 = unconnected */
 /* PIN 9 = unconnected */
 /* PIN 10 = GND, PIN 20 = +5V */
 
@@ -84,18 +82,16 @@ TWOCLK.D = !AMODE & (TWOCLK $ (PCLK4 & PCLK2))   /* PCLK/8 */
  * so PLOAD is high for that last PCLK.
  *   Single:      count 6 of 0..7, every memory cycle.
  *   Interleaved: count 2 of 0..3 (E1), display slot only. SLOT says
- *     whether this memory cycle is the display slot. Two events fix the
- *     phase:
- *       - a ~DRAW-low cycle is always a drawing slot: no load, and the
- *         next memory cycle is the display slot;
- *       - the first DISP1-active cycle while BLANK is still set is always
- *         a display slot (DSK = 0; the ACRTC counts horizontal timing in
- *         whole display cycles), so it loads, re-locking every line.
- *     An idle drawing slot keeps ~DRAW high, so ~DRAW alone can't set
- *     the phase. */
+ *     whether this memory cycle is the display slot, and toggles once
+ *     per memory cycle. BLANK is always set during horizontal blanking,
+ *     so the first DISP1-active cycle of each line finds BLANK still
+ *     set. That cycle is always a display slot (DSK = 0; the ACRTC
+ *     counts horizontal timing in whole display cycles), so it loads
+ *     and re-syncs SLOT at the start of every line. 2CLK comes from this
+ *     divider, so the phase can't drift within a line. */
 L0 = !AMODE & MCYC & TWOCLK & PCLK4 & !PCLK2 ;
 E1 =  AMODE & MCYC & PCLK4 & !PCLK2 ;
-L1 = E1 & !DRAW & (SLOT # DISP1 & BLANK) ;
+L1 = E1 & (SLOT # DISP1 & BLANK) ;
 LD = L0 # L1 ;
 
 PLOAD.D   = LD ;
@@ -105,18 +101,16 @@ OLPLOAD.D = LD & OLEN ;                 /* OLEN = 0: U6 shifts in zeros */
  * pixels of that word. Hold terms are written out so the sum fits in the
  * eight product terms of a registered output. */
 BLANK.D  = L0 & !DISP1
-         # E1 & !DRAW & SLOT & !DISP1
+         # E1 & SLOT & !DISP1
          # BLANK & !MCYC
          # BLANK & !PCLK4
          # BLANK & PCLK2
          # BLANK & !AMODE & !TWOCLK
-         # BLANK & AMODE & !SLOT & !DISP1
-         # BLANK & AMODE & DRAW ;
+         # BLANK & AMODE & !SLOT & !DISP1 ;
 
 /* At each interleaved load point: the next memory cycle is the display
  * slot unless this one loaded. */
-SLOT.D   = E1 & DRAW
-         # E1 & !SLOT & !DISP1
+SLOT.D   = E1 & !SLOT & !DISP1
          # E1 & !SLOT & !BLANK
          # SLOT & !E1 ;
 
