@@ -1,0 +1,64 @@
+Name     U48 ;
+PartNo   00 ;
+Date     09/30/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board ;
+Location U48 ;
+Device   G16V8MS ;
+
+/*************************************************************************
+ * U48 - GAL16V8, sheet "Video Out"
+ *
+ * Video clock generation and timing: divides the dot clock CXCLK (Y1)
+ * into the ACRTC 2CLK and the shift-register load strobes, generates
+ * ~BLANK for the Bt453, and buffers CXCLK out as the pixel clock PCLK.
+ *
+ * Registered mode (G16V8MS): pin 1 is CLK (CXCLK) and pin 11 is /OE
+ * (tied to GND, registered outputs always enabled). CXCLK is also on
+ * pin 2 for combinatorial use.
+ *
+ * PCLK (12) is a combinatorial, non-inverted copy of CXCLK taken from
+ * pin 2, not a registered output. Routing it through the GAL gives it
+ * about the same delay as PLOAD and the other outputs.
+ * PCLK4 (15) and PCLK2 (16) go nowhere else; use them for divider state.
+ * PCLK and PLOAD leave via 33R series resistors R11/R12.
+ *
+ * Polarity: pins declared with '!' are active-low; write their equations
+ * in active-true terms (e.g. X = ... asserts the pin LOW).
+ * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = CXCLK     ; /* Y1 oscillator OUT (register clock)                      */
+PIN 2  = CXCLK_I   ; /* net CXCLK - same clock; drives PCLK combinatorially     */
+PIN 3  = !DISP1    ; /* net ~{DISP1} - ACRTC ~DISP1 (U1 pin 63)                 */
+PIN 4  = !DISP2    ; /* net ~{DISP2} - ACRTC ~DISP2 (U1 pin 62)                 */
+PIN 5  = MCYC      ; /* ACRTC MCYC (U1 pin 52)                                  */
+PIN 6  = AMODE     ; /* U41 74LS273 Q2 (pin 6)                                  */
+PIN 7  = OLEN      ; /* U41 74LS273 Q3 (pin 9)                                  */
+/* PIN 11 = /OE, tied to GND                                              */
+
+/* ---- Outputs ---- */
+PIN 12 = PCLK      ; /* via R11 -> 74F676 U2-U10 CP, Bt453 CLOCK (U47 pin 23)   */
+PIN 13 = !BLANK    ; /* net ~{BLANK} - Bt453 ~BLANK (U47 pin 21)                */
+PIN 14 = TWOCLK    ; /* net 2CLK - ACRTC 2CLK (U1 pin 50), U55-U58 pin 1        */
+PIN 15 = PCLK4     ; /* no other connection (divider state)                     */
+PIN 16 = PCLK2     ; /* no other connection (divider state)                     */
+PIN 18 = OLPLOAD   ; /* net OLPLOAD - 74F676 U6 LD (pin 5)                      */
+PIN 19 = PLOAD     ; /* via R12 -> 74F676 U2-U5,U7-U10 LD (pin 5)               */
+/* PIN 8 = unconnected */
+/* PIN 9 = unconnected */
+/* PIN 17 = unconnected */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+/* PCLK = ... ;  TODO: pixel clock: PCLK = CXCLK_I (combinatorial copy of CXCLK) */
+/* BLANK = ... ;  TODO: video blanking */
+/* TWOCLK.D = ... ;  TODO: ACRTC 2CLK */
+/* PCLK4.D = ... ;  TODO: clock divider state */
+/* PCLK2.D = ... ;  TODO: clock divider state */
+/* OLPLOAD = ... ;  TODO: overlay shift-register load */
+/* PLOAD = ... ;  TODO: pixel shift-register load */

@@ -1,0 +1,67 @@
+Name     U45 ;
+PartNo   00 ;
+Date     09/30/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board ;
+Location U45 ;
+Device   G16V8MA ;
+
+/*************************************************************************
+ * U45 - GAL16V8, sheet "S100 Interface"
+ *
+ * S-100 bus decode for the ACRTC (U1 HD63484) and Bt453 RAMDAC (U47)
+ * register ports, plus the RDY wait-state and ~SIXTN 16-bit acknowledge
+ * bus responses.
+ *
+ * Complex mode (G16V8MA): RDY and ~SIXTN are open-collector S-100 bus
+ * lines, so those outputs must only be driven while asserted, using .OE
+ * product terms (emulated open collector). Pins 1 and 11 are ordinary
+ * inputs; pins 12 and 19 have no feedback.
+ *
+ * ~DTACK (pin 11) is pulled up by R1 (10K).
+ *
+ * Polarity: pins declared with '!' are active-low; write their equations
+ * in active-true terms (e.g. X = ... asserts the pin LOW).
+ * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = SA2       ; /* S-100 A2 (P1 pin 81)                                    */
+PIN 2  = SA1       ; /* S-100 A1 (P1 pin 80)                                    */
+PIN 3  = SA0       ; /* S-100 A0 (P1 pin 79)                                    */
+PIN 4  = !pWR      ; /* net p~{WR} - S-100 p~WR (P1 pin 77)                     */
+PIN 5  = pDBIN     ; /* S-100 pDBIN (P1 pin 78)                                 */
+PIN 6  = sOUT      ; /* S-100 sOUT (P1 pin 45)                                  */
+PIN 7  = sINP      ; /* S-100 sINP (P1 pin 46)                                  */
+PIN 8  = !SXTRQ    ; /* net ~{SXTRQ} - S-100 ~SXTRQ (P1 pin 58)                 */
+PIN 9  = IODEC     ; /* board I/O address match from U60 pin 18                 */
+PIN 11 = !DTACK    ; /* net ~{DTACK} - ACRTC ~DTACK (U1 pin 10), R1 pull-up     */
+
+/* ---- Outputs ---- */
+PIN 12 = CRT_RS    ; /* ACRTC RS (U1 pin 5)                                     */
+PIN 13 = !CRT_CS   ; /* net ~{CRT_CS} - ACRTC ~CS (U1 pin 4)                    */
+PIN 14 = CRT_RW    ; /* net CRT_R/~{W} - ACRTC R/~W (U1 pin 3); 1 = read        */
+PIN 15 = RDY       ; /* S-100 RDY (P1 pin 72)                                   */
+PIN 16 = !SIXTN    ; /* net ~{SIXTN} - S-100 ~SIXTN (P1 pin 60)                 */
+PIN 17 = !DAC_WR   ; /* net ~{DAC_WR} - Bt453 ~WR (U47 pin 28)                  */
+PIN 18 = !DAC_RD   ; /* net ~{DAC_RD} - Bt453 ~RD (U47 pin 27)                  */
+PIN 19 = !DAC_CS   ; /* net ~{DAC_CS} - Bt453 ~CS (U47 pin 26)                  */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+/* CRT_RS = ... ;  TODO: ACRTC register select */
+/* CRT_CS = ... ;  TODO: ACRTC chip select */
+/* CRT_RW = ... ;  TODO: ACRTC read/write */
+/* RDY = ... ;  TODO: wait-state request (open collector: use .OE) */
+/* SIXTN = ... ;  TODO: 16-bit transfer ack (open collector: use .OE) */
+/* DAC_WR = ... ;  TODO: Bt453 write strobe */
+/* DAC_RD = ... ;  TODO: Bt453 read strobe */
+/* DAC_CS = ... ;  TODO: Bt453 chip select */
+
+/* Open-collector emulation - drive only while asserted:
+ * SIXTN     = 'b'1 ;   SIXTN.OE  = <16-bit cycle acknowledged> ;
+ * RDY       = 'b'0 ;   RDY.OE    = <insert wait state> ;
+ */

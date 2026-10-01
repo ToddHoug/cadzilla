@@ -1,0 +1,63 @@
+Name     U57 ;
+PartNo   00 ;
+Date     09/30/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board ;
+Location U57 ;
+Device   G16V8AS ;
+
+/*************************************************************************
+ * U57 - GAL16V8, sheet "Memory Interface"
+ *
+ * Frame-buffer SRAM output enables, one per 16-bit SRAM bank (8 banks).
+ *
+ * Simple mode (G16V8AS): combinatorial only, per the schematic note
+ * ("U55-U58 should only require combinatorial logic").
+ *
+ * Display cycles (GAI = 8) access all 8 banks at once (16 pixels).
+ * Drawing cycles access the one bank selected by MA0-MA2, and only when
+ * CHR = 0; CHR = 1 drawing cycles target the overlay U19 (see U55).
+ * Bank n holds screen pixels 2n (low byte) and 2n+1 (high byte).
+ * Pin 11 is unconnected; 2CLK (pin 1) is not needed on this part.
+ * Bank 0-7 chips: U11, U13, U15, U17, U12, U14, U16, U18.
+ *
+ * Polarity: pins declared with '!' are active-low; write their equations
+ * in active-true terms (e.g. X = ... asserts the pin LOW).
+ * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = TWOCLK    ; /* net 2CLK - ACRTC 2CLK from U48 pin 14 (not needed here) */
+PIN 2  = MA0       ; /* latched ACRTC address MA0 (U49 Q0)                      */
+PIN 3  = MA1       ; /* latched ACRTC address MA1 (U49 Q1)                      */
+PIN 4  = MA2       ; /* latched ACRTC address MA2 (U49 Q2)                      */
+PIN 5  = MCYC      ; /* ACRTC MCYC (U1 pin 52)                                  */
+PIN 6  = CHR       ; /* ACRTC CHR (U1 pin 56)                                   */
+PIN 7  = MRD       ; /* ACRTC MRD (U1 pin 55)                                   */
+PIN 8  = !DRAW     ; /* net ~{DRAW} - ACRTC ~DRAW (U1 pin 54)                   */
+PIN 9  = !HSYNC    ; /* net ~{HSYNC} - ACRTC ~HSYNC (U1 pin 12)                 */
+/* PIN 11 = unconnected (I10 / ~OE) */
+
+/* ---- Outputs ---- */
+PIN 12 = !MOE7     ; /* net ~{MOE}7 - SRAM U18 ~OE (pin 41)                     */
+PIN 13 = !MOE6     ; /* net ~{MOE}6 - SRAM U16 ~OE (pin 41)                     */
+PIN 14 = !MOE5     ; /* net ~{MOE}5 - SRAM U14 ~OE (pin 41)                     */
+PIN 15 = !MOE4     ; /* net ~{MOE}4 - SRAM U12 ~OE (pin 41)                     */
+PIN 16 = !MOE3     ; /* net ~{MOE}3 - SRAM U17 ~OE (pin 41)                     */
+PIN 17 = !MOE2     ; /* net ~{MOE}2 - SRAM U15 ~OE (pin 41)                     */
+PIN 18 = !MOE1     ; /* net ~{MOE}1 - SRAM U13 ~OE (pin 41)                     */
+PIN 19 = !MOE0     ; /* net ~{MOE}0 - SRAM U11 ~OE (pin 41)                     */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+/* MOE7 = ... ;  TODO: bank 7 SRAM output enable */
+/* MOE6 = ... ;  TODO: bank 6 SRAM output enable */
+/* MOE5 = ... ;  TODO: bank 5 SRAM output enable */
+/* MOE4 = ... ;  TODO: bank 4 SRAM output enable */
+/* MOE3 = ... ;  TODO: bank 3 SRAM output enable */
+/* MOE2 = ... ;  TODO: bank 2 SRAM output enable */
+/* MOE1 = ... ;  TODO: bank 1 SRAM output enable */
+/* MOE0 = ... ;  TODO: bank 0 SRAM output enable */

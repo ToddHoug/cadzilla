@@ -1,0 +1,73 @@
+Name     U55 ;
+PartNo   00 ;
+Date     09/30/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board ;
+Location U55 ;
+Device   G16V8AS ;
+
+/*************************************************************************
+ * U55 - GAL16V8, sheet "Memory Interface"
+ *
+ * Frame-buffer memory control: data-buffer direction, SRAM write
+ * enable, address mux select, address latch enable, and the overlay
+ * SRAM (U19) controls.
+ *
+ * Simple mode (G16V8AS): combinatorial only, per the schematic note
+ * ("U55-U58 should only require combinatorial logic; 2CLK on pin 1 as
+ * a backup"). In registered mode pin 11 (~AS here) would become /OE.
+ *
+ * Overlay: U19 (128K x 16) holds 1 bpp overlay pixels mapped 1:1 onto
+ * frame-buffer pixels. OADISP drives the U52-U54 address mux select:
+ *   OADISP = 0: U19 A0-A15 = MA0-MA15, A16 = OLSEL (U41 Q4) (drawing;
+ *               U19 is one 1 bpp bank, half selected by software)
+ *   OADISP = 1: U19 A0-A16 = MA3-MA19 (display; the frame buffer always
+ *               uses GAI = 8, so >> 3 gives the overlay an increment of 1)
+ * Display cycles: U19 is read together with the frame buffer; U48
+ * OLPLOAD loads the word into U6, which shifts it out to Bt453 OL1.
+ * Drawing cycles: U19 is the target only when CHR = 1 (a character
+ * screen); with CHR = 0 the target is the frame-buffer bank (U56-U58).
+ * CHR is never high on display cycles: a CHR screen is only drawn to,
+ * never displayed. ~MWE is shared by U11-U19; the chip enables pick the
+ * target.
+ *
+ * Polarity: pins declared with '!' are active-low; write their equations
+ * in active-true terms (e.g. X = ... asserts the pin LOW).
+ * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = TWOCLK    ; /* net 2CLK - ACRTC 2CLK from U48 pin 14 (backup clock)    */
+PIN 2  = MA0       ; /* latched ACRTC address MA0 (U49 Q0)                      */
+PIN 3  = MA1       ; /* latched ACRTC address MA1 (U49 Q1)                      */
+PIN 4  = MA2       ; /* latched ACRTC address MA2 (U49 Q2)                      */
+PIN 5  = MCYC      ; /* ACRTC MCYC (U1 pin 52)                                  */
+PIN 6  = CHR       ; /* ACRTC CHR (U1 pin 56)                                   */
+PIN 7  = MRD       ; /* ACRTC MRD (U1 pin 55)                                   */
+PIN 8  = !DRAW     ; /* net ~{DRAW} - ACRTC ~DRAW (U1 pin 54)                   */
+PIN 9  = !HSYNC    ; /* net ~{HSYNC} - ACRTC ~HSYNC (U1 pin 12)                 */
+PIN 11 = !AS       ; /* net ~{AS} - ACRTC ~AS (U1 pin 53)                       */
+
+/* ---- Outputs ---- */
+PIN 12 = MDIR2     ; /* 74F245 U21,U23,...,U37 DIR (pin 1)                      */
+PIN 13 = MDIR1     ; /* 74F245 U20,U22,...,U36 DIR (pin 1)                      */
+PIN 14 = !MWE      ; /* net ~{MWE} - CY62136 U11-U18 ~WE (pin 17)               */
+PIN 15 = OADISP    ; /* 74ALS857 U52-U54 S0 (pin 1)                             */
+PIN 16 = ALE       ; /* 74LS573 U49/U50 LE (pin 11)                             */
+PIN 17 = !OLDEN    ; /* net ~{OLDEN} - 74F245 U36/U37 CE (pin 19)               */
+PIN 18 = !OLOE     ; /* net ~{OLOE} - overlay SRAM U19 ~OE (pin 41)             */
+PIN 19 = !OLCE     ; /* net ~{OLCE} - overlay SRAM U19 ~CE (pin 6)              */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+/* MDIR2 = ... ;  TODO: memory data buffer direction */
+/* MDIR1 = ... ;  TODO: memory data buffer direction */
+/* MWE = ... ;  TODO: SRAM write enable */
+/* OADISP = ... ;  TODO: address mux select */
+/* ALE = ... ;  TODO: address latch enable */
+/* OLDEN = ... ;  TODO: overlay data buffer enable */
+/* OLOE = ... ;  TODO: overlay SRAM output enable */
+/* OLCE = ... ;  TODO: overlay SRAM chip enable */

@@ -1,0 +1,64 @@
+Name     U58 ;
+PartNo   00 ;
+Date     09/30/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board ;
+Location U58 ;
+Device   G16V8AS ;
+
+/*************************************************************************
+ * U58 - GAL16V8, sheet "Memory Interface"
+ *
+ * Frame-buffer memory data-buffer enables, one per 16-bit SRAM bank (8 banks).
+ *
+ * Simple mode (G16V8AS): combinatorial only, per the schematic note
+ * ("U55-U58 should only require combinatorial logic").
+ *
+ * Display cycles (GAI = 8) access all 8 banks at once (16 pixels).
+ * Drawing cycles access the one bank selected by MA0-MA2, and only when
+ * CHR = 0; CHR = 1 drawing cycles target the overlay U19 (see U55).
+ * Bank n holds screen pixels 2n (low byte) and 2n+1 (high byte).
+ * Pin 11 is unconnected; 2CLK (pin 1) is not needed on this part.
+ * Bank 0-7 buffer pairs: U20/21, U24/25, U28/29, U32/33,
+ * U22/23, U26/27, U30/31, U34/35.
+ *
+ * Polarity: pins declared with '!' are active-low; write their equations
+ * in active-true terms (e.g. X = ... asserts the pin LOW).
+ * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = TWOCLK    ; /* net 2CLK - ACRTC 2CLK from U48 pin 14 (not needed here) */
+PIN 2  = MA0       ; /* latched ACRTC address MA0 (U49 Q0)                      */
+PIN 3  = MA1       ; /* latched ACRTC address MA1 (U49 Q1)                      */
+PIN 4  = MA2       ; /* latched ACRTC address MA2 (U49 Q2)                      */
+PIN 5  = MCYC      ; /* ACRTC MCYC (U1 pin 52)                                  */
+PIN 6  = CHR       ; /* ACRTC CHR (U1 pin 56)                                   */
+PIN 7  = MRD       ; /* ACRTC MRD (U1 pin 55)                                   */
+PIN 8  = !DRAW     ; /* net ~{DRAW} - ACRTC ~DRAW (U1 pin 54)                   */
+PIN 9  = !HSYNC    ; /* net ~{HSYNC} - ACRTC ~HSYNC (U1 pin 12)                 */
+/* PIN 11 = unconnected (I10 / ~OE) */
+
+/* ---- Outputs ---- */
+PIN 12 = !MDEN7    ; /* net ~{MDEN}7 - 74F245 U34/U35 CE (pin 19)               */
+PIN 13 = !MDEN6    ; /* net ~{MDEN}6 - 74F245 U30/U31 CE (pin 19)               */
+PIN 14 = !MDEN5    ; /* net ~{MDEN}5 - 74F245 U26/U27 CE (pin 19)               */
+PIN 15 = !MDEN4    ; /* net ~{MDEN}4 - 74F245 U22/U23 CE (pin 19)               */
+PIN 16 = !MDEN3    ; /* net ~{MDEN}3 - 74F245 U32/U33 CE (pin 19)               */
+PIN 17 = !MDEN2    ; /* net ~{MDEN}2 - 74F245 U28/U29 CE (pin 19)               */
+PIN 18 = !MDEN1    ; /* net ~{MDEN}1 - 74F245 U24/U25 CE (pin 19)               */
+PIN 19 = !MDEN0    ; /* net ~{MDEN}0 - 74F245 U20/U21 CE (pin 19)               */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+/* MDEN7 = ... ;  TODO: bank 7 memory data-buffer enable */
+/* MDEN6 = ... ;  TODO: bank 6 memory data-buffer enable */
+/* MDEN5 = ... ;  TODO: bank 5 memory data-buffer enable */
+/* MDEN4 = ... ;  TODO: bank 4 memory data-buffer enable */
+/* MDEN3 = ... ;  TODO: bank 3 memory data-buffer enable */
+/* MDEN2 = ... ;  TODO: bank 2 memory data-buffer enable */
+/* MDEN1 = ... ;  TODO: bank 1 memory data-buffer enable */
+/* MDEN0 = ... ;  TODO: bank 0 memory data-buffer enable */

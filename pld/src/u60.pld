@@ -1,0 +1,55 @@
+Name     U60 ;
+PartNo   00 ;
+Date     09/30/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board ;
+Location U60 ;
+Device   G16V8MA ;
+
+/*************************************************************************
+ * U60 - GAL16V8, sheet "S100 Interface"
+ *
+ * Board I/O address decode (A8-A15, 16-bit I/O enable, 74LS85 compare)
+ * and HSYNC/VSYNC output polarity select for the VGA connector.
+ *
+ * Complex mode (G16V8MA): pins 14-17 are used as inputs. Simple mode
+ * cannot use pins 15/16 as inputs. Pins 12 and 19 are output-only.
+ *
+ * ~HSYNC (pin 17) and ~VSYNC (pin 16) come from the ACRTC; HSPOL and
+ * VSPOL come from the U41 control latch. Pin 19 is unconnected.
+ *
+ * Polarity: pins declared with '!' are active-low; write their equations
+ * in active-true terms (e.g. X = ... asserts the pin LOW).
+ * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = SA8       ; /* S-100 A8 (P1 pin 84)                                    */
+PIN 2  = SA9       ; /* S-100 A9 (P1 pin 34)                                    */
+PIN 3  = SA10      ; /* S-100 A10 (P1 pin 37)                                   */
+PIN 4  = SA11      ; /* S-100 A11 (P1 pin 87)                                   */
+PIN 5  = SA12      ; /* S-100 A12 (P1 pin 33)                                   */
+PIN 6  = SA13      ; /* S-100 A13 (P1 pin 85)                                   */
+PIN 7  = SA14      ; /* S-100 A14 (P1 pin 86)                                   */
+PIN 8  = SA15      ; /* S-100 A15 (P1 pin 32)                                   */
+PIN 9  = !EN16     ; /* net ~{EN16} - SW1 / RN1 pull-up: 16-bit I/O addressing  */
+PIN 11 = IODEC8    ; /* U44 74LS85 A=B (pin 6): low address byte match          */
+PIN 14 = HSPOL     ; /* U41 74LS273 Q0 (pin 2)                                  */
+PIN 15 = VSPOL     ; /* U41 74LS273 Q1 (pin 5)                                  */
+PIN 16 = !VSYNC_IN ; /* net ~{VSYNC} - ACRTC ~VSYNC (U1 pin 13)                 */
+PIN 17 = !HSYNC_IN ; /* net ~{HSYNC} - ACRTC ~HSYNC (U1 pin 12)                 */
+
+/* ---- Outputs ---- */
+PIN 12 = VSYNC     ; /* J1 DE15 pin 14 / J2 pin 14                              */
+PIN 13 = HSYNC     ; /* J1 DE15 pin 13 / J2 pin 13                              */
+PIN 18 = IODEC     ; /* U45/U46 pin 9                                           */
+/* PIN 19 = unconnected */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+/* VSYNC = ... ;  TODO: VGA vertical sync (polarity per VSPOL) */
+/* HSYNC = ... ;  TODO: VGA horizontal sync (polarity per HSPOL) */
+/* IODEC = ... ;  TODO: board I/O address match */

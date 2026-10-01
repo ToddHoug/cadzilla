@@ -1,0 +1,63 @@
+Name     U56 ;
+PartNo   00 ;
+Date     09/30/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board ;
+Location U56 ;
+Device   G16V8AS ;
+
+/*************************************************************************
+ * U56 - GAL16V8, sheet "Memory Interface"
+ *
+ * Frame-buffer SRAM chip enables, one per 16-bit SRAM bank (8 banks).
+ *
+ * Simple mode (G16V8AS): combinatorial only, per the schematic note
+ * ("U55-U58 should only require combinatorial logic").
+ *
+ * Display cycles (GAI = 8) access all 8 banks at once (16 pixels).
+ * Drawing cycles access the one bank selected by MA0-MA2, and only when
+ * CHR = 0; CHR = 1 drawing cycles target the overlay U19 (see U55).
+ * Bank n holds screen pixels 2n (low byte) and 2n+1 (high byte).
+ * Pin 11 is unconnected; 2CLK (pin 1) is not needed on this part.
+ * Bank 0-7 chips: U11, U13, U15, U17, U12, U14, U16, U18.
+ *
+ * Polarity: pins declared with '!' are active-low; write their equations
+ * in active-true terms (e.g. X = ... asserts the pin LOW).
+ * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = TWOCLK    ; /* net 2CLK - ACRTC 2CLK from U48 pin 14 (not needed here) */
+PIN 2  = MA0       ; /* latched ACRTC address MA0 (U49 Q0)                      */
+PIN 3  = MA1       ; /* latched ACRTC address MA1 (U49 Q1)                      */
+PIN 4  = MA2       ; /* latched ACRTC address MA2 (U49 Q2)                      */
+PIN 5  = MCYC      ; /* ACRTC MCYC (U1 pin 52)                                  */
+PIN 6  = CHR       ; /* ACRTC CHR (U1 pin 56)                                   */
+PIN 7  = MRD       ; /* ACRTC MRD (U1 pin 55)                                   */
+PIN 8  = !DRAW     ; /* net ~{DRAW} - ACRTC ~DRAW (U1 pin 54)                   */
+PIN 9  = !HSYNC    ; /* net ~{HSYNC} - ACRTC ~HSYNC (U1 pin 12)                 */
+/* PIN 11 = unconnected (I10 / ~OE) */
+
+/* ---- Outputs ---- */
+PIN 12 = !MCE7     ; /* net ~{MCE}7 - SRAM U18 ~CE (pin 6)                      */
+PIN 13 = !MCE6     ; /* net ~{MCE}6 - SRAM U16 ~CE (pin 6)                      */
+PIN 14 = !MCE5     ; /* net ~{MCE}5 - SRAM U14 ~CE (pin 6)                      */
+PIN 15 = !MCE4     ; /* net ~{MCE}4 - SRAM U12 ~CE (pin 6)                      */
+PIN 16 = !MCE3     ; /* net ~{MCE}3 - SRAM U17 ~CE (pin 6)                      */
+PIN 17 = !MCE2     ; /* net ~{MCE}2 - SRAM U15 ~CE (pin 6)                      */
+PIN 18 = !MCE1     ; /* net ~{MCE}1 - SRAM U13 ~CE (pin 6)                      */
+PIN 19 = !MCE0     ; /* net ~{MCE}0 - SRAM U11 ~CE (pin 6)                      */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+/* MCE7 = ... ;  TODO: bank 7 SRAM chip enable */
+/* MCE6 = ... ;  TODO: bank 6 SRAM chip enable */
+/* MCE5 = ... ;  TODO: bank 5 SRAM chip enable */
+/* MCE4 = ... ;  TODO: bank 4 SRAM chip enable */
+/* MCE3 = ... ;  TODO: bank 3 SRAM chip enable */
+/* MCE2 = ... ;  TODO: bank 2 SRAM chip enable */
+/* MCE1 = ... ;  TODO: bank 1 SRAM chip enable */
+/* MCE0 = ... ;  TODO: bank 0 SRAM chip enable */

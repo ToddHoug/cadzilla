@@ -1,0 +1,60 @@
+Name     U46 ;
+PartNo   00 ;
+Date     09/30/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board ;
+Location U46 ;
+Device   G16V8AS ;
+
+/*************************************************************************
+ * U46 - GAL16V8, sheet "S100 Interface"
+ *
+ * S-100 bus control: host data-buffer enables/direction (U38-U40
+ * 74F245), control-latch write (U41 74LS273), and the Bt453 register
+ * address bits.
+ *
+ * Simple mode (G16V8AS): all outputs are always-driven combinatorial.
+ * Pin 1 is an ordinary input. Change to G16V8 (auto) or G16V8MA if
+ * product-term output enables are ever needed.
+ *
+ * Pins 11 and 16 are unconnected.
+ *
+ * Polarity: pins declared with '!' are active-low; write their equations
+ * in active-true terms (e.g. X = ... asserts the pin LOW).
+ * Pin/net assignments taken from the KiCad schematic, 09/30/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = SA2       ; /* S-100 A2 (P1 pin 81)                                    */
+PIN 2  = SA1       ; /* S-100 A1 (P1 pin 80)                                    */
+PIN 3  = SA0       ; /* S-100 A0 (P1 pin 79)                                    */
+PIN 4  = !pWR      ; /* net p~{WR} - S-100 p~WR (P1 pin 77)                     */
+PIN 5  = pDBIN     ; /* S-100 pDBIN (P1 pin 78)                                 */
+PIN 6  = sOUT      ; /* S-100 sOUT (P1 pin 45)                                  */
+PIN 7  = sINP      ; /* S-100 sINP (P1 pin 46)                                  */
+PIN 8  = !SXTRQ    ; /* net ~{SXTRQ} - S-100 ~SXTRQ (P1 pin 58)                 */
+PIN 9  = IODEC     ; /* board I/O address match from U60 pin 18                 */
+/* PIN 11 = unconnected (I10 / ~OE) */
+
+/* ---- Outputs ---- */
+PIN 12 = DH2LEN    ; /* 74F245 U40 CE (pin 19)                                  */
+PIN 13 = DHDEN     ; /* 74F245 U39 CE (pin 19)                                  */
+PIN 14 = DLDEN     ; /* 74F245 U38 CE (pin 19)                                  */
+PIN 15 = HDIR      ; /* 74F245 U38/U39/U40 DIR (pin 1)                          */
+PIN 17 = !CTRL_WR  ; /* net ~{CTRL_WR} - U41 74LS273 CP (pin 11)                */
+PIN 18 = DAC_A1    ; /* Bt453 C0 (U47 pin 24)                                   */
+PIN 19 = DAC_A0    ; /* Bt453 C1 (U47 pin 25)                                   */
+/* PIN 16 = unconnected */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+/* DH2LEN = ... ;  TODO: data buffer enable */
+/* DHDEN = ... ;  TODO: data buffer enable */
+/* DLDEN = ... ;  TODO: data buffer enable */
+/* HDIR = ... ;  TODO: host buffer direction */
+/* CTRL_WR = ... ;  TODO: control latch write */
+/* DAC_A1 = ... ;  TODO: Bt453 register address bit */
+/* DAC_A0 = ... ;  TODO: Bt453 register address bit */
