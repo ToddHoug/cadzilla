@@ -777,15 +777,32 @@ In this mode, two separate logical screens are accessed during each display cycl
 ---
 *(source page 22, landscape orientation — note: this page appears out of numeric order in the scanned source, between source pages 20 and 21)*
 
-**Figure 2.1(d) Access Mode Timing** — A detailed timing diagram comparing SA (Single Access), DA0 (Dual Access mode 0/Interleaved) and DA1 (Dual Access mode 1/Superimposed) cycle sequences against 2CLK, MCYC and HSYNC̄, with DISP1̄ and DISP2̄ (WSS=0 and WSS="1" variants) shown.
+**Figure 2.1(d) Access Mode Timing** — A detailed timing diagram comparing the memory-cycle sequences of SA (Single Access), DA0 (Dual Access mode 0 / Interleaved) and DA1 (Dual Access mode 1 / Superimposed) over one horizontal line, from the last cycle of HSYNC̄ low, through the display period, into the following non-display cycles. Common rows at the top: 2CLK, MCYC, HSYNC̄, DISP1̄, DISP2̄ (WSS=0). Each mode group then has its own AS̄, MAD, MA/RA, MRD, DRAW̄ and DISP2̄ (WSS="1") rows. The figure spans 17 memory cycles (numbered 1–17 below; one memory cycle = one MCYC period = two 2CLK periods).
 
-Legend: **S** = Split Screen Display Cycle; **R** = Refresh Address Output Cycle (in DRAM mode); **W** = Window Display Cycle; **A** (circled) = Attribute Output Cycle; **O** = Drawing-Possible Cycle (when no drawing is executed the output is fixed at "0"); **O\*** = in this cycle the output will be fixed at "0".
+Legend: **S** = Split Screen Display Cycle; **R** = Refresh Address Output Cycle (in DRAM mode); **W** = Window Display Cycle; **A** (circled) = Attribute Output Cycle; **O** = Drawing-Possible Cycle (when no drawing is executed the output will be fixed at "0"); **O\*** = in this cycle the output will be fixed at "0".
 
-**[SA] row group:** AS̄, MAD and MA/RA cycle through R→A→O→O→S→S→S→S→S→W→W→W→W→S→S→O→O→O in sequence (one address/attribute type output per AS̄ pulse); MRD and DRAW̄ held "HIGH" throughout (display-only, single access).
+**Common rows:** HSYNC̄ is low during cycle 1 and rises at its end (cycle 1 is the last cycle of HSYNC̄ low). DISP1̄ is low for cycles 5–14. DISP2̄ (WSS=0) is low for cycles 9–12.
 
-**[DA0] row group:** AS̄, MAD, MA/RA alternate more finely — R→A→O, then S→O, S→O, S→O→S→O, S→O→S→O, W→O→W→O, W→O→W→O, S→O, S→O, O→O→O — interleaving a Drawing-Possible "O" cycle after most display cycles; MRD/DRAW̄ "HIGH" at the start, with DISP2̄ (WSS="1") shown pulsing low over the window-cycle region.
+**AS̄ strobes only R, S and W cycles.** In all three modes AS̄ pulses low only in refresh-address (R) and display (S, W) cycles. Drawing-Possible "0" cycles — the idle slots between display cycles and the non-display cycles before and after the display period — have **no AS̄ pulse**; MAD and MA/RA are simply shown as "0" during them. Cycle 1 has a single AS̄ pulse: MAD carries the refresh address R in the address phase and the attribute A in the data phase of the same memory cycle (MA/RA show 0\* then A).
 
-**[DA1] row group:** similar interleaving to DA0 but the window cycles alternate S↔W directly (S,W,S,W) rather than W,O,W,O, reflecting the Superimposed mode's alternation between background and window screens each cycle; MRD pulses low during the W cycles (window reads), and DISP2̄ (WSS="1") again goes low over the S/W alternation region.
+MAD contents per memory cycle (● = AS̄ pulses in that cycle):
+
+| Cycle | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| SA MAD | R/A | 0 | 0 | S | S | S | S | S | W | W | W | W | S | S | 0 | 0 | 0 |
+| SA AS̄ | ● | | | ● | ● | ● | ● | ● | ● | ● | ● | ● | ● | ● | | | |
+| DA0 MAD | R/A | 0 | S | 0 | S | 0 | S | 0 | W | 0 | W | 0 | S | 0 | 0 | 0 | 0 |
+| DA0 AS̄ | ● | | ● | | ● | | ● | | ● | | ● | | ● | | | | |
+| DA1 MAD | R/A | 0 | S | 0 | S | 0 | S | 0 | S | W | S | W | S | 0 | 0 | 0 | 0 |
+| DA1 AS̄ | ● | | ● | | ● | | ● | | ● | ● | ● | ● | ● | | | | |
+
+**[SA] row group:** MA/RA follow MAD. MRD and DRAW̄ are "HIGH" throughout. DISP2̄ (WSS="1") is low for cycles 10–12.
+
+**[DA0] row group:** Display (S/W) and Drawing-Possible (0) slots alternate; with no drawing shown, every 0 slot is unstrobed. MA/RA follow MAD. MRD and DRAW̄ are "HIGH" throughout. DISP2̄ (WSS="1") is low for cycles 11–12.
+
+**[DA1] row group:** Same as DA0 except that in the window region (cycles 9–12) the second slot carries the Window display address W instead of 0, so AS̄ pulses every cycle there. MRD goes low during the W cycles (10 and 12 — the window read phase). DRAW̄ is "HIGH" throughout. DISP2̄ (WSS="1") is low for cycles 11–12.
+
+Note the alignment of display fetches with DISP1̄: the first display cycle (S) occurs before DISP1̄ goes low — cycle 4 in SA, cycle 3 in DA0/DA1 — and the last display cycle is cycle 14 (SA) or 13 (DA0/DA1), with DISP1̄ returning high at the end of cycle 14.
 
 ---
 *(source page 21, landscape orientation — note: this page appears out of numeric order in the scanned source, after source page 22)*
@@ -868,9 +885,18 @@ HSW ≥ 128 / (2 × 15.75) = 4.06
 ---
 *(source page 25, landscape orientation)*
 
-**Figure 2.3(b) DRAM Refresh Timing** — Timing diagram spanning one full horizontal line, from one Display Period through the Retrace Period (Front Porch, H-Sync Cycle/Refresh Cycle, Attribute cycle, Back Porch) to the next Display Period.
+**Figure 2.3(b) DRAM Refresh Timing** — Timing diagram spanning one full horizontal line, from one Display Period through the Retrace Period (Front Porch, H-Sync Cycle = Refresh Cycle + Attribute, Back Porch) to the next Display Period. Signals: 2CLK, MCYC (both free-running), DISP̄, HSYNC̄, AS̄, MAD, MA/RA, RA4, CHR, DRAW̄, MRD.
 
-Signals: 2CLK, MCYC (both free-running); DISP̄ (high during the Display Period, low during retrace); HSYNC̄ (high, pulsing low for the H-Sync Cycle within the retrace period); AS̄ (pulses once per memory cycle throughout); MAD and MA/RA carry, in sequence: "A" (display address, during Display Period), "0","0" (Front Porch, non-display, address forced to 0), "REF","REF" (DRAM refresh addresses during the H-Sync Cycle/Refresh Cycle), "ATB" (Attribute output cycle, coincident with the HSYNC̄ rising edge), "0","0" (Back Porch, non-display), then "A" again at the start of the next Display Period. RA4 and CHR stay low/inactive through the non-display portion and resume with the next Display Period. DRAW̄ and MRD are held "High" throughout (no drawing shown).
+In sequence:
+
+- **Display Period:** MAD and MA/RA carry the display address "A"; AS̄ pulses low in the address phase; DISP̄ is low; RA4 and CHR are high.
+- **Front Porch (non-display), 2 memory cycles:** DISP̄ goes high; RA4 and CHR go low. MAD and MA/RA show "0", "0". **AS̄ does not pulse.**
+- **Refresh Cycle, 2 memory cycles:** HSYNC̄ goes low. MAD carries "REF", "REF" (the DRAM refresh addresses), with **one AS̄ pulse per refresh cycle**; MA/RA show "0".
+- **Attribute:** "ATB" appears on MAD and MA/RA in the data phase of the last refresh memory cycle (the last cycle of HSYNC̄ low), ending as HSYNC̄ rises. It has **no AS̄ pulse of its own**.
+- **Back Porch (non-display), 2 memory cycles:** MAD and MA/RA show "0", "0". **AS̄ does not pulse.**
+- **Next Display Period:** DISP̄ goes low, RA4 and CHR go high, and AS̄ pulses again with display address "A".
+
+DRAW̄ and MRD are held "High" throughout (no drawing shown).
 
 ---
 *(source page 26)*
