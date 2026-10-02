@@ -1,7 +1,7 @@
 Name     U55 ;
 PartNo   00 ;
-Date     10/01/26 ;
-Revision 03 ;
+Date     10/02/26 ;
+Revision 04 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -32,8 +32,9 @@ Device   G16V8AS ;
  *               U19 is one 1 bpp bank, half selected by software)
  *   OADISP = 1: U19 A0-A16 = MA3-MA19 (display; the frame buffer always
  *               uses GAI = 8, so >> 3 gives the overlay an increment of 1)
- * Display cycles: U19 is read together with the frame buffer; U48
- * OLPLOAD loads the word into U6, which shifts it out to Bt453 OL1.
+ * Display fetches: U19 is read together with the frame buffer (FETCH
+ * from U48); U48 OLPLOAD loads the word into U6, which shifts it out to
+ * Bt453 OL1.
  * Drawing cycles: U19 is the target only when CHR = 1 (a character
  * screen); with CHR = 0 the target is the frame-buffer bank (U56-U58).
  * CHR is never high on display cycles: a CHR screen is only drawn to,
@@ -42,7 +43,7 @@ Device   G16V8AS ;
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
- * Pin/net assignments taken from the KiCad schematic, 10/01/26.
+ * Pin/net assignments taken from the KiCad schematic, 10/02/26.
  *************************************************************************/
 
 /* ---- Inputs ---- */
@@ -54,7 +55,7 @@ PIN 5  = MCYC      ; /* ACRTC MCYC (U1 pin 52)                                  
 PIN 6  = CHR       ; /* ACRTC CHR (U1 pin 56)                                   */
 PIN 7  = MRD       ; /* ACRTC MRD (U1 pin 55)                                   */
 PIN 8  = !DRAW     ; /* net ~{DRAW} - ACRTC ~DRAW (U1 pin 54)                   */
-PIN 9  = !HSYNC    ; /* net ~{HSYNC} - ACRTC ~HSYNC (U1 pin 12)                 */
+PIN 9  = FETCH     ; /* net FETCH - U48 pin 17: display fetch this cycle        */
 PIN 11 = !AS       ; /* net ~{AS} - ACRTC ~AS (U1 pin 53)                       */
 
 /* ---- Outputs ---- */
@@ -82,7 +83,9 @@ MDIR2  = DRAW & !MRD ;
  * past the data. Shared by U11-U19; the chip enables pick the target. */
 MWE    = DRAW & !MRD & MCYC & TWOCLK ;
 
-/* Overlay U19: every display cycle; drawing cycles only for CHR screens */
-OLCE   = !DRAW # DRAW & CHR ;
-OLOE   = MCYC & (!DRAW # DRAW & CHR & MRD) ;
+/* Overlay U19: display fetches (FETCH from U48); drawing cycles only for
+ * CHR screens. Deselected otherwise, so it isn't read in porch, retrace or
+ * idle slots. */
+OLCE   = !DRAW & FETCH # DRAW & CHR ;
+OLOE   = MCYC & (!DRAW & FETCH # DRAW & CHR & MRD) ;
 OLDEN  = MCYC & DRAW & CHR ;

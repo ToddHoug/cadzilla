@@ -27,3 +27,12 @@ software/*/libdisk/
 
 # personal prompt notes (local only)
 MyPrompts.md
+
+# WinCUPL compiler and CSIM simulator outputs written next to the .pld sources.
+# The fuse maps that get programmed are kept in pld/jed/.
+pld/src/*.[aA][bB][sS]
+pld/src/*.[sS][iI][mM]
+pld/src/*.[sS][oO]
+pld/src/*.[wW][oO]
+pld/src/*.[dD][oO][cC]
+pld/src/*.[jJ][eE][dD]

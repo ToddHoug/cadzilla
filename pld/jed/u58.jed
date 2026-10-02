@@ -1,11 +1,11 @@
 
 CUPL(WM)        5.0a  Serial# MW-10400000
 Device          g16v8as  Library DLIB-h-40-2
-Created         Thu Oct 01 10:14:29 2026
+Created         Fri Oct 02 17:53:16 2026
 Name            U58 
 Partno          00 
-Revision        02 
-Date            10/01/26 
+Revision        03 
+Date            10/02/26 
 Designer        Todd Houg 
 Company         CADzilla 
 Assembly        CADzilla S-100 ACRTC board 
@@ -27,4 +27,4 @@ Location        U58
 *L02144 11111111111111111111111111111111
 *L02176 111111111111111110
 *C267D
-*B1CB
+*B1C4

@@ -1,7 +1,7 @@
 Name     U56 ;
 PartNo   00 ;
-Date     10/01/26 ;
-Revision 02 ;
+Date     10/02/26 ;
+Revision 03 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -18,7 +18,8 @@ Device   G16V8AS ;
  *
  * Speed grade: GAL16V8-15 (15 ns) or faster.
  *
- * Display cycles (GAI = 8) access all 8 banks at once (16 pixels).
+ * Display fetches (GAI = 8, FETCH from U48) access all 8 banks at once
+ * (16 pixels).
  * Drawing cycles access the one bank selected by MA0-MA2, and only when
  * CHR = 0; CHR = 1 drawing cycles target the overlay U19 (see U55).
  * Bank n holds screen pixels 2n (low byte) and 2n+1 (high byte).
@@ -27,7 +28,7 @@ Device   G16V8AS ;
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
- * Pin/net assignments taken from the KiCad schematic, 10/01/26.
+ * Pin/net assignments taken from the KiCad schematic, 10/02/26.
  *************************************************************************/
 
 /* ---- Inputs ---- */
@@ -39,7 +40,7 @@ PIN 5  = MCYC      ; /* ACRTC MCYC (U1 pin 52)                                  
 PIN 6  = CHR       ; /* ACRTC CHR (U1 pin 56)                                   */
 PIN 7  = MRD       ; /* ACRTC MRD (U1 pin 55)                                   */
 PIN 8  = !DRAW     ; /* net ~{DRAW} - ACRTC ~DRAW (U1 pin 54)                   */
-PIN 9  = !HSYNC    ; /* net ~{HSYNC} - ACRTC ~HSYNC (U1 pin 12)                 */
+PIN 9  = FETCH     ; /* net FETCH - U48 pin 17: display fetch this cycle        */
 /* PIN 11 = unconnected (I10 / ~OE) */
 
 /* ---- Outputs ---- */
@@ -55,15 +56,17 @@ PIN 19 = !MCE0     ; /* net ~{MCE}0 - SRAM U11 ~CE (pin 6)                      
 
 /* ---- Equations ---- */
 
-/* Chip enables: all banks on display cycles; on drawing cycles only the
- * bank selected by MA2..0, and none for CHR (overlay) cycles. */
+/* Chip enables: all banks on display fetches (FETCH from U48); on drawing
+ * cycles only the bank selected by MA2..0, and none for CHR (overlay)
+ * cycles. Every SRAM is deselected (standby) in porch, retrace and idle
+ * slots. */
 DRAWFB = DRAW & !CHR ;                    /* drawing to the frame buffer */
 
-MCE0  = !DRAW # DRAWFB & !MA2 & !MA1 & !MA0 ;
-MCE1  = !DRAW # DRAWFB & !MA2 & !MA1 & MA0 ;
-MCE2  = !DRAW # DRAWFB & !MA2 & MA1 & !MA0 ;
-MCE3  = !DRAW # DRAWFB & !MA2 & MA1 & MA0 ;
-MCE4  = !DRAW # DRAWFB & MA2 & !MA1 & !MA0 ;
-MCE5  = !DRAW # DRAWFB & MA2 & !MA1 & MA0 ;
-MCE6  = !DRAW # DRAWFB & MA2 & MA1 & !MA0 ;
-MCE7  = !DRAW # DRAWFB & MA2 & MA1 & MA0 ;
+MCE0  = !DRAW & FETCH # DRAWFB & !MA2 & !MA1 & !MA0 ;
+MCE1  = !DRAW & FETCH # DRAWFB & !MA2 & !MA1 & MA0 ;
+MCE2  = !DRAW & FETCH # DRAWFB & !MA2 & MA1 & !MA0 ;
+MCE3  = !DRAW & FETCH # DRAWFB & !MA2 & MA1 & MA0 ;
+MCE4  = !DRAW & FETCH # DRAWFB & MA2 & !MA1 & !MA0 ;
+MCE5  = !DRAW & FETCH # DRAWFB & MA2 & !MA1 & MA0 ;
+MCE6  = !DRAW & FETCH # DRAWFB & MA2 & MA1 & !MA0 ;
+MCE7  = !DRAW & FETCH # DRAWFB & MA2 & MA1 & MA0 ;

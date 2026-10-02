@@ -1,7 +1,7 @@
 Name     U48 ;
 PartNo   00 ;
-Date     10/01/26 ;
-Revision 03 ;
+Date     10/02/26 ;
+Revision 04 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -12,8 +12,11 @@ Device   G16V8MS ;
  * U48 - GAL16V8, sheet "Video Out"
  *
  * Video clock generation and timing: divides the dot clock CXCLK (Y1)
- * into the ACRTC 2CLK and the shift-register load strobes, generates
- * ~BLANK for the Bt453, and buffers CXCLK out as the pixel clock PCLK.
+ * into the ACRTC 2CLK, decodes each display fetch, generates the shift-
+ * register load strobes and ~BLANK for the Bt453, and buffers CXCLK out
+ * as the pixel clock PCLK. FETCH also gates the frame-buffer and overlay
+ * SRAM enables in U55-U57, so the memories are only read on display
+ * fetches.
  *
  * Registered mode (G16V8MS): pin 1 is CLK (CXCLK) and pin 11 is /OE
  * (tied to GND, registered outputs always enabled). CXCLK is also on
@@ -26,97 +29,109 @@ Device   G16V8MS ;
  * PCLK (12) is a combinatorial, non-inverted copy of CXCLK taken from
  * pin 2, not a registered output. Routing it through the GAL gives it
  * about the same delay as PLOAD and the other outputs.
- * PCLK2 (16), PCLK4 (15) and TWOCLK (14) form the dot-clock divider;
- * PCLK2/PCLK4 go nowhere else. SLOT (17) also goes nowhere else; it is
- * a buried register holding the interleaved-mode display-slot phase.
  * PCLK and PLOAD leave via 33R series resistors R11/R12.
+ *
+ * Display fetch decode (HD63484 User Manual Fig 2.1(d), checked against
+ * the original scan): ~AS pulses only in display (S/W) and refresh-
+ * address (R) cycles, and R cycles only occur while ~HSYNC is low. Idle
+ * drawing-possible slots and porch cycles have no ~AS. So a memory cycle
+ * with ~AS low, ~DRAW high and ~HSYNC high is a display fetch. ~DISP1 is
+ * NOT used: it lags the fetches by one memory cycle (single) or two
+ * (interleaved), tracking when a word is displayed, not fetched.
  *
  * One display fetch = 8 banks x 16 bits = 16 pixels, loaded into the
  * 74F676s by a one-PCLK PLOAD pulse at the end of the MCYC-high (data)
- * half of the display memory cycle. The 74F676 loads on the falling
- * PCLK edge in the middle of that pulse.
+ * half of the fetch cycle. The 74F676 loads on the falling PCLK edge in
+ * the middle of that pulse. Cycles without a fetch don't load, and leave
+ * BLANK set, so any word that wasn't fetched is black.
  *   AMODE = 0 (single):      2CLK = PCLK/8, memory cycle = 16 PCLK,
- *                            every memory cycle is a display slot.
+ *                            count = TWOCLK:PCLK4:PCLK2 (0..7 per half).
  *   AMODE = 1 (interleaved): 2CLK = PCLK/4, memory cycle = 8 PCLK,
- *                            display and drawing slots alternate; use
- *                            only when PCLK < 32 MHz. SLOT tracks which
- *                            slot is which and is re-synced on the first
- *                            DISP1-active cycle of every line.
+ *                            count = TWOCLK:PCLK2 (0..3 per half); use
+ *                            only when PCLK < 32 MHz. A word lasts two
+ *                            memory cycles, so PCLK4 is reused as PREV
+ *                            ("the previous memory cycle loaded") to keep
+ *                            BLANK clear for the second one.
  * MCYC toggles after each 2CLK falling edge (<= 40 ns, HD63484-8).
+ *
+ * FETCH capture: ~AS is a pulse in the address half, so FETCH is set at
+ * any clock edge that sees it. ~AS must be low for one PCLK + 5 ns
+ * (20 ns at 65 MHz, 30 ns at 40 MHz, 45 ns at 25.175 MHz interleaved).
+ * The datasheet minimum is 30 ns; the manual's figures show ~AS low for
+ * about the first 2CLK-low phase, so check it on hardware at 25.175 MHz.
+ * FETCH is cleared in the data half if ~DRAW or ~HSYNC is low (both have
+ * settled by then), and otherwise holds until the edge after PLOAD, so
+ * the SRAMs keep driving while the 74F676s load.
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
- * Pin/net assignments taken from the KiCad schematic, 10/01/26.
+ * Pin/net assignments taken from the KiCad schematic, 10/02/26.
  *************************************************************************/
 
 /* ---- Inputs ---- */
 PIN 1  = CXCLK     ; /* Y1 oscillator OUT (register clock)                      */
 PIN 2  = CXCLK_I   ; /* net CXCLK - same clock; drives PCLK combinatorially     */
-PIN 3  = !DISP1    ; /* net ~{DISP1} - ACRTC ~DISP1 (U1 pin 63)                 */
-PIN 4  = !DISP2    ; /* net ~{DISP2} - ACRTC ~DISP2 (U1 pin 62)                 */
+PIN 3  = !DISP1    ; /* net ~{DISP1} - ACRTC ~DISP1 (U1 pin 63); spare, unused  */
+PIN 4  = !HSYNC    ; /* net ~{HSYNC} - ACRTC ~HSYNC (U1 pin 12)                 */
 PIN 5  = MCYC      ; /* ACRTC MCYC (U1 pin 52)                                  */
 PIN 6  = AMODE     ; /* U41 74LS273 Q2 (pin 6)                                  */
 PIN 7  = OLEN      ; /* U41 74LS273 Q3 (pin 9)                                  */
+PIN 8  = !AS       ; /* net ~{AS} - ACRTC ~AS (U1 pin 53)                       */
+PIN 9  = !DRAW     ; /* net ~{DRAW} - ACRTC ~DRAW (U1 pin 54)                   */
 /* PIN 11 = /OE, tied to GND                                              */
 
 /* ---- Outputs ---- */
 PIN 12 = PCLK      ; /* via R11 -> 74F676 U2-U10 CP, Bt453 CLOCK (U47 pin 23)   */
 PIN 13 = !BLANK    ; /* net ~{BLANK} - Bt453 ~BLANK (U47 pin 21)                */
 PIN 14 = TWOCLK    ; /* net 2CLK - ACRTC 2CLK (U1 pin 50), U55-U58 pin 1        */
-PIN 15 = PCLK4     ; /* no other connection (divider state)                     */
+PIN 15 = PCLK4     ; /* no other connection: /4 bit (single), PREV (interleaved) */
 PIN 16 = PCLK2     ; /* no other connection (divider state)                     */
-PIN 17 = SLOT      ; /* net SLOT, no other connection: interleaved slot phase   */
+PIN 17 = FETCH     ; /* net FETCH -> U55-U58 pin 9: display fetch this cycle    */
 PIN 18 = OLPLOAD   ; /* net OLPLOAD - 74F676 U6 LD (pin 5)                      */
 PIN 19 = PLOAD     ; /* via R12 -> 74F676 U2-U5,U7-U10 LD (pin 5)               */
-/* PIN 8 = unconnected */
-/* PIN 9 = unconnected */
 /* PIN 10 = GND, PIN 20 = +5V */
 
 /* ---- Equations ---- */
 
-/* Dot-clock divider. Count = TWOCLK:PCLK4:PCLK2 (single) or PCLK4:PCLK2
- * (interleaved); 2CLK is high for the upper half of the count and
- * falls when it wraps to 0. */
+/* Dot-clock divider. 2CLK is high for the upper half of the count and
+ * falls when it wraps to 0. In interleaved mode TWOCLK alone divides by
+ * 4 and PCLK4 is free to act as PREV. */
 PCLK2.D  = !PCLK2 ;
-PCLK4.D  = PCLK4 $ PCLK2 ;
 TWOCLK.D = !AMODE & (TWOCLK $ (PCLK4 & PCLK2))   /* PCLK/8 */
-         #  AMODE & (PCLK4 $ PCLK2) ;            /* PCLK/4 */
+         #  AMODE & (TWOCLK $ PCLK2) ;           /* PCLK/4 */
 
-/* Load point: the PCLK before the last one of the MCYC-high (data) half,
- * so PLOAD is high for that last PCLK.
- *   Single:      count 6 of 0..7, every memory cycle.
- *   Interleaved: count 2 of 0..3 (E1), display slot only. SLOT says
- *     whether this memory cycle is the display slot, and toggles once
- *     per memory cycle. BLANK is always set during horizontal blanking,
- *     so the first DISP1-active cycle of each line finds BLANK still
- *     set. That cycle is always a display slot (DSK = 0; the ACRTC
- *     counts horizontal timing in whole display cycles), so it loads
- *     and re-syncs SLOT at the start of every line. 2CLK comes from this
- *     divider, so the phase can't drift within a line. */
-L0 = !AMODE & MCYC & TWOCLK & PCLK4 & !PCLK2 ;
-E1 =  AMODE & MCYC & PCLK4 & !PCLK2 ;
-L1 = E1 & (SLOT # DISP1 & BLANK) ;
-LD = L0 # L1 ;
+/* Load points: the PCLK before the last one of the MCYC-high (data)
+ * half, so PLOAD is high for that last PCLK.
+ *   E0: single,      count 6 of 0..7.
+ *   E1: interleaved, count 2 of 0..3. */
+E0 = !AMODE & MCYC & TWOCLK & PCLK4 & !PCLK2 ;
+E1 =  AMODE & MCYC & TWOCLK & !PCLK2 ;
+LD = (E0 # E1) & FETCH ;
+
+/* Display fetch flag (see header). */
+FETCH.D  = AS
+         # FETCH & !PLOAD & !MCYC
+         # FETCH & !PLOAD & !DRAW & !HSYNC ;
 
 PLOAD.D   = LD ;
 OLPLOAD.D = LD & OLEN ;                 /* OLEN = 0: U6 shifts in zeros */
 
-/* BLANK samples DISP1 for the word being loaded and holds it for the 16
- * pixels of that word. Hold terms are written out so the sum fits in the
- * eight product terms of a registered output. */
-BLANK.D  = L0 & !DISP1
-         # E1 & SLOT & !DISP1
-         # BLANK & !MCYC
-         # BLANK & !PCLK4
-         # BLANK & PCLK2
-         # BLANK & !AMODE & !TWOCLK
-         # BLANK & AMODE & !SLOT & !DISP1 ;
+/* PCLK4: divider bit in single mode; PREV in interleaved mode, recording
+ * at each load point whether that memory cycle loaded. */
+PCLK4.D  = !AMODE & (PCLK4 $ PCLK2)
+         #  AMODE & (E1 & FETCH # !E1 & PCLK4) ;
 
-/* At each interleaved load point: the next memory cycle is the display
- * slot unless this one loaded. */
-SLOT.D   = E1 & !SLOT & !DISP1
-         # E1 & !SLOT & !BLANK
-         # SLOT & !E1 ;
+/* BLANK: cleared by a load. At a load point without a fetch it is set,
+ * except in interleaved mode right after a loaded cycle (PREV), when the
+ * word fetched in that cycle is still shifting out. Written out so the sum
+ * fits in the eight product terms of a registered output. */
+BLANK.D  = E0 & !FETCH
+         # E1 & !PCLK4 & !FETCH
+         # BLANK & !MCYC
+         # BLANK & !TWOCLK
+         # BLANK & PCLK2
+         # BLANK & !AMODE & !PCLK4
+         # BLANK & !FETCH ;
 
 /* Pixel clock: combinatorial copy of CXCLK */
 PCLK     = CXCLK_I ;
