@@ -43,6 +43,12 @@ MODEREG EQU     CZBASE+1        ;board MODE register (write only)
 ACRDAT  EQU     CZBASE+2        ;ACRTC RS=1: control reg data / FIFO
 DACADR  EQU     CZBASE+4        ;Bt453 address register
 DACPAL  EQU     CZBASE+5        ;Bt453 color palette RAM (R,G,B)
+DACOVL  EQU     CZBASE+7        ;Bt453 overlay colors (R,G,B)
+;
+; ---- MODE register bits (write-only: CZMREG keeps its value) ----
+;
+MDOLEN  EQU     08H             ;overlay shown
+MDOLSL  EQU     10H             ;overlay half a CHR screen draws (A16)
 ;
 ; ---- ACRTC status register bits ----
 ;
@@ -429,6 +435,124 @@ GGETCP  MACRO
 GRDOT   MACRO   XV,YV
         CZLXY   XV,YV
         CALL    CZRDOT##
+        ENDM
+;
+; ================= the overlay =================
+;
+; A one-bit plane over the picture, one bit per pixel, shown in its own
+; color (overlay color 2, GOVPAL) wherever a bit is set, while GOVON has
+; it on. GINIT clears it, hides it and makes its color white.
+;
+; Every drawing macro draws on it between GOVL and GFRAME -- with the
+; same X,Y as the frame -- at 1 bit per pixel, so its only colors are
+; OVSET (bit on) and OVCLR (bit off): GCOLOR OVSET, or GBCOL OVCLR for a
+; pattern's 0 bits. OMEOR toggles bits, which draws and undraws a
+; cursor without touching the picture under it. CMPRAM tiles mean
+; nothing at 1 bit per pixel. GOVL and GFRAME wait for the ACRTC to
+; finish, and leave CP at 0,0 (ORG resets it): GMOVE after either.
+;
+OVSET   EQU     0FFH            ;GCOLOR OVSET: draw overlay bits on
+OVCLR   EQU     0               ;GCOLOR OVCLR: draw them off
+;
+; GOVON / GOVOFF -- show / hide the overlay (what is in it stays)
+; GOVPAL r,g,b -- the overlay's color (0..255 each). Clobbers BC, E.
+; GOVL -- draw on the overlay from here on
+; GFRAME -- draw on the frame again
+; GOVCLS -- clear the whole overlay, from either
+;
+GOVON   MACRO
+        CALL    CZOVON##
+        ENDM
+GOVOFF  MACRO
+        CALL    CZOVOF##
+        ENDM
+GOVPAL  MACRO   RV,GV,BV
+        MVI     B,RV
+        MVI     C,GV
+        MVI     E,BV
+        CALL    CZOPAL##
+        ENDM
+GOVL    MACRO
+        CALL    CZOVL##
+        ENDM
+GFRAME  MACRO
+        CALL    CZFRM##
+        ENDM
+GOVCLS  MACRO
+        CALL    CZOCLS##
+        ENDM
+;
+; ================= text =================
+;
+; Text is drawn character by character with PTN (CZTXT.MAC), in CL1
+; (GCOLOR) and the drawing mode, onto the frame or the overlay. It can be
+; scaled 1-16 times and turned in 45-degree steps. A font is chosen by
+; naming it, which is also what links it in, so a program carries only
+; the fonts it names:
+;   CZF8   8x8 cell, 5x7 glyphs (475 bytes)
+;   CZF11  9x11 cell, 7x10 glyphs with descenders (855 bytes)
+; The pen is the bottom-left corner of the next character's cell, and
+; moves one cell (times the scale) along the direction per character.
+; A string leaves the pattern RAM as GINIT does (GPDEF), so reload a
+; pattern of your own after text.
+;
+TXOPAQ  EQU     1               ;GTATTR flag: the cell's 0 bits in CL0
+;
+; GFONT f -- draw text in font f (CZF8 or CZF11). Clobbers HL.
+; GTPOS x,y -- put the pen at x,y (blank: in HL, DE); also the start of
+; the line for GTNL
+; GTATTR s[,d[,TXOPAQ]] -- scale s (1-16), direction d (0-7, rows 45
+; degrees apart counter-clockwise from +X; default 0), TXOPAQ: draw the
+; whole cell, its 0 bits in CL0 (GBCOL) -- text that covers what was
+; there (GBCOL OVCLR on the overlay). Clobbers BC.
+; GTEXT <'text'> -- draw the text, placed inline. Clobbers HL, B.
+; GTSTR -- draw the B characters at HL
+; GTCHR [c] -- draw the character c (blank: in A)
+; GTNL -- a new line: the pen to the start of the line, one line on
+; GTEXT, GTSTR and GTCHR return C, drawing nothing, until GFONT.
+;
+GFONT   MACRO   FV
+        LXI     H,FV##
+        CALL    CZTFNT##
+        ENDM
+GTPOS   MACRO   XV,YV
+        CZLXY   XV,YV
+        CALL    CZTPOS##
+        ENDM
+GTATTR  MACRO   SV,DV,FV
+        IFB     <DV>
+        MVI     B,0
+        ELSE
+        MVI     B,DV
+        ENDIF
+        IFB     <FV>
+        MVI     C,0
+        ELSE
+        MVI     C,FV
+        ENDIF
+        MVI     A,SV
+        CALL    CZTATR##
+        ENDM
+GTEXT   MACRO   TV
+        LOCAL   SKIP,STR,SEND
+        JMP     SKIP
+STR:    DB      TV
+SEND:
+SKIP:   LXI     H,STR
+        MVI     B,SEND-STR
+        CALL    CZTSTR##
+        ENDM
+GTSTR   MACRO
+        CALL    CZTSTR##
+        ENDM
+GTCHR   MACRO   CV
+        IFNB    <CV>
+        MVI     A,CV
+        ENDIF
+        CALL    CZTCHR##
+        ENDM
+GTNL    MACRO
+        CALL    CZTNL##
         ENDM
 ;
 ; ================= pattern RAM =================

@@ -1,0 +1,78 @@
+;
+; CZOVL.MAC -- czgfx: the 1 bpp overlay
+;
+; The board's overlay is a one-bit plane over the 8-bit picture, in its
+; own SRAM: one bit per frame pixel, shown as the Bt453's overlay color 2
+; wherever it is set, while MODE OLEN is on. The ACRTC draws it through
+; a CHR screen -- the upper screen (DN 0), which CZINIT sets up one bit
+; per pixel, with the same X,Y as the frame, and never displays.
+;
+; CZOVL switches every drawing command over to it: 1 bpp (CCR GBM=000)
+; and ORG on screen 0. CZFRM switches back: 8 bpp, ORG on the base
+; screen. GBM is one setting for the whole chip and takes effect at
+; once, while commands wait in the FIFO, so both first wait until the
+; ACRTC has finished drawing. Both also reset CP to 0,0, as any ORG does.
+;
+        INCLUDE CZGFX.INC
+;
+        PUBLIC  CZOVON,CZOVOF,CZOPAL,CZOVL,CZFRM
+        EXTRN   CZWAIT,CZWREG,CZSEND,CZMREG,CZDPB
+;
+        CSEG
+;
+; CZOVON -- show the overlay (MODE OLEN on)
+; CZOVOF -- hide it (OLEN off); what is drawn in it stays
+;
+CZOVON: LDA     CZMREG
+        ORI     MDOLEN
+        JMP     SETMR
+CZOVOF: LDA     CZMREG
+        ANI     0FFH-MDOLEN
+SETMR:  STA     CZMREG
+        OUT     MODEREG
+        RET
+;
+; CZOPAL -- set the overlay's color (Bt453 overlay color 2, the one
+; the board selects) to red B, green C, blue E
+;
+CZOPAL: MVI     A,2             ;the address, through C1C0 = 00
+        OUT     DACADR
+        MOV     A,B             ;R, G, B through C1C0 = 11
+        OUT     DACOVL
+        MOV     A,C
+        OUT     DACOVL
+        MOV     A,E
+        OUT     DACOVL
+        RET
+;
+; CZOVL -- draw on the overlay from here on
+; CZFRM -- draw on the frame again
+; Both preserve BC, DE, HL.
+;
+CZOVL:  PUSH    D
+        LXI     D,0000H         ;CCR: GBM=000, 1 bpp
+        MVI     A,14            ;the overlay's ORG, 14 bytes in
+        JMP     SWITCH
+CZFRM:  PUSH    D
+        LXI     D,0300H         ;CCR: GBM=011, 8 bpp
+        MVI     A,8             ;the frame's ORG, 8 bytes in
+SWITCH: PUSH    B
+        PUSH    H
+        PUSH    PSW
+        CALL    CZWAIT          ;nothing left to draw at the old depth
+        XCHG
+        MVI     B,02H           ;CCR (no interrupts, as CZINIT)
+        CALL    CZWREG
+        POP     PSW
+        LHLD    CZDPB           ;HL = the ORG command in the mode block
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        LXI     B,3
+        CALL    CZSEND
+        POP     H
+        POP     B
+        POP     D
+        RET
+;
+        END

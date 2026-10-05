@@ -1,0 +1,299 @@
+;
+; CZTXT.MAC -- czgfx: text
+;
+; Each character is drawn with the ACRTC's PTN command: its glyph is
+; unpacked into the pattern RAM, one pattern row per glyph row, and PTN
+; draws the character cell at the pen. So the pattern zoom scales text
+; (1-16 times), PTN's direction turns it in 45-degree steps, and the
+; drawing mode applies (OMEOR text, clipped text). The color mode is
+; CMCL1, so a glyph's 0 bits leave the screen alone, or with TXOPAQ
+; CMSEL, so they draw the cell's background in CL0. Text is in CL1
+; (GCOLOR); on the overlay, OVSET. After a string the drawing mode is
+; back as it was, and the pattern RAM as GINIT leaves it (CZPDEF).
+;
+; A font is a descriptor, the font module's PUBLIC (CZF8 in CZFNT8.MAC,
+; CZF11 in CZFN11.MAC) -- naming it is what links it in:
+;       DB      cell width, cell height (each 16 at most)
+;       DB      glyph width (8 at most), glyph rows stored
+;       DB      bytes a character
+;       DB      ...     the glyphs of 20H-7EH, each bit-packed: rows from
+;                       the bottom, each row's columns from the left, bits
+;                       taken from bit 0 of each byte up. Rows above the
+;                       stored ones are blank.
+; tools/mkfont.py writes the font modules.
+;
+; This module is the core a program that draws strings needs, and no
+; more (CZBASIC links it): choosing the font, drawing a string, and the
+; text state. Setting the pen and attributes, single characters and new
+; lines are in CZTXL.MAC; a program may instead store the pen, scale and
+; direction into CZTST itself (offsets below).
+;
+        INCLUDE CZGFX.INC
+;
+        PUBLIC  CZTFNT,CZTSTR,CZTST
+        EXTRN   CZDM,CZPSCN,CZPUTW,CZWPR,CZMOVE,CZPTN,CZPDEF
+;
+        CSEG
+;
+; CZTFNT -- use the font whose descriptor is at HL
+;
+CZTFNT: PUSH    B
+        PUSH    D
+        PUSH    H
+        LXI     D,FCW
+        MVI     B,5
+TFLP:   MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     TFLP
+        SHLD    FDAT            ;the glyphs follow the descriptor
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; CZTSTR -- draw the B characters at HL from the pen on, moving it one
+; cell (times the scale) along the direction each time. A character
+; outside 20H-7EH is a blank. Returns C, drawing nothing, if no font has
+; been chosen (CZTFNT). Preserves BC, DE, HL.
+;
+CZTSTR: PUSH    B
+        PUSH    D
+        PUSH    H
+        SHLD    TPTR
+        MOV     A,B
+        STA     TLEN
+        LHLD    FDAT
+        MOV     A,H
+        ORA     L
+        STC
+        JZ      TSX             ;no font
+        LDA     TLEN
+        ORA     A               ;(NC)
+        JZ      TSX             ;nothing to draw
+        LDA     CZDM            ;the color mode: CMCL1, CMSEL if opaque
+        STA     TDM
+        ANI     0FFH-CMPRAM
+        MOV     B,A
+        LDA     TFLG
+        RAR
+        MOV     A,B
+        JC      TS1
+        ORI     CMCL1
+TS1:    STA     CZDM
+        LDA     FCW             ;the scan window: the cell, zoomed
+        DCR     A
+        STA     TSCN+2
+        LDA     FCH
+        DCR     A
+        STA     TSCN+3
+        LDA     TSCL
+        DCR     A
+        STA     TSCN+4
+        STA     TSCN+5
+        LXI     H,TSCN
+        CALL    CZPSCN
+        LDA     FCW             ;PTN's size: the cell times the scale
+        CALL    MULS
+        MOV     C,A             ;C = the pen's step
+        DCR     A
+        STA     TSIZE
+        LDA     FCH
+        CALL    MULS
+        DCR     A
+        STA     TSIZE+1
+        LDA     TDIR            ;the step along the direction
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        LXI     H,DIRTAB
+        DAD     D
+        MOV     A,M
+        INX     H
+        PUSH    H
+        CALL    TSTEP
+        SHLD    TDX
+        POP     H
+        MOV     A,M
+        CALL    TSTEP
+        SHLD    TDY
+;
+TSCH:   LHLD    TPTR            ;the next character
+        MOV     A,M
+        INX     H
+        SHLD    TPTR
+        CPI     ' '
+        JC      TSC0
+        CPI     7FH
+        JC      TSC1
+TSC0:   MVI     A,' '
+TSC1:   SUI     ' '             ;its glyph: FDAT + n * bytes each
+        LHLD    FDAT
+        ORA     A
+        JZ      TSC3
+        MOV     B,A
+        LDA     FBPC
+        MOV     E,A
+        MVI     D,0
+TSC2:   DAD     D
+        DCR     B
+        JNZ     TSC2
+TSC3:   XCHG
+        CALL    UNPK            ;into the pattern RAM
+        LXI     H,0             ;the pattern pointer at 0,0
+        MVI     A,5
+        CALL    CZWPR
+        LHLD    TY
+        XCHG
+        LHLD    TX
+        CALL    CZMOVE
+        LHLD    TSIZE
+        LDA     TDIR
+        CALL    CZPTN
+        LHLD    TDX             ;the pen on
+        XCHG
+        LHLD    TX
+        DAD     D
+        SHLD    TX
+        LHLD    TDY
+        XCHG
+        LHLD    TY
+        DAD     D
+        SHLD    TY
+        LDA     TLEN
+        DCR     A
+        STA     TLEN
+        JNZ     TSCH
+        LDA     TDM             ;put things back
+        STA     CZDM
+        CALL    CZPDEF
+        ORA     A               ;(NC)
+TSX:    POP     H
+        POP     D
+        POP     B
+        RET
+;
+; MULS -- A = A * the scale (D, E clobbered)
+;
+MULS:   MOV     E,A
+        LDA     TSCL
+        MOV     D,A
+        XRA     A
+MULP:   ADD     E
+        DCR     D
+        JNZ     MULP
+        RET
+;
+; TSTEP -- HL = C * the sign A (-1, 0, 1)
+;
+TSTEP:  LXI     H,0
+        ORA     A
+        RZ
+        MOV     L,C
+        RP
+        MOV     A,L
+        CMA
+        MOV     L,A
+        MVI     H,0FFH
+        INX     H
+        RET
+;
+; UNPK -- unpack the glyph at DE straight into the pattern RAM (WPTN
+; from row 0): the glyph's rows, then blank ones up to the cell height
+;
+UNPK:   LXI     H,1800H         ;WPTN PRA=0
+        CALL    CZPUTW
+        LDA     FCH             ;n: the cell's rows, in bytes (8-bit bus)
+        ADD     A
+        MOV     L,A
+        MVI     H,0
+        CALL    CZPUTW
+        MVI     C,1             ;the bit reader: empty
+        LDA     FGR
+        MOV     B,A
+UROW:   LDA     FGW             ;a row: its bits come in left first,
+        MOV     H,A             ;each into the top of L
+        MVI     L,0
+UCOL:   CALL    GETB
+        MOV     A,L
+        RAR
+        MOV     L,A
+        DCR     H
+        JNZ     UCOL
+        LDA     FGW             ;then down 8 - width: column 0 at bit 0
+        CMA
+        ADI     9
+        JZ      USTO
+        MOV     H,A
+USH:    MOV     A,L
+        ORA     A
+        RAR
+        MOV     L,A
+        DCR     H
+        JNZ     USH
+USTO:   CALL    CZPUTW          ;(H = 0)
+        DCR     B
+        JNZ     UROW
+        LDA     FGR             ;the blank rows above
+        MOV     B,A
+        LDA     FCH
+        SUB     B
+        RZ
+        MOV     B,A
+        LXI     H,0
+UBLK:   CALL    CZPUTW
+        DCR     B
+        JNZ     UBLK
+        RET
+;
+; GETB -- CY = the glyph's next bit. C holds what is left of the current
+; byte above a marker bit; when only the marker is left, the next byte
+; is read from DE.
+;
+GETB:   MOV     A,C
+        CPI     1
+        JNZ     GB1
+        LDAX    D
+        INX     D
+        STC
+        RAR
+        MOV     C,A
+        RET
+GB1:    ORA     A
+        RAR
+        MOV     C,A
+        RET
+;
+; CZTST -- the text state, at these offsets: CZTXL.MAC sets and reads
+; it, and a program may store the pen, scale and direction directly.
+;
+CZTST:
+TX:     DW      0               ;+0  the pen
+TY:     DW      0               ;+2
+LSX:    DW      0               ;+4  the start of the line
+LSY:    DW      0               ;+6
+TSCL:   DB      1               ;+8  the scale
+TDIR:   DB      0               ;+9  the direction
+TFLG:   DB      0               ;+10 the flags
+FCW:    DB      0               ;+11 the font: cell width
+FCH:    DB      0               ;+12 cell height
+FGW:    DB      0               ;+13 glyph width
+FGR:    DB      0               ;+14 glyph rows stored
+FBPC:   DB      0               ;+15 bytes a character
+FDAT:   DW      0               ;+16 the glyphs (0: no font chosen)
+;
+; dx, dy for each direction, 45 degrees apart counter-clockwise
+;
+DIRTAB: DB      1,0, 1,1, 0,1, -1,1, -1,0, -1,-1, 0,-1, 1,-1
+;
+TSCN:   DB      0,0,0,0,0,0     ;CZPSCN: columns, rows 0 to the cell's,
+TSIZE:  DW      0               ;the zoom; PTN's size
+TDX:    DW      0
+TDY:    DW      0
+TPTR:   DW      0
+TLEN:   DB      0
+TDM:    DB      0
+;
+        END

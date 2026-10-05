@@ -3,8 +3,9 @@
 
 Documents only the CADzilla (CZ...) statements and functions CZBASIC adds to
 the MBASIC 5.21 language. The palette chart is computed from czgfx's CZPAL
-tables and the character chart from this directory's mkfont.py glyphs, so both
-match what the board draws.
+tables and the character chart from czgfx's font generator
+(software/czgfx/tools/mkfont.py, the CZF8 font CZTEXT uses), so both match
+what the board draws.
 
 Usage (from the repository root):
     python3 software/czbasic/tools/mkmanual.py
@@ -232,10 +233,10 @@ def fig_directions():
 def load_font():
     sys.dont_write_bytecode = True      # (no __pycache__ beside mkfont.py)
     spec = importlib.util.spec_from_file_location(
-        'mkfont', os.path.join(HERE, 'mkfont.py'))
+        'mkfont', os.path.join(HERE, '..', '..', 'czgfx', 'tools', 'mkfont.py'))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.G
+    return mod.G8
 
 
 def fig_font(glyphs):

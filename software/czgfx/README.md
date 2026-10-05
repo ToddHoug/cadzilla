@@ -9,9 +9,9 @@ comes in two parts:
 
 - **`CZGFX.INC`**, the header a program `INCLUDE`s: board equates and the
   `G...` macros.
-- **`CZGFX.REL`**, a LIB80 library of nine relocatable modules (`CZPOLY`,
-  `CZCURV`, `CZFILL`, `CZPAT`, `CZMODE`, `CZDRAW`, `CZINIT`, `CZPAL`,
-  `CZCORE`). L80's `/S` search links in only the modules a program uses. A
+- **`CZGFX.REL`**, a LIB80 library of fourteen relocatable modules
+  (`CZPOLY`, `CZCURV`, `CZFILL`, `CZTXL`, `CZTXT`, `CZPAT`, `CZMODE`,
+  `CZOVL`, `CZDRAW`, `CZINIT`, `CZFNT8`, `CZFN11`, `CZPAL`, `CZCORE`). L80's `/S` search links in only the modules a program uses. A
   program that draws only boxes, for example, gets no polygon or curve
   code.
 
@@ -49,7 +49,7 @@ run {input: "SUBMIT CZBUILD\r", timeout_ms: 120000}           # stops when idle
 `CZBUILD.SUB` runs these steps:
 1. assembles each module;
 2. combines them into `CZGFX.REL` with
-   `LIB80 CZGFX=CZPOLY,CZCURV,CZFILL,CZPAT,CZMODE,CZDRAW,CZINIT,CZPAL,CZCORE/E`,
+   `LIB80 CZGFX=CZPOLY,CZCURV,CZFILL,CZTXL,CZTXT,CZPAT,CZMODE,CZOVL,CZDRAW,CZINIT,CZFNT8,CZFN11,CZPAL,CZCORE/E`,
    in single-pass
    search order: every module comes before the modules it calls;
 3. checks the library with `LIB80 CZGFX/U/E`, which lists any unsatisfied
@@ -124,7 +124,8 @@ at its `*` prompt instead of exiting, so type `/E` to finish the link.
   - the `OP...` opcodes;
   - the mode values `OM...`, `CM...` and `AM...`, the copy transforms
     `CP...`, and `DIRCW DIRCCW PTSLNT`;
-  - the port names `ACRSR MODEREG ACRDAT DACADR DACPAL`;
+  - the overlay colors `OVSET OVCLR` and the MODE bits `MDOLEN MDOLSL`;
+  - the port names `ACRSR MODEREG ACRDAT DACADR DACPAL DACOVL`;
   - the status bits `SR...`.
 
   Don't reuse these names in a program.
@@ -197,6 +198,18 @@ Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
 | `GPDEF` | the pattern RAM, scan window and pointer back as `GINIT` leaves them | |
 | `GLSTYL pat[,zoom]` | line style: pattern row 0 = pat, a 16x1 window | `GLSTYL 0FFFFH` is solid again |
 | `GPTN x,y,w,h[,dir]` | draw the pattern RAM as a w x h picture at x,y | dir 0..7 = x45 degrees CCW, `+PTSLNT` slants it |
+| `GOVON` / `GOVOFF` | show / hide the overlay | what is drawn in it stays |
+| `GOVPAL r,g,b` | the overlay's color (Bt453 overlay color 2) | clobbers BC, E |
+| `GOVL` | draw on the overlay from here on | waits for the ACRTC; CP = 0,0 |
+| `GFRAME` | draw on the frame again | waits for the ACRTC; CP = 0,0 |
+| `GOVCLS` | clear the whole overlay | works from either |
+| `GFONT f` | draw text in font f: `CZF8` or `CZF11` | naming a font links it in; clobbers HL |
+| `GTPOS x,y` | put the text pen at x,y (the bottom-left of the next cell) | also the start of the line for `GTNL` |
+| `GTATTR s[,d[,TXOPAQ]]` | text scale 1-16, direction 0-7 (×45° CCW), opaque cells | clobbers BC |
+| `GTEXT <'text'>` | draw the text (placed inline) at the pen | clobbers HL, B |
+| `GTSTR` | draw the B characters at HL | |
+| `GTCHR [c]` | draw one character | |
+| `GTNL` | new line: the pen back to the line's start, one line on | |
 
 A point table is `DW n` followed by n X,Y pairs. `GPTS` builds one. For a
 list too long for one source line, write the `DW`s by hand (`SINE` in
@@ -210,13 +223,17 @@ macros are thin wrappers around them.
 
 | Module | Routines |
 |---|---|
-| `CZINIT` | `CZINIT` (HL = mode descriptor), `CZCLS` (A = color), `CZPDEF` (the pattern defaults); data `CZM640`, `CZM800`, `CZM1K`, `CZXMAX`, `CZYMAX` |
+| `CZINIT` | `CZINIT` (HL = mode descriptor), `CZCLS` (A = color), `CZOCLS` (clear the overlay), `CZPDEF` (the pattern defaults); data `CZM640`, `CZM800`, `CZM1K`, `CZXMAX`, `CZYMAX`, `CZMREG` (the MODE register's value), `CZDPB` (the mode's drawing parameter block) |
 | `CZDRAW` | `CZCOL`, `CZMOVE`, `CZLINE`, `CZRECT`, `CZFRCT`, `CZDOT`, `CZRMOV`, `CZRLIN`, `CZRRCT`, `CZRFRC` |
 | `CZPOLY` | `CZPLL`, `CZPLG` (HL = point table) |
 | `CZCURV` | `CZCRCL` (HL = radius, round the CP), `CZELPS` (HL = rx, DE = ry, round the CP), `CZARC` (A = `OPAARC`/`OPRARC`/`OPAEAR`/`OPREAR` + `DIRCW`, HL = parameter table) |
 | `CZFILL` | `CZPANT` (A = edge color), `CZFLOD` (A = region color), `CZGCPY` (A = transform, +10H for RGCPY; HL = Xs,Ys,DX,DY table) |
 | `CZPAT` | `CZLPAT` (A = start word, HL = table), `CZLSTY` (HL = pattern, A = zoom), `CZPTN` (HL = size: H = height-1, L = width-1; A = direction), `CZPSCN` (HL = table: DB x0,y0,x1,y1,zx,zy -- the scan window at run time) |
 | `CZMODE` | `CZOPM`, `CZCMOD`, `CZAMOD` (A = field value), `CZCOL0`, `CZCCMP` (A = color), `CZAMIN`, `CZAMAX` (HL = X, DE = Y), `CZAFUL`, `CZGCP` (returns HL = X, DE = Y), `CZRDOT` (HL = X, DE = Y: A = the pixel's color; C if off the screen) |
+| `CZTXT` | `CZTFNT` (HL = font), `CZTSTR` (HL = text, B = length); data `CZTST`, the text state |
+| `CZTXL` | `CZTPOS` (HL = X, DE = Y), `CZTATR` (A = scale, B = direction, C = flags), `CZTCHR` (A = character), `CZTNL` |
+| `CZFNT8`, `CZFN11` | the fonts: data `CZF8`, `CZF11` |
+| `CZOVL` | `CZOVON`, `CZOVOF` (show / hide), `CZOPAL` (B/C/E = R/G/B), `CZOVL` (draw on the overlay), `CZFRM` (draw on the frame) |
 | `CZPAL` | `CZPALD` (load the default palette), `CZPALS` (A = index, B/C/E = R/G/B) |
 | `CZCORE` | `CZWREG` (B = register, HL = value), `CZPUTW` (HL → FIFO), `CZWAIT`, `CZXY` (A = opcode, HL/DE), `CZXYM` (the same, with the drawing mode), `CZCMD` (A = opcode: the command word with the drawing mode), `CZWPR` (A = drawing parameter register, HL = value), `CZSEND` (HL = table, BC = words), `CZRTAB`, `CZLDW`, `CZABT`; data `CZDM`, the drawing mode byte |
 
@@ -319,6 +336,145 @@ region of one color, recoloring it.
   be re-issued. The altairsim model has no such limit, and czgfx doesn't
   implement the re-issue loop, so one `GPAINT` fills a complex area there
   but may leave parts unfilled on the board.
+
+### The overlay
+
+The board has a second plane over the 8-bit picture: the **overlay**, one
+bit per pixel in its own SRAM. Wherever a bit is set and the overlay is
+shown (`GOVON`), the Bt453 shows the **overlay color** (`GOVPAL`) instead
+of the pixel's palette color. A clear bit lets the picture through. So
+whatever is drawn on the overlay can be shown, hidden, recolored or
+erased without disturbing the picture under it: a cursor, a grid,
+selection marks, rubber-band lines.
+
+- **Drawing on it.** `GOVL` switches every drawing macro to the overlay,
+  and `GFRAME` switches back. The coordinates are the frame's own: the
+  same X,Y is the same pixel. Between them:
+  - pixels are 1 bit, so the only colors are `OVSET` (on) and `OVCLR`
+    (off): `GCOLOR OVSET` draws, `GCOLOR OVCLR` erases;
+  - `OMEOR` toggles bits. Drawing a shape twice in it undraws it, which
+    is the classic moving cursor (screen 8 of `GFXDEMO.MAC`);
+  - patterns, the area modes and `GPAINT` all work. For `GPAINT`, set
+    `GBCOL OVSET`: PAINT also stops at CL0, and CL0 = 0 would stop it
+    at every clear bit. `CMPRAM` tiles mean nothing at one bit per pixel;
+  - `GCOPY` copies within the overlay. There is no copying between the
+    overlay and the frame.
+- **CP.** `GOVL` and `GFRAME` both send an ORG, which puts CP at 0,0, so
+  `GMOVE` before relative drawing.
+- **State after `GINIT`.** The overlay is cleared and hidden, its color
+  is white, and drawing is on the frame. `GOVCLS` clears it again at any
+  time, from either side.
+
+How it works, for anyone extending it:
+- **Display.** The overlay has no display cycles of its own. Each
+  frame fetch of word A also reads overlay word A/8, whose 16 bits are
+  the 16 pixels of that fetch, bit 0 leftmost.
+- **Drawing.** The ACRTC draws the overlay through a CHR screen: a screen
+  whose MWR has CHR set, which the board sends to the overlay SRAM
+  instead of the frame. czgfx uses the upper screen (DN 0). `CZINIT`
+  sets its MWR0 to 8000H plus the frame's words per raster / 8, and
+  never displays it: DCR keeps it off, since the board has no
+  character display path.
+- **Descriptor data.** Each mode descriptor's drawing-parameter block
+  carries the overlay's ORG after the frame's: (height-1) × MW0 on
+  screen 0. `CZOVL` and `CZFRM` send one ORG or the other from `CZDPB`.
+- **Pixel depth.** CCR GBM (bits per pixel) is one setting for the whole
+  ACRTC: `CZOVL` sets 1 bpp and `CZFRM` sets 8 bpp. A CCR write takes
+  effect at once, while commands still in the FIFO run later, so both
+  first wait (`CZWAIT`) for the ACRTC to finish. While the overlay is
+  being drawn, cad0's `wiring` reports "CCR GBM is 1 bpp". That is
+  expected, and it reads `ok` again after `GFRAME`. The HD63484 manual
+  describes GBM only as pixels per word for drawing; CADzilla uses no
+  zoom or cursors, but switching GBM while the display runs has not been
+  checked on the real board.
+- **The MODE register** is write-only, so czgfx keeps its value in
+  `CZMREG`, and `GOVON`/`GOVOFF` change OLEN there.
+- **OLSEL** (the overlay SRAM's upper half, for a frame above the first
+  1 MB) stays 0, since czgfx's base screen is at frame word 0.
+
+### Text
+
+czgfx draws text one character at a time with the ACRTC's PTN command:
+each glyph is unpacked into the pattern RAM, and PTN draws the character
+cell at the pen. That gives three things for free:
+- scaling, through the pattern zoom: `GTATTR` scale 1-16;
+- turning, through PTN's direction: 0-7, in 45-degree steps
+  counter-clockwise. A diagonal direction leaves gaps between pixels, as
+  the chip's PTN does;
+- the drawing mode: text drawn in `OMEOR` or under an area mode behaves
+  like any other drawing.
+
+Text goes on whichever plane is being drawn, the frame or the overlay
+(`GOVL`). It is drawn in CL1 (`GCOLOR`, or `OVSET` on the overlay).
+- **Transparent** (the default): the color mode is `CMCL1`, so a glyph's
+  0 bits leave the picture alone.
+- **Opaque** (`GTATTR s,d,TXOPAQ`): the color mode is `CMSEL`, so the 0
+  bits draw the whole cell in CL0 (`GBCOL`). That suits text that is
+  rewritten in place, such as a status line or coordinates; use
+  `GBCOL OVCLR` on the overlay.
+
+The color mode is forced only while the string is drawn. The operation
+and area modes stay as they were.
+
+```
+        GOVL                    ;text on the overlay
+        GCOLOR  OVSET
+        GFONT   CZF11
+        GTATTR  2               ;scale 2, along +X
+        GTPOS   24,730
+        GTEXT   <'CADzilla text overlay'>
+        GTNL                    ;the next line, under it
+        GFRAME
+```
+
+**Fonts.** A font is chosen by naming it with `GFONT`, and naming it is
+also what links it in. So a program carries only the fonts it uses: `CZF8`
+alone costs 480 bytes, and both together 1,340.
+
+| Font | Cell | Glyphs | Bytes |
+|---|---|---|---|
+| `CZF8` | 8x8 | 5x7, no true descenders; the same font as CZBASIC's CZTEXT | 480 |
+| `CZF11` | 9x11 | 7x10: capitals 8 rows, 2 descender rows | 860 |
+
+Both fonts have a blank top row and blank right-hand columns, so lines
+and characters set at the cell pitch (`GTNL`, the pen step) don't touch.
+- The **pen** is the bottom-left corner of the next character's cell.
+  After each character it moves one cell width × scale along the
+  direction.
+- A **string's width** is characters × cell width × scale.
+- `GTNL` moves the start of the line one cell height × scale, 90° clockwise
+  from the direction (that is, down for ordinary text), and puts the pen
+  there.
+- Characters outside 20H-7EH draw as a blank.
+- Choose a font before drawing: until `GFONT`, `GTEXT`, `GTSTR` and
+  `GTCHR` return C and draw nothing.
+
+**Side effects.** A string leaves the pattern RAM as `GINIT` does
+(`CZPDEF`), so load your own pattern again after text. Each character
+moves CP (a `CZMOVE` to the pen, then PTN), so `GMOVE` before relative
+drawing.
+
+**Size.** CZTXT.MAC, which draws strings, is the part every text program
+links. CZTXL.MAC adds the pen, attribute, single-character and newline
+calls on top of it. A program that wants to stay small can do without
+CZTXL. CZBASIC, for example, stores the pen, scale and direction straight
+into `CZTST`, at these offsets:
+- +0/+2: the pen's X and Y
+- +8: the scale
+- +9: the direction
+- +10: the flags
+
+**Font format.** A font module is a 5-byte descriptor followed by 95
+glyphs:
+- **Descriptor:** `DB` cell width, cell height, glyph width, rows stored,
+  bytes per character. Cells are at most 16x16 and glyphs at most 8 wide.
+- **Glyphs:** each glyph is bit-packed. Its rows run from the bottom up,
+  each row's columns from the left, and the bits fill each byte from
+  bit 0.
+
+`tools/mkfont.py` holds both fonts' glyph art and writes `CZFNT8.MAC` and
+`CZFN11.MAC`. To regenerate them, run `python3 tools/mkfont.py` and then
+`crlf.sh` the two files. `--preview f.png` renders both fonts to an image.
 
 ### Not in czgfx yet
 

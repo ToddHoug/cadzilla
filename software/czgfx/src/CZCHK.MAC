@@ -96,7 +96,30 @@ START:  RET                     ;nothing below is ever executed
         MVI     A,CPNORM+10H    ;RGCPY
         CALL    CZGCPY##
 ;
+        GOVON
+        GOVOFF
+        GOVPAL  255,255,0
+        GOVL
+        GCOLOR  OVSET
+        GFRAME
+        GOVCLS
+;
+        GFONT   CZF8
+        GFONT   CZF11
+        GTPOS   10,20
+        GTPOS
+        GTATTR  2
+        GTATTR  1,2,TXOPAQ
+        GTEXT   <'Hello, world'>
+        GTSTR
+        GTCHR   'A'
+        GTCHR
+        GTNL
+;
         LHLD    CZXMAX##
+        LDA     CZMREG##
+        LHLD    CZDPB##
+        LXI     H,CZTST##
         LHLD    CZYMAX##
         LXI     H,CZPALD##
         LXI     H,CZWREG##

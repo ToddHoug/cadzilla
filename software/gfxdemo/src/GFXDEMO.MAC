@@ -4,7 +4,7 @@
 ; The first program built with the M80/L80 toolchain and the shared
 ; czgfx library (software/czgfx). Everything board-specific -- the ACRTC
 ; registers, the Bt453 palette, the FIFO protocol -- comes from the
-; library; this file is only the pictures. Seven screens, each described
+; library; this file is only the pictures. Ten screens, each described
 ; on the console; press any key for the next one, ESC (or ^C) to quit.
 ;
 ;   1  Palette & fills   all 256 palette entries as filled boxes, hues
@@ -35,6 +35,17 @@
 ;                        and flood-recolored (GPAINT, GFLOOD); a picture
 ;                        copied in all eight orientations, XORed and
 ;                        clipped (GCOPY)
+;   8  Overlay           screen 1's palette again, and on the 1 bpp
+;                        overlay over it (GOVL ... GFRAME, GOVON,
+;                        GOVPAL): a grid, a circle, a patterned PAINT and
+;                        a solid box, and a crosshair moved in OMEOR
+;   9  Overlay off       GOVOFF: the picture under the overlay untouched;
+;                        then GOVCLS clears it
+;  10  Text overlay      screen 2's lines, and text on the overlay over
+;                        them (GFONT, GTPOS, GTATTR, GTEXT, GTSTR, GTNL):
+;                        both fonts, scaled, turned, both character sets,
+;                        and an opaque status line rewritten in place;
+;                        then a line of text on the frame itself
 ;
 ; Build (czgfx library disk mounted as B:, see cadzilla-build-m80):
 ;   A0>M80 GFXDEMO,GFXDEMO=GFXDEMO
@@ -101,6 +112,24 @@ START:  LXI     H,0             ;keep CCP's stack, run on our own
         LXI     D,MSG7
         CALL    PRINT
         CALL    SCR7
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG8
+        CALL    PRINT
+        CALL    SCR8
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG9
+        CALL    PRINT
+        CALL    SCR9
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG10
+        CALL    PRINT
+        CALL    SCR10
         CALL    DONE
 ;
 EXIT:   LXI     D,MSGBYE
@@ -811,6 +840,166 @@ S7CL:   PUSH    H
         RET
 ;
 ;
+; ================= screen 8: the overlay =================
+;
+; Screen 1's palette on the frame, then drawn on the overlay above it,
+; in yellow: a grid every 64 pixels, a circle, a box PAINTed with the
+; ring pattern and a solid one, and a crosshair stepped across in OMEOR
+; -- each drawn, then drawn again to undraw it, the last one left. At
+; 1 bpp the colors are OVSET and OVCLR; PAINT also stops at CL0 and
+; CL1, so CL0 goes to OVSET too, never the 0 being painted over.
+;
+SCR8:   CALL    SCR1
+        GOVPAL  255,255,0
+        GOVL
+        GCOLOR  OVSET
+        GBCOL   OVSET
+        GBOX    96,96,288,256   ;(PAINTed before the grid crosses it)
+        GLDPAT  RING
+        GCMODE  CMCL1
+        GPAINT  192,176,OVSET
+        GMODE
+        CALL    SOLID
+        GFBOX   736,96,928,256
+N       SET     1
+        REPT    15
+        GSEG    N*64,0,N*64,767
+N       SET     N+1
+        ENDM
+N       SET     1
+        REPT    11
+        GSEG    0,N*64,1023,N*64
+N       SET     N+1
+        ENDM
+        GCIRC   512,384,200
+        GMODE   OMEOR
+        LXI     H,200
+        SHLD    GX
+        SHLD    GY
+        MVI     C,20
+S8XH:   CALL    XHAIR           ;draw it
+        DCR     C
+        JZ      S8XD            ;(the last one stays)
+        CALL    XHAIR           ;undraw it
+        LHLD    GX
+        LXI     D,25
+        DAD     D
+        SHLD    GX
+        LHLD    GY
+        LXI     D,15
+        DAD     D
+        SHLD    GY
+        JMP     S8XH
+S8XD:   GMODE
+        GFRAME
+        GOVON
+        RET
+;
+; XHAIR -- an 81-pixel crosshair centred on GX,GY, in the current mode
+; (in OMEOR its centre, drawn by both lines, toggles back off)
+;
+XHAIR:  PUSH    B
+        LHLD    GY
+        XCHG
+        LHLD    GX
+        LXI     B,-40
+        DAD     B
+        GMOVE
+        LXI     B,81
+        DAD     B
+        GLINE
+        LHLD    GY
+        LXI     B,-40
+        DAD     B
+        XCHG
+        LHLD    GX
+        GMOVE
+        XCHG
+        LXI     B,81
+        DAD     B
+        XCHG
+        GLINE
+        POP     B
+        RET
+;
+;
+; ================= screen 9: the overlay off =================
+;
+; GOVOFF hides the overlay: screen 8's picture shows through untouched,
+; since nothing drawn on the overlay ever reached the frame. GOVCLS then
+; clears the overlay, hidden or not.
+;
+SCR9:   GOVOFF
+        GOVCLS
+        RET
+;
+;
+; ================= screen 10: a text overlay =================
+;
+; Screen 2's lines on the frame; on the overlay above them, in white:
+; a title in the 9x11 font at scale 2, each font at a larger scale, the
+; whole character set of each (three lines, GTNL), text turned 90 and
+; 45 degrees, and an opaque status line (TXOPAQ: its 0 bits clear the
+; overlay) written, then rewritten in place. Then, back on the frame, a
+; line of text in red drawn into the picture itself.
+;
+SCR10:  CALL    SCR2
+        GOVCLS
+        GOVPAL  255,255,255
+        GOVL
+        GCOLOR  OVSET
+        GBCOL   OVCLR
+        GFONT   CZF11
+        GTATTR  2
+        GTPOS   24,730
+        GTEXT   <'CADzilla text overlay'>
+        GTATTR  3
+        GTPOS   300,650
+        GTEXT   <'CZF11 x3'>
+        GFONT   CZF8
+        GTATTR  4
+        GTPOS   24,650
+        GTEXT   <'CZF8 x4'>
+        GFONT   CZF11
+        GTATTR  1
+        GTPOS   24,110
+        CALL    CHSET
+        GFONT   CZF8
+        GTPOS   340,110
+        CALL    CHSET
+        GTATTR  2,2
+        GTPOS   1012,150
+        GTEXT   <'turned 90'>
+        GTATTR  1,1
+        GTPOS   290,400
+        GTEXT   <'45 degrees, along a spoke'>
+        GTATTR  2,0,TXOPAQ
+        GTPOS   620,40
+        GTEXT   <'STATUS: WORKING'>
+        GTPOS   620,40
+        GTEXT   <'STATUS: READY  '>
+        GFRAME
+        GCOLOR  RED+BRIGHT
+        GTATTR  2
+        GTPOS   620,130
+        GTEXT   <'and text on the frame'>
+        GOVON
+        RET
+;
+; CHSET -- the character set, 20H-7EH, as three lines of 32 from the pen
+;
+CHSET:  LXI     H,ASCII
+        MVI     C,3
+CHS1:   MVI     B,32
+        GTSTR
+        LXI     D,32
+        DAD     D
+        GTNL
+        DCR     C
+        JNZ     CHS1
+        RET
+;
+;
 ; ================= helpers for screens 4-7 =================
 ;
 ; PNLX -- GX = the left edge of panel column A AND 3: 16 + column*252
@@ -1028,6 +1217,24 @@ MSG6:   DB      'Screen 6: color modes CMSEL CMCL1 CMCL0 CMPRAM (GLDPAT, GTILE),
         DB      CR,LF,'  GLSTYL line styles, GPTN turned and slanted',CR,LF,'$'
 MSG7:   DB      'Screen 7: GAREA clip/hole and stop lines, GPAINT/GFLOOD pie,'
         DB      CR,LF,'  GCOPY in 8 orientations, with EOR and clipped',CR,LF,'$'
+MSG8:   DB      'Screen 8: the overlay (GOVL..GFRAME, GOVON) -- a grid, circle,'
+        DB      CR,LF,'  patterned and solid boxes and an EOR crosshair, over screen 1'
+        DB      CR,LF,'$'
+MSG9:   DB      'Screen 9: GOVOFF -- the picture under the overlay is untouched;'
+        DB      CR,LF,'  then GOVCLS clears it',CR,LF,'$'
+MSG10:  DB      'Screen 10: a text overlay (GFONT CZF8/CZF11, GTEXT, GTNL) over'
+        DB      CR,LF,'  screen 2 -- scaled, turned, opaque -- and text on the frame'
+        DB      CR,LF,'$'
+;
+; Screen 10: the character set, 20H-7FH (7FH draws as a blank)
+;
+ASCII:
+N       SET     20H
+        REPT    96
+        DB      N
+N       SET     N+1
+        ENDM
+;
 MSGA:   DB      '  AMCLPD: ARD $'
 MSGB:   DB      ', AMHOLD: ARD $'
 MSGC:   DB      CR,LF,'  AMSTOP stopped $'

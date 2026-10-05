@@ -9,7 +9,7 @@
 ;       0100H   BINIT: the start-up code, then the buffers laid over
 ;               it (BUF KBUF VSTK and the rest, BINIT.MAC)
 ;               the interpreter
-;       GFXBEG  the graphics: BGFX BGTEXT BFONT and the czgfx library
+;       GFXBEG  the graphics: BGFX BGTEXT and the czgfx library (its font too)
 ;               (with /X, the file blocks and the program start here)
 ;               the file blocks
 ;       TXTTAB  program text (TXTTAB-1 holds 0)
