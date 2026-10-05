@@ -20,10 +20,18 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   1024x768); the code's timing (`GINIT CZM...` or its own register table)
   must match it
 - `software/czgfx/` — the shared czgfx graphics-primitive library (M80
-  macros + relocatable modules). It builds its own gitignored library disk,
-  `software/czgfx/libdisk/CZGFXLIB.DSK`, which M80 consumer projects (e.g.
-  `software/gfxdemo/`) mount read-only as CP/M `B:` — see
-  `software/czgfx/README.md`
+  macros + relocatable modules).
+  - It builds onto its gitignored build disk
+    `software/czgfx/libdisk/CZGFXLIB.DSK`.
+  - `tools/release.sh` snapshots that disk as a tracked, never-changed
+    release, `software/czgfx/releases/CZGFXLIB-<version>.DSK` (version:
+    `CZVERS` in `CZGFX.INC`).
+  - An M80 consumer project (e.g. `software/gfxdemo/`) pins a release in
+    its tracked `czgfx.version`, and mounts its own copy of it from
+    `work/` read-only as CP/M `B:`. So `work/` is self-contained, and a
+    czgfx change reaches a project only when its pin moves.
+
+  See `software/czgfx/README.md`.
 - `tools/altairsim/pristine/` — master CP/M machine + disk images.
   **Never boot, `CONFIG LOAD` or `MOUNT` anything from here**; always use a
   project's own `work/`. Kept read-only on the host; its git status must
@@ -57,7 +65,8 @@ its MCP server; `tools/altairsim/README.md`):
   `drawdemo`; skill `cadzilla-build-asm`).
 - **Microsoft `M80` + `L80`** (3.44) — for new work and anything that draws:
   relocatable `.MAC` sources, macros, and the shared czgfx library linked
-  from the `B:` library disk (`czgfx`, `gfxdemo`; skill `cadzilla-build-m80`).
+  from the project's pinned czgfx release on `B:` (`czgfx`, `gfxdemo`,
+  `czbasic`; skill `cadzilla-build-m80`).
 - New projects: skill `new-cadzilla-project` (`--toolchain asm|m80`,
   `--mode WxH`).
 

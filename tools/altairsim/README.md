@@ -49,7 +49,7 @@ could never be created from the command line in the first place.
   `LOAD.COM`, `DDT.COM`, Microsoft's `M80`/`L80`/`LIB80`/`CREF80.COM`, the
   host-bridge `R`/`W`/`HDIR.COM`, and more disk tools than the old 8"
   floppy image had room for); `EMPTY.DSK` is an empty 8MB volume, the
-  template for a project's scratch disk and the library disk. `cadzilla-real.toml` is the
+  template for a project's scratch disk and czgfx's build disk. `cadzilla-real.toml` is the
   real-time variant — a delta on the `cadzilla.toml` beside it that sets a
   2 MHz CPU and cad0 `draw_rate = "real"` (see "Running in real time").
 - `scripts/sync_pristine.sh [--machine-only] <dest-dir>` — copies the
@@ -64,12 +64,18 @@ could never be created from the command line in the first place.
   the copied `cadzilla.toml` — see "Display resolution". It makes the
   copies writable, keeps pristine read-only, and refuses to target
   `pristine/` itself.
-- `scripts/attach_libdisk.sh [--writable] <work-dir>` — points drive 1
-  (CP/M `B:`) of a work machine at the czgfx library disk
-  `software/czgfx/libdisk/CZGFXLIB.DSK` (read-only unless `--writable`),
-  creating that disk from `pristine/EMPTY.DSK` if it doesn't exist
-  yet, and removes the work dir's now-unmounted `SCRATCH.DSK` if nothing
-  was ever written to it. See "The M80/L80 toolchain" below. Re-run it after
+- `scripts/attach_libdisk.sh [--writable] <work-dir>` — gives a work
+  machine the czgfx library as drive 1 (CP/M `B:`), read-only:
+  - it copies the czgfx release the project pins in
+    `software/<project>/czgfx.version` into `work/` as
+    `CZGFXLIB-<version>.DSK`, and mounts it;
+  - it removes copies of releases no longer pinned, and the now-unmounted
+    `SCRATCH.DSK`, but only if they are unchanged.
+
+  `--writable` is for czgfx's own `work/` alone: it mounts the build disk
+  `software/czgfx/libdisk/CZGFXLIB.DSK` writable, creating it from
+  `pristine/EMPTY.DSK` if needed. See "The M80/L80 toolchain" below. Re-run
+  it after
   `sync_pristine.sh --machine-only`, which puts the pristine drive 1 back.
 - `scripts/check_dsk.py <image.DSK>...` — checks every sector of a CP/M
   disk image for a valid stop byte and checksum; exit status 1 on any bad
@@ -104,11 +110,15 @@ other files that pass through CP/M are.
 | `EMPTY.DSK` | `pristine/` | the template: an empty 8MB volume | never — it is only copied |
 | `CPM22SYS.DSK` | `software/<project>/work/` | the project's own copy of the system disk: CP/M, the tools, and everything built there | drive 0, `A:` |
 | `SCRATCH.DSK` | `software/<project>/work/` | a copy of `EMPTY.DSK`, for scratch | drive 1, `B:`, in the DRI `ASM` projects |
-| `CZGFXLIB.DSK` | `software/czgfx/libdisk/` | the czgfx library: `CZGFX.INC`, `CZGFX.REL`, `CZLINK.SUB` | drive 1, `B:`, in the M80 projects (writable only in czgfx's own `work/`) |
+| `CZGFXLIB.DSK` | `software/czgfx/libdisk/` | the czgfx library as last built: `CZGFX.INC`, `CZGFX.REL`, `CZLINK.SUB` | drive 1, `B:`, writable, in czgfx's own `work/` only |
+| `CZGFXLIB-<version>.DSK` | `software/czgfx/releases/` | a czgfx release, snapshot of the build disk (tracked, never changed) | never — it is only copied |
+| `CZGFXLIB-<version>.DSK` | `software/<project>/work/` | the project's own copy of the czgfx release it pins in `czgfx.version` | drive 1, `B:`, read-only, in the M80 projects |
 | `CZBDEMO.DSK` | `software/czbasic/demodisk/` | the bootable CZBASIC demo disk | drive 0 of its own machine |
 
-`sync_pristine.sh` makes the `work/` copies; `attach_libdisk.sh` swaps an M80
-project's `SCRATCH.DSK` for the library disk.
+`sync_pristine.sh` makes the `work/` copies of the templates. `attach_libdisk.sh`
+swaps an M80 project's `SCRATCH.DSK` for its own copy of its pinned czgfx
+release. A `work/` is therefore self-contained: nothing it mounts lies
+outside it.
 ## One-time setup (per machine)
 
 The `claude` CLI isn't always on `PATH` in every environment (e.g. inside
@@ -364,7 +374,7 @@ Other notes (see `DRIVING-WITH-AI.md` for the full detail):
   `monitor {command: "BREAK <addr>"}`, `STEP`, `DISASM`, `HISTORY`,
   `regs`.
 
-## The M80/L80 toolchain and the czgfx library disk
+## The M80/L80 toolchain and the czgfx library
 
 The pristine CP/M disk also carries Microsoft's MACRO-80 package:
 - **M80.COM** (MACRO-80 3.44), the assembler
@@ -409,19 +419,27 @@ a shared library possible:
   - `CZLINK.SUB`, the link script (`L80 $1,B:CZGFX/S,$1/N$2/E`)
 
   API reference: `software/czgfx/README.md`.
-- czgfx builds all of that onto its own **library disk**,
-  `software/czgfx/libdisk/CZGFXLIB.DSK` (gitignored — a build product).
-  czgfx's own `work/` mounts it **writable** as drive 1.
-- Every M80 consumer project mounts the same disk as **`B:`, read-only**
-  (`readonly = true` in its `work/cadzilla.toml`; `SHOW MOUNTS` says
-  `(write-protected)`), `INCLUDE`s `B:CZGFX.INC`, and links with
-  `SUBMIT B:CZLINK <NAME>` — so it never lists library modules itself,
-  and L80's `/S` search pulls in only the modules the program uses.
+- czgfx builds all of that onto its **build disk**,
+  `software/czgfx/libdisk/CZGFXLIB.DSK` (gitignored — a build product),
+  which czgfx's own `work/` mounts **writable** as drive 1.
+- `software/czgfx/tools/release.sh` snapshots the build disk as a numbered,
+  tracked **release**, `software/czgfx/releases/CZGFXLIB-<version>.DSK`.
+  The version comes from `CZVERS` in `CZGFX.INC`.
+- Every M80 consumer project:
+  - pins a release in `software/<project>/czgfx.version`;
+  - mounts its own copy of that release from its `work/` as **`B:`,
+    read-only** (`readonly = true` in its `work/cadzilla.toml`; `SHOW
+    MOUNTS` says `(write-protected)`);
+  - `INCLUDE`s `B:CZGFX.INC`, and links with `SUBMIT B:CZLINK <NAME>`.
+    So it never lists library modules itself, and L80's `/S` search
+    pulls in only the modules the program uses.
+
+  A czgfx change reaches a project only when the project moves its pin.
   `software/gfxdemo/` is the working example.
 
 ```
-drive 0  A:  software/<project>/work/CPM22SYS.DSK      the project's own disk
-drive 1  B:  software/czgfx/libdisk/CZGFXLIB.DSK      czgfx library (read-only here)
+drive 0  A:  software/<project>/work/CPM22SYS.DSK       the project's own disk
+drive 1  B:  software/<project>/work/CZGFXLIB-1.0.DSK   its czgfx release (read-only)
 ```
 
 Build a consumer (from a clean `A0>` on the project's own machine):
@@ -436,12 +454,16 @@ run {input: "<NAME>\r", until: "A0>"}
 
 then `W <NAME>.COM` (binary) and `W <NAME>.PRN T` into `build/` as usual.
 
-**Rebuild the library first when it's stale** — if anything in
-`software/czgfx/src/` is newer than `libdisk/CZGFXLIB.DSK`, or the disk
-doesn't exist yet: `CONFIG LOAD` czgfx's own `work/cadzilla.toml`, boot,
-`R *.*` from `czgfx/src`, `SUBMIT CZBUILD`, `W` the `.REL`/`.PRN` into
-`czgfx/build`, and unmount both drives *before* switching the server to a
-consumer project. The `cadzilla-build-m80` skill has the full procedure.
+**A consumer never needs the library rebuilt**: it builds against its
+pinned release. The build disk matters only to czgfx itself, and to a
+project pinned to `dev`. Rebuild it when anything in `software/czgfx/src/` is
+newer than `libdisk/CZGFXLIB.DSK`, or the disk doesn't exist yet:
+1. `CONFIG LOAD` czgfx's own `work/cadzilla.toml` and boot;
+2. `R *.*` from `czgfx/src`, then `SUBMIT CZBUILD`;
+3. `W` the `.REL`/`.PRN` into `czgfx/build`;
+4. unmount both drives *before* switching the server to another project.
+
+The `cadzilla-build-m80` skill has the full procedure.
 
 M80/L80 gotchas (the `cadzilla-build-m80` skill has more):
 - **Global names are 6 characters.** L80 keeps only the first 6 of a
@@ -510,8 +532,8 @@ and no `until`, and check that it reports `stopped: "idle"`.
 Afterwards, `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK`
 should say `ok`.
 
-(And `dsk0:drive1` too — `SCRATCH.DSK`, or the czgfx library disk on
-an M80 project.)
+(And `dsk0:drive1` too — `SCRATCH.DSK`, or an M80 project's own
+`CZGFXLIB-<version>.DSK`, which is under the same `work/*.DSK`.)
 
 **Don't force-interrupt a disk operation in flight.** `reset` or `CONFIG
 LOAD` mid-`ASM`/`LOAD`/`R`/`W` (e.g. because a `run` call timed out) can

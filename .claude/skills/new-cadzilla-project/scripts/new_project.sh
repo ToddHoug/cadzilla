@@ -16,8 +16,9 @@
 #        no linker -- the original CP/M flow (cadzilla-build-asm skill).
 #   m80  Microsoft M80 + L80: a relocatable <NAME>.MAC that INCLUDEs the
 #        czgfx graphics library header from B: and links against its .REL
-#        modules (cadzilla-build-m80 skill). The project's work machine gets
-#        the czgfx library disk as drive 1 (B:), read-only.
+#        modules (cadzilla-build-m80 skill). The project pins the newest
+#        czgfx release in software/<name>/czgfx.version, and its work machine
+#        gets its own copy of that release as drive 1 (B:), read-only.
 #
 # --cpm-name is for when <project-name> itself doesn't fit CP/M's 8.3 limit
 # (8 characters before the extension) -- e.g. `new_project.sh firstdraw
@@ -202,10 +203,23 @@ else
   "$REPO_ROOT/tools/altairsim/scripts/sync_pristine.sh" --machine-only "$PROJECT_DIR/work"
 fi
 
-# An M80 project reads the czgfx library from drive B: -- point drive 1 of its
-# machine at the library disk, read-only. (Idempotent, so it's also safe on
-# an existing work/.)
+# An M80 project reads the czgfx library from drive B:, from its own copy of a
+# czgfx release in work/. It pins the release in its tracked czgfx.version --
+# the newest one, for a new project; an existing pin is never changed -- and
+# attach_libdisk.sh copies that release in and mounts it, read-only.
+# (Idempotent, so it's also safe on an existing work/.)
 if [ "$TOOLCHAIN" = "m80" ]; then
+  PIN="$PROJECT_DIR/czgfx.version"
+  if [ ! -f "$PIN" ]; then
+    LATEST="$(ls "$REPO_ROOT/software/czgfx/releases" 2>/dev/null \
+              | sed -nE 's/^CZGFXLIB-([0-9]+\.[0-9]+)\.DSK$/\1/p' | sort -V | tail -n1)"
+    if [ -z "$LATEST" ]; then
+      echo "error: no czgfx release in software/czgfx/releases -- release one first" >&2
+      exit 1
+    fi
+    echo "$LATEST" > "$PIN"
+    echo "Pinned czgfx $LATEST in $PIN"
+  fi
   "$REPO_ROOT/tools/altairsim/scripts/attach_libdisk.sh" "$PROJECT_DIR/work"
 fi
 

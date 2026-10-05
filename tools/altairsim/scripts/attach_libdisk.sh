@@ -1,28 +1,40 @@
 #!/usr/bin/env bash
-# Point drive 1 (CP/M B:) of a project's altairsim work machine at the czgfx
-# library disk, software/czgfx/libdisk/CZGFXLIB.DSK.
+# Give a project's altairsim work machine the czgfx library as drive 1 (CP/M B:).
 #
 # The czgfx project (software/czgfx/) builds the CADzilla graphics library --
-# the CZGFX.INC macro header plus the relocatable .REL modules and the
-# CZLINK.SUB link script -- onto that disk. Every M80 project that uses the
-# library mounts the same disk as B:, INCLUDEs B:CZGFX.INC and links with
-# SUBMIT B:CZLINK <NAME>.
+# the CZGFX.INC macro header plus the relocatable CZGFX.REL and the CZLINK.SUB
+# link script -- onto a disk image. An M80 project INCLUDEs B:CZGFX.INC and
+# links with SUBMIT B:CZLINK <NAME>.
 #
-# Consumers get the disk READ-ONLY (readonly = true in the machine file): the
-# guest can read it, and a stray write is refused at the controller instead
-# of reaching the host file. Only software/czgfx/work itself attaches it with
-# --writable, because that is where the library is rebuilt.
+# A project builds against a RELEASE of the library that it chooses, in its
+# own work/ -- so work/ is self-contained, and a czgfx change reaches a project
+# only when the project moves to a new release:
 #
-# If the library disk doesn't exist yet it is created as a copy of the
-# pristine EMPTY.DSK (pristine is only read, never written).
+#   software/<project>/czgfx.version   the pin (tracked): a release number such
+#                                      as 1.0, or `dev` for the current build
+#   software/czgfx/releases/CZGFXLIB-<version>.DSK
+#                                      the releases (tracked, never changed),
+#                                      made by software/czgfx/tools/release.sh
+#   software/<project>/work/CZGFXLIB-<version>.DSK
+#                                      the project's own copy, mounted as B:,
+#                                      read-only (CZGFXLIB-DEV.DSK for `dev`)
 #
-# The work dir's own scratch disk, SCRATCH.DSK, is then no longer mounted. If
-# it is still an untouched copy of EMPTY.DSK it is removed; if anything was
-# ever written to it, it is left alone (say so, and keep it) -- nothing a
-# program put there is thrown away.
+# This copies the pinned release into work/ (again if the copy differs), points
+# drive 1 of work/cadzilla.toml at it, read-only, and removes:
+#   - copies of other releases in work/ that are still identical to their
+#     release, or for a `dev` copy to the current build (anything else is
+#     kept, with a note)
+#   - the work dir's unused SCRATCH.DSK, if it is an untouched copy of the
+#     pristine EMPTY.DSK
+# `dev` copies the current build, software/czgfx/libdisk/CZGFXLIB.DSK, and
+# refreshes it on every run: for trying out an unreleased library.
 #
-# Re-run this after `sync_pristine.sh --machine-only <work-dir>`: that
-# restores the pristine cadzilla.toml, whose drive 1 is SCRATCH.DSK again.
+# --writable is for software/czgfx/work itself, where the library is built: it
+# mounts the build disk software/czgfx/libdisk/CZGFXLIB.DSK writable (creating
+# it from the pristine EMPTY.DSK if it doesn't exist yet), with no pin.
+#
+# Re-run this after `sync_pristine.sh --machine-only <work-dir>` (which puts
+# the pristine drive 1, SCRATCH.DSK, back) and after changing the pin.
 # Running it twice is harmless.
 #
 # Usage: attach_libdisk.sh [--writable] <work-dir>
@@ -44,6 +56,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 PRISTINE="$REPO_ROOT/tools/altairsim/pristine"
 LIBDIR="$REPO_ROOT/software/czgfx/libdisk"
 LIBDISK="$LIBDIR/CZGFXLIB.DSK"
+RELDIR="$REPO_ROOT/software/czgfx/releases"
 EMPTY="$PRISTINE/EMPTY.DSK"
 TOML="$WORK/cadzilla.toml"
 
@@ -56,24 +69,67 @@ if [ "$(cd "$WORK" && pwd -P)" = "$(cd "$PRISTINE" && pwd -P)" ]; then
   exit 1
 fi
 
-if [ ! -f "$LIBDISK" ]; then
-  if [ ! -f "$EMPTY" ]; then
-    echo "error: $EMPTY not found -- can't create the library disk" >&2
+if [ "$WRITABLE" -eq 1 ]; then
+  # czgfx's own machine: the build disk, shared with nothing but release.sh
+  if [ ! -f "$LIBDISK" ]; then
+    if [ ! -f "$EMPTY" ]; then
+      echo "error: $EMPTY not found -- can't create the library disk" >&2
+      exit 1
+    fi
+    mkdir -p "$LIBDIR"
+    cp "$EMPTY" "$LIBDISK"
+    chmod u+w "$LIBDISK"
+    echo "Created empty library disk $LIBDISK (build it from software/czgfx)"
+  fi
+  MOUNT="$(realpath --relative-to="$(cd "$WORK" && pwd -P)" "$LIBDISK")"
+else
+  # A project: its pinned release, copied into work/
+  PIN="$(cd "$WORK/.." && pwd -P)/czgfx.version"
+  if [ ! -f "$PIN" ]; then
+    echo "error: $PIN not found -- pin a czgfx release, e.g.:" >&2
+    echo "  echo 1.0 > $PIN      (releases: $(ls "$RELDIR" 2>/dev/null | tr '\n' ' '))" >&2
     exit 1
   fi
-  mkdir -p "$LIBDIR"
-  cp "$EMPTY" "$LIBDISK"
-  chmod u+w "$LIBDISK"
-  echo "Created empty library disk $LIBDISK (build it from software/czgfx)"
+  VERSION="$(grep -vE '^[[:space:]]*(#|$)' "$PIN" | head -n1 | tr -d '[:space:]')"
+  if [ "$VERSION" = "dev" ]; then
+    SRC="$LIBDISK"
+    TAG="DEV"
+  else
+    SRC="$RELDIR/CZGFXLIB-$VERSION.DSK"
+    TAG="$VERSION"
+  fi
+  if [ ! -f "$SRC" ]; then
+    echo "error: czgfx $VERSION (pinned in $PIN) not found: $SRC" >&2
+    echo "  releases: $(ls "$RELDIR" 2>/dev/null | tr '\n' ' ')" >&2
+    exit 1
+  fi
+  MOUNT="CZGFXLIB-$TAG.DSK"
+  LOCAL="$WORK/$MOUNT"
+  if [ ! -f "$LOCAL" ] || ! cmp -s "$SRC" "$LOCAL"; then
+    cp -f "$SRC" "$LOCAL"
+    chmod u+w "$LOCAL"
+    echo "Copied czgfx $VERSION into $LOCAL"
+  fi
+  # Copies of other releases: drop them while they still match their release
+  shopt -s nullglob
+  for old in "$WORK"/CZGFXLIB-*.DSK; do
+    [ "$(basename "$old")" = "$MOUNT" ] && continue
+    rel="$RELDIR/$(basename "$old")"
+    [ "$(basename "$old")" = "CZGFXLIB-DEV.DSK" ] && rel="$LIBDISK"
+    if [ -f "$rel" ] && cmp -s "$rel" "$old"; then
+      rm -f "$old"
+      echo "Removed $old (czgfx $(basename "$old" .DSK | sed 's/^CZGFXLIB-//'), no longer pinned)"
+    else
+      echo "Note: $old is no longer mounted -- kept (not an unchanged release)"
+    fi
+  done
 fi
-
-REL="$(realpath --relative-to="$(cd "$WORK" && pwd -P)" "$LIBDISK")"
 
 # Rewrite the [[board.drive]] block whose unit is 1: its mount becomes the
 # library disk, any existing readonly/writeprotect line is dropped, and
 # readonly = true is added back unless --writable.
 tmp="$(mktemp)"
-awk -v rel="$REL" -v ro="$WRITABLE" '
+awk -v rel="$MOUNT" -v ro="$WRITABLE" '
   /^[[:space:]]*\[\[board\.drive\]\]/ { unit1 = 0 }
   /^[[:space:]]*\[\[board\]\]/        { unit1 = 0 }
   /^[[:space:]]*unit[[:space:]]*=[[:space:]]*1[[:space:]]*$/ { unit1 = 1; print; next }
@@ -100,9 +156,9 @@ cat "$tmp" > "$TOML"
 rm -f "$tmp"
 
 if [ "$WRITABLE" -eq 1 ]; then
-  echo "Attached $REL as drive 1 (B:, writable) in $TOML"
+  echo "Attached $MOUNT as drive 1 (B:, writable) in $TOML"
 else
-  echo "Attached $REL as drive 1 (B:, read-only) in $TOML"
+  echo "Attached $MOUNT as drive 1 (B:, read-only) in $TOML"
 fi
 
 # The scratch disk B: used to be is now unmounted: drop it if it is untouched.

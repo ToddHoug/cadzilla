@@ -34,6 +34,14 @@
 ; use: M80 emits every EXTRN as a link request, and L80 then loads that
 ; module whether anything calls it or not.
 ;
+; Version: CZVERS is this library's release, major in the high byte,
+; minor in the low one. A release is the library disk image
+; software/czgfx/releases/CZGFXLIB-<major>.<minor>.DSK; each project pins
+; one in its software/<project>/czgfx.version and builds against its own
+; copy of it (tools/altairsim/scripts/attach_libdisk.sh).
+;
+CZVERS  EQU     0100H           ;1.0
+;
 ;
 ; ---- board I/O map: one 8-port block, base set by SW1-1..SW1-5 ----
 ;

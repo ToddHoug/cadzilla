@@ -56,10 +56,13 @@ the user mentions a resolution or it matters for what they're building;
 otherwise take the default. If the project already has a `machine.toml`,
 it's kept and its mode wins over `--mode`.
 
-With `--toolchain m80`, the script also runs
-`tools/altairsim/scripts/attach_libdisk.sh` on the new `work/`, which points
-drive 1 (B:) at the czgfx library disk `software/czgfx/libdisk/CZGFXLIB.DSK`,
-read-only. It writes `src/<NAME>.MAC` instead of `.ASM`. The stub:
+With `--toolchain m80`, the script also pins the newest czgfx release
+(from `software/czgfx/releases/`) in the project's tracked
+`software/<name>/czgfx.version`, keeping an existing pin. It then runs
+`tools/altairsim/scripts/attach_libdisk.sh` on the new `work/`, which copies
+that release into `work/` as `CZGFXLIB-<version>.DSK` and mounts it as drive
+1 (B:), read-only. The project builds against that copy, so later czgfx
+changes don't touch it until its pin is moved. It writes `src/<NAME>.MAC` instead of `.ASM`. The stub:
 - `INCLUDE`s `B:CZGFX.INC` and calls `GINIT` with the czgfx descriptor
   for the project's mode (`CZM1K`, `CZM800` or `CZM640`)
 - draws a frame round the whole screen and a centered filled box, then
@@ -104,7 +107,7 @@ their own code changes.
 
 **For an `m80` project, follow the `cadzilla-build-m80` skill instead of the
 steps below.** It covers:
-- rebuilding the czgfx library disk first if it is missing or stale
+- checking the project's czgfx pin and its copy of the release
 - M80, `SUBMIT B:CZLINK <NAME>`, the run, and the `W` of the `.COM`/`.PRN`
 - unmounting both drives at the end
 

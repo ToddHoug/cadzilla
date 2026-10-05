@@ -120,6 +120,7 @@ START:  RET                     ;nothing below is ever executed
         LDA     CZMREG##
         LHLD    CZDPB##
         LXI     H,CZTST##
+        LXI     H,CZVERS        ;(the header's version)
         LHLD    CZYMAX##
         LXI     H,CZPALD##
         LXI     H,CZWREG##

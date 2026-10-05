@@ -1,6 +1,6 @@
 ---
 name: cadzilla-build-m80
-description: Builds and runs CADzilla programs with the Microsoft M80/L80 toolchain and the shared czgfx graphics library -- rebuilding the czgfx library disk when its sources changed, then assembling a consumer project's <NAME>.MAC with M80, linking it against the library with SUBMIT B:CZLINK, running it and pulling the .COM/.PRN back -- all by driving the altairsim MCP server. Use this whenever the user wants to build, run, test or debug a CADzilla project whose source is a .MAC file (software/gfxdemo, software/czgfx, anything scaffolded with --toolchain m80), change or extend the czgfx library (new primitive, new macro, new module), or asks how to share code/macros between CADzilla programs. For single-file .ASM projects (hello, firstdraw, drawdemo) use cadzilla-build-asm.
+description: Builds and runs CADzilla programs with the Microsoft M80/L80 toolchain and the shared czgfx graphics library -- rebuilding and releasing the czgfx library disk when its sources changed, then assembling a consumer project's <NAME>.MAC with M80, linking it against the czgfx release it pins with SUBMIT B:CZLINK, running it and pulling the .COM/.PRN back -- all by driving the altairsim MCP server. Use this whenever the user wants to build, run, test or debug a CADzilla project whose source is a .MAC file (software/gfxdemo, software/czgfx, anything scaffolded with --toolchain m80), change or extend the czgfx library (new primitive, new macro, new module), or asks how to share code/macros between CADzilla programs. For single-file .ASM projects (hello, firstdraw, drawdemo) use cadzilla-build-asm.
 ---
 
 # Build with M80/L80 and the czgfx library
@@ -11,13 +11,20 @@ toolchain", and in `software/czgfx/README.md`):
 - **`software/czgfx/`** is the graphics library. Its sources are in `src/`
   (`CZGFX.INC`, `CZ*.MAC`, `CZBUILD.SUB`, `CZLINK.SUB`, `CZCHK.MAC`). Its
   fourteen modules are combined with **LIB80** into one library, `CZGFX.REL`.
-  That library, the header and `CZLINK.SUB` go onto the **library disk**
+  That library, the header and `CZLINK.SUB` go onto the **build disk**
   `software/czgfx/libdisk/CZGFXLIB.DSK`, which czgfx's own `work/` mounts
-  **writable** as drive 1 (B:).
-- **Consumer projects** (`software/gfxdemo` is the example) mount the same
-  disk as **B:, read-only**. They `INCLUDE B:CZGFX.INC`, and link with
-  `SUBMIT B:CZLINK <NAME>`, which is `L80 <NAME>,B:CZGFX/S,<NAME>/N/E`.
-  L80's library search loads only the modules the program uses.
+  **writable** as drive 1 (B:). `software/czgfx/tools/release.sh`
+  snapshots it as a tracked, never-changed **release**,
+  `software/czgfx/releases/CZGFXLIB-<version>.DSK`, named by `CZVERS` in
+  `CZGFX.INC`.
+- **Consumer projects** (`software/gfxdemo` is the example) pin a release
+  in `software/<name>/czgfx.version`. Each mounts **its own copy**,
+  `work/CZGFXLIB-<version>.DSK`, as **B:, read-only**. They
+  `INCLUDE B:CZGFX.INC`, and link with `SUBMIT B:CZLINK <NAME>`, which
+  is `L80 <NAME>,B:CZGFX/S,<NAME>/N/E`. L80's library search loads only
+  the modules the program uses.
+- **A czgfx change reaches a consumer only when the consumer's pin moves.**
+  Don't rebuild or relink consumers just because the library changed.
 
 Only one machine runs in the MCP server at a time. Finish one machine
 before you `CONFIG LOAD` the next: do a `run` with no input and no `until`
@@ -33,11 +40,16 @@ prompt is printed; see step 3.
 2. **The project must be wired to the library.**
    - `software/<name>/work/` must exist. If not, run
      `tools/altairsim/scripts/sync_pristine.sh software/<name>/work`.
-   - Its `cadzilla.toml` drive 1 must mount `../../czgfx/libdisk/CZGFXLIB.DSK`
-     with `readonly = true`. If it doesn't (for example after
-     `sync_pristine.sh --machine-only`), run
-     `tools/altairsim/scripts/attach_libdisk.sh software/<name>/work`.
-   - czgfx itself uses `attach_libdisk.sh --writable software/czgfx/work`.
+   - It must have a pin, `software/<name>/czgfx.version` (e.g. `1.0`, or
+     `dev` for the current build disk).
+   - Its `cadzilla.toml` drive 1 must mount `CZGFXLIB-<version>.DSK`, a
+     file in `work/` itself, with `readonly = true`. If it doesn't (for
+     example after `sync_pristine.sh --machine-only`, or after a pin
+     change), run `tools/altairsim/scripts/attach_libdisk.sh software/<name>/work`.
+     A `dev` pin needs that run again after every library rebuild, to
+     refresh the copy.
+   - czgfx itself uses `attach_libdisk.sh --writable software/czgfx/work`
+     (its build disk, no pin).
    - **czgfx's work disk must have LIB80.COM.** It's on the pristine disk
      from 2026-09-24. An older `software/czgfx/work` doesn't have it, and
      CZBUILD's `LIB80` lines then fail with `LIB80?`. To fix that:
@@ -49,13 +61,13 @@ prompt is printed; see step 3.
    about to `R`: the project's `src/*.MAC`, plus `software/czgfx/src/*`
    when rebuilding the library. It is idempotent. Files written on the host
    are LF-only, and LF-only source silently assembles to nothing.
-4. **Is the library stale?** Check whether the library disk is missing, or
-   any czgfx source is newer than it:
+4. **Only when working on czgfx itself (or a `dev` pin): is the build disk
+   stale?** Check whether it is missing, or any czgfx source is newer:
    ```bash
    find software/czgfx/src -newer software/czgfx/libdisk/CZGFXLIB.DSK -type f
    ```
-   If the disk is missing or this prints anything, do step 1 before step 2.
-   Also do step 1 whenever the user changed the library.
+   If so, do step 1. A consumer pinned to a release never needs this. It
+   builds against its own copy of that release.
 5. The altairsim MCP tools must be loaded (`mcp__altairsim__run`). If they
    aren't, point the user at the README's "Starting a session".
 
@@ -110,7 +122,7 @@ run {input: "SUBMIT CZBUILD\r", timeout_ms: 180000}
 ```
 monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>", timeout_ms: 10000}
-monitor {command: "SHOW MOUNTS"}   # drive1 = ../../czgfx/libdisk/CZGFXLIB.DSK (write-protected)
+monitor {command: "SHOW MOUNTS"}   # drive1 = CZGFXLIB-<version>.DSK (write-protected)
 monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/src"}
 run {input: "R <NAME>.MAC\r", until: "A0>", timeout_ms: 15000}
 run {input: "M80 <NAME>,<NAME>=<NAME>\r", until: "A0>", timeout_ms: 60000}
@@ -172,16 +184,18 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 30000}
 - `run {timeout_ms: 5000}`, with no input and no `until`, must report
   `stopped: "idle"`
 - `UNMOUNT dsk0:drive0` and `UNMOUNT dsk0:drive1`
-- `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK
-  software/czgfx/libdisk/CZGFXLIB.DSK` must say `ok` for every image
+- `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK` must say
+  `ok` for every image (for czgfx itself, add
+  `software/czgfx/libdisk/CZGFXLIB.DSK`)
 - confirm `git status tools/altairsim/pristine` is clean; if it isn't, stop
   and tell the user
-- a consumer mounts the library disk read-only, so its modification time
-  shouldn't change during a consumer session
+- a consumer mounts its library copy read-only, so the copy's modification
+  time shouldn't change during a consumer session
 
 Report what was built (library rebuilt or not), quote the console output,
 and say the drives were unmounted. `build/`, `work/` and `libdisk/` are
-gitignored. Don't commit unless asked.
+gitignored; `releases/` and each project's `czgfx.version` are tracked.
+Don't commit unless asked.
 
 ## Changing the library
 
@@ -198,8 +212,22 @@ gitignored. Don't commit unless asked.
      that calls it and before every module it calls, because L80 searches
      the library in one pass. `LIB80 /U` flags a mistake. `CZLINK.SUB`
      doesn't change.
-- Then rebuild the library (step 1) and **relink every consumer**. A
-  `.COM` contains the library code it was linked with.
+- Then rebuild the library (step 1). To try the change in a consumer
+  before releasing it, pin that consumer to `dev`.
+- **Releasing.**
+  1. Raise `CZVERS` in `CZGFX.INC` (major high byte, minor low byte).
+  2. Rebuild (step 1).
+  3. Run `software/czgfx/tools/release.sh`. It refuses a stale build disk
+     or an existing version.
+  4. `git add` the new `releases/CZGFXLIB-<version>.DSK`.
+- **Moving a consumer to the new release.** Do this only for the consumers
+  the user wants moved:
+  1. edit its `czgfx.version`;
+  2. run `attach_libdisk.sh` on its `work/`;
+  3. rebuild and relink it (step 2).
+
+  A `.COM` contains the library code it was linked with, so the other
+  consumers stay on what they pinned.
 
 ## M80/L80 gotchas (all confirmed on this disk: M80/L80 3.44)
 

@@ -17,20 +17,51 @@ comes in two parts:
 
 `software/gfxdemo/` is the worked example.
 
-## How it's delivered: the library disk
+## How it's delivered: versioned library disks
 
-The library lives on a CP/M disk of its own:
+The library lives on a CP/M disk of its own, released in numbered versions.
+A program builds against the release it pins in its own `work/`, so czgfx
+can change without moving any program onto the new library, or making it
+rebuild, until that program chooses to.
 
 | Where | What |
 |---|---|
 | `software/czgfx/src/` | sources: `CZGFX.INC`, `CZ*.MAC`, `CZBUILD.SUB`, `CZLINK.SUB`, `CZCHK.MAC` |
-| `software/czgfx/libdisk/CZGFXLIB.DSK` | **the library disk**: `CZGFX.INC`, `CZGFX.REL` and `CZLINK.SUB` (gitignored, since it is built from `src/`) |
+| `software/czgfx/libdisk/CZGFXLIB.DSK` | **the build disk**: the library as last built from `src/` -- `CZGFX.INC`, `CZGFX.REL` and `CZLINK.SUB` (gitignored) |
+| `software/czgfx/releases/CZGFXLIB-<version>.DSK` | **the releases**: snapshots of the build disk, one per version, tracked and never changed |
 | `software/czgfx/build/` | `CZGFX.REL`, the module `.REL`s and the `.PRN` listings, pulled back to the host for reading (gitignored) |
-| `software/czgfx/work/` | czgfx's own altairsim machine: drive 0 is its CP/M disk, drive 1 is the library disk, **writable** |
+| `software/czgfx/work/` | czgfx's own altairsim machine: drive 0 is its CP/M disk, drive 1 the build disk, **writable** |
 
-Consumer projects mount the library disk as **`B:`, read-only**
-(`tools/altairsim/scripts/attach_libdisk.sh <work-dir>`, which
-`new_project.sh --toolchain m80` runs for you).
+A program that uses czgfx:
+- pins a release in its tracked `software/<project>/czgfx.version`, a
+  single line such as `1.0`;
+- has its own copy of that release in `work/`, `CZGFXLIB-1.0.DSK`, which
+  it mounts as **`B:`, read-only**.
+
+`tools/altairsim/scripts/attach_libdisk.sh <work-dir>` makes the copy and
+the mount. `new_project.sh --toolchain m80` pins the newest release and runs
+it for you.
+
+To move a program to another release:
+1. edit its `czgfx.version`;
+2. run `attach_libdisk.sh` on its `work/` again;
+3. rebuild and relink it.
+
+A pin of `dev` instead copies the current build disk, refreshed on every
+attach. That is for trying an unreleased library in a program.
+
+### Versions and releases
+
+`CZGFX.INC` carries the version: `CZVERS EQU 0100H`, the major number in the
+high byte and the minor in the low one, so a program can check it at
+assembly time. To release:
+1. raise `CZVERS`;
+2. rebuild the library (below);
+3. run `software/czgfx/tools/release.sh`.
+
+`release.sh` copies the build disk to `releases/CZGFXLIB-<major>.<minor>.DSK`
+and makes it read-only. It refuses to overwrite an existing release, or to
+release a build disk older than its sources. `git add` the new release.
 
 ### Building the library
 
@@ -501,5 +532,11 @@ parameter.
      every module that calls it and **before** every module it calls,
      because L80 searches the library in a single pass. `LIB80 /U` in
      the build flags a missing module. `CZLINK.SUB` doesn't change.
-- Rebuild the library, then rebuild the consumers. Their `.COM` files have the
-  old library code linked in until they are relinked.
+- Rebuild the library and check it with `CZCHK` (and with `gfxdemo` pinned
+  to `dev`, if you like).
+- Programs are not affected until they move:
+  - a program's `.COM` keeps the library code it was linked with;
+  - its `work/` keeps the release it pins.
+- When the change is ready, raise `CZVERS` and release it (see *Versions
+  and releases*). Then move each program that wants it to the new release,
+  and rebuild that program.

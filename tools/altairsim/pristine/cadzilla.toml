@@ -23,8 +23,9 @@
 #                 prompt (logical-unit numbering), not the plain "A>" of an 8" floppy
 #                 image. A project's work/ gets a copy under the same name: its A: disk.
 #   EMPTY.DSK     an empty 8MB volume. A project's work/ gets a copy named SCRATCH.DSK,
-#                 its B: disk; czgfx's library disk (software/czgfx/libdisk/CZGFXLIB.DSK)
-#                 starts as a copy too, and the M80 projects mount that as B: instead.
+#                 its B: disk; czgfx's build disk (software/czgfx/libdisk/CZGFXLIB.DSK)
+#                 starts as a copy too. An M80 project mounts its own copy of the
+#                 czgfx release it pins (work/CZGFXLIB-<version>.DSK) as B: instead.
 # The mounts below name the WORK copies (CPM22SYS.DSK, SCRATCH.DSK), so this file only
 # boots as copied into a work/ by sync_pristine.sh -- never here.
 #
