@@ -16,15 +16,21 @@
 # a project with `CONFIG LOAD <repo>/software/<project>/work/cadzilla.toml` -- see
 # tools/altairsim/README.md.
 #
-# The disk beside this file (CPM22-8MB-56K-DEV.DSK) is an 8MB virtual hard disk
-# carrying CP/M 2.2, ASM.COM, LOAD.COM, DDT.COM, and the host-bridge R/W/HDIR.COM
-# utilities used to move files between the host and CP/M -- this build boots to an
-# "A0>" prompt (logical-unit numbering), not the plain "A>" of an 8" floppy image.
-# BLANK-8MB.DSK (drive 1) is a second, empty 8MB volume for scratch space.
+# The disk images here are TEMPLATES, named for what they hold:
+#   CPM22SYS.DSK  an 8MB virtual hard disk carrying CP/M 2.2 (56K), ASM.COM, LOAD.COM,
+#                 DDT.COM, M80/L80/LIB80, and the host-bridge R/W/HDIR.COM utilities used
+#                 to move files between the host and CP/M -- this build boots to an "A0>"
+#                 prompt (logical-unit numbering), not the plain "A>" of an 8" floppy
+#                 image. A project's work/ gets a copy under the same name: its A: disk.
+#   EMPTY.DSK     an empty 8MB volume. A project's work/ gets a copy named SCRATCH.DSK,
+#                 its B: disk; czgfx's library disk (software/czgfx/libdisk/CZGFXLIB.DSK)
+#                 starts as a copy too, and the M80 projects mount that as B: instead.
+# The mounts below name the WORK copies (CPM22SYS.DSK, SCRATCH.DSK), so this file only
+# boots as copied into a work/ by sync_pristine.sh -- never here.
 #
-# THE PATHS BELOW ARE RELATIVE TO THIS FILE. The disks are lying in this directory, so
-# this file names them and no directory at all -- which is what lets the folder be
-# copied anywhere and still boot.
+# THE PATHS BELOW ARE RELATIVE TO THIS FILE. In a work/ the disks lie beside it, so it
+# names them and no directory at all -- which is what lets the folder be copied
+# anywhere and still boot.
 #
 # THIS FILE IS A DELTA on `base = "cadzilla"` (altairsim's machines/cadzilla.toml),
 # which already brings everything but the boot path:
@@ -87,11 +93,11 @@ id = "dsk0"
 
   [[board.drive]]
   unit  = 0
-  mount = "CPM22-8MB-56K-DEV.DSK"
+  mount = "CPM22SYS.DSK"
 
   [[board.drive]]
   unit  = 1
-  mount = "BLANK-8MB.DSK"
+  mount = "SCRATCH.DSK"
 
 # MEMORY, REPLACED. The base's mem0 is 56K of plain RAM with no boot ROM; this CP/M disk
 # was built for 56K (0000-DFFF) with the DBL boot PROM at FF00. cad0 decodes no memory

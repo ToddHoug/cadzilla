@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Point drive 1 (CP/M B:) of a project's altairsim work machine at the czgfx
-# library disk, software/czgfx/libdisk/CZGFX.DSK.
+# library disk, software/czgfx/libdisk/CZGFXLIB.DSK.
 #
 # The czgfx project (software/czgfx/) builds the CADzilla graphics library --
 # the CZGFX.INC macro header plus the relocatable .REL modules and the
@@ -14,10 +14,15 @@
 # --writable, because that is where the library is rebuilt.
 #
 # If the library disk doesn't exist yet it is created as a copy of the
-# pristine BLANK-8MB.DSK (pristine is only read, never written).
+# pristine EMPTY.DSK (pristine is only read, never written).
+#
+# The work dir's own scratch disk, SCRATCH.DSK, is then no longer mounted. If
+# it is still an untouched copy of EMPTY.DSK it is removed; if anything was
+# ever written to it, it is left alone (say so, and keep it) -- nothing a
+# program put there is thrown away.
 #
 # Re-run this after `sync_pristine.sh --machine-only <work-dir>`: that
-# restores the pristine cadzilla.toml, whose drive 1 is BLANK-8MB.DSK again.
+# restores the pristine cadzilla.toml, whose drive 1 is SCRATCH.DSK again.
 # Running it twice is harmless.
 #
 # Usage: attach_libdisk.sh [--writable] <work-dir>
@@ -38,7 +43,8 @@ WORK="$1"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 PRISTINE="$REPO_ROOT/tools/altairsim/pristine"
 LIBDIR="$REPO_ROOT/software/czgfx/libdisk"
-LIBDISK="$LIBDIR/CZGFX.DSK"
+LIBDISK="$LIBDIR/CZGFXLIB.DSK"
+EMPTY="$PRISTINE/EMPTY.DSK"
 TOML="$WORK/cadzilla.toml"
 
 if [ ! -f "$TOML" ]; then
@@ -51,12 +57,12 @@ if [ "$(cd "$WORK" && pwd -P)" = "$(cd "$PRISTINE" && pwd -P)" ]; then
 fi
 
 if [ ! -f "$LIBDISK" ]; then
-  if [ ! -f "$PRISTINE/BLANK-8MB.DSK" ]; then
-    echo "error: $PRISTINE/BLANK-8MB.DSK not found -- can't create the library disk" >&2
+  if [ ! -f "$EMPTY" ]; then
+    echo "error: $EMPTY not found -- can't create the library disk" >&2
     exit 1
   fi
   mkdir -p "$LIBDIR"
-  cp "$PRISTINE/BLANK-8MB.DSK" "$LIBDISK"
+  cp "$EMPTY" "$LIBDISK"
   chmod u+w "$LIBDISK"
   echo "Created empty library disk $LIBDISK (build it from software/czgfx)"
 fi
@@ -97,4 +103,15 @@ if [ "$WRITABLE" -eq 1 ]; then
   echo "Attached $REL as drive 1 (B:, writable) in $TOML"
 else
   echo "Attached $REL as drive 1 (B:, read-only) in $TOML"
+fi
+
+# The scratch disk B: used to be is now unmounted: drop it if it is untouched.
+SCRATCH="$WORK/SCRATCH.DSK"
+if [ -f "$SCRATCH" ]; then
+  if [ -f "$EMPTY" ] && cmp -s "$SCRATCH" "$EMPTY"; then
+    rm -f "$SCRATCH"
+    echo "Removed the unused, untouched $SCRATCH"
+  else
+    echo "Note: $SCRATCH is no longer mounted but has been written to -- kept"
+  fi
 fi

@@ -58,7 +58,7 @@ it's kept and its mode wins over `--mode`.
 
 With `--toolchain m80`, the script also runs
 `tools/altairsim/scripts/attach_libdisk.sh` on the new `work/`, which points
-drive 1 (B:) at the czgfx library disk `software/czgfx/libdisk/CZGFX.DSK`,
+drive 1 (B:) at the czgfx library disk `software/czgfx/libdisk/CZGFXLIB.DSK`,
 read-only. It writes `src/<NAME>.MAC` instead of `.ASM`. The stub:
 - `INCLUDE`s `B:CZGFX.INC` and calls `GINIT` with the czgfx descriptor
   for the project's mode (`CZM1K`, `CZM800` or `CZM640`)

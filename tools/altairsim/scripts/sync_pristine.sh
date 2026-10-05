@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# Copy the pristine altairsim machine definition and disk image(s) into a
+# Copy the pristine altairsim machine definition and disk images into a
 # work directory, creating it if needed.
+#
+# The disks are copied by role (see tools/altairsim/README.md, "Disk images"):
+#   pristine/CPM22SYS.DSK -> <dest-dir>/CPM22SYS.DSK  the A: disk: CP/M 2.2 + tools
+#   pristine/EMPTY.DSK    -> <dest-dir>/SCRATCH.DSK   the B: disk: empty scratch
+# (an M80 project then points B: at the czgfx library disk instead, with
+# attach_libdisk.sh, which also removes the unused SCRATCH.DSK).
 #
 # Used for two things:
 #   - Setting up a new project's own software/<name>/work/ the first time
@@ -52,12 +58,17 @@ if [ ! -f "$PRISTINE/cadzilla.toml" ]; then
   exit 1
 fi
 
-shopt -s nullglob
-disks=("$PRISTINE"/*.DSK "$PRISTINE"/*.dsk "$PRISTINE"/*.img "$PRISTINE"/*.imd)
-if [ ${#disks[@]} -eq 0 ]; then
-  echo "error: no disk images found in $PRISTINE" >&2
-  exit 1
-fi
+# The templates and the names their work copies get
+SYSDSK="$PRISTINE/CPM22SYS.DSK"
+EMPTYDSK="$PRISTINE/EMPTY.DSK"
+for t in "$SYSDSK" "$EMPTYDSK"; do
+  if [ ! -f "$t" ]; then
+    echo "error: $t not found" >&2
+    exit 1
+  fi
+done
+disks=("$SYSDSK" "$EMPTYDSK")
+copies=("CPM22SYS.DSK" "SCRATCH.DSK")
 
 mkdir -p "$DEST"
 if [ "$(cd "$DEST" && pwd -P)" = "$(cd "$PRISTINE" && pwd -P)" ]; then
@@ -109,15 +120,15 @@ if [ "$MACHINE_ONLY" -eq 1 ]; then
   exit 0
 fi
 
-cp -f "${disks[@]}" "$DEST/"
-for d in "${disks[@]}"; do
-  chmod u+w "$DEST/$(basename "$d")"
+for i in "${!disks[@]}"; do
+  cp -f "${disks[$i]}" "$DEST/${copies[$i]}"
+  chmod u+w "$DEST/${copies[$i]}"
 done
 
 echo "Synced pristine machine + disk(s) into $DEST:"
 printf '  %s\n' "$(basename "$PRISTINE/cadzilla.toml")"
 [ -f "$OVERLAY" ] && printf '  + overlay %s\n' "$(realpath --relative-to="$REPO_ROOT" "$OVERLAY")"
 for m in "${machines[@]:1}"; do printf '  %s\n' "$(basename "$m")"; done
-for d in "${disks[@]}"; do
-  printf '  %s\n' "$(basename "$d")"
+for i in "${!disks[@]}"; do
+  printf '  %s (from %s)\n' "${copies[$i]}" "$(basename "${disks[$i]}")"
 done

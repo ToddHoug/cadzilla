@@ -21,7 +21,7 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   must match it
 - `software/czgfx/` — the shared czgfx graphics-primitive library (M80
   macros + relocatable modules). It builds its own gitignored library disk,
-  `software/czgfx/libdisk/CZGFX.DSK`, which M80 consumer projects (e.g.
+  `software/czgfx/libdisk/CZGFXLIB.DSK`, which M80 consumer projects (e.g.
   `software/gfxdemo/`) mount read-only as CP/M `B:` — see
   `software/czgfx/README.md`
 - `tools/altairsim/pristine/` — master CP/M machine + disk images.

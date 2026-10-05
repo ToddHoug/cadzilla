@@ -277,7 +277,8 @@ A0>CZBASIC CZDEMO
 ```
 
 Running it writes to the image, as any CP/M disk would. To rebuild it, copy
-a blank 8MB disk, SYSGEN it, and PIP the files on through altairsim.
+the empty 8MB template (`tools/altairsim/pristine/EMPTY.DSK`), SYSGEN it,
+and PIP the files on through altairsim.
 
 ## Source layout
 

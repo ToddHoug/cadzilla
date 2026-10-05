@@ -12,7 +12,7 @@ toolchain", and in `software/czgfx/README.md`):
   (`CZGFX.INC`, `CZ*.MAC`, `CZBUILD.SUB`, `CZLINK.SUB`, `CZCHK.MAC`). Its
   fourteen modules are combined with **LIB80** into one library, `CZGFX.REL`.
   That library, the header and `CZLINK.SUB` go onto the **library disk**
-  `software/czgfx/libdisk/CZGFX.DSK`, which czgfx's own `work/` mounts
+  `software/czgfx/libdisk/CZGFXLIB.DSK`, which czgfx's own `work/` mounts
   **writable** as drive 1 (B:).
 - **Consumer projects** (`software/gfxdemo` is the example) mount the same
   disk as **B:, read-only**. They `INCLUDE B:CZGFX.INC`, and link with
@@ -33,7 +33,7 @@ prompt is printed; see step 3.
 2. **The project must be wired to the library.**
    - `software/<name>/work/` must exist. If not, run
      `tools/altairsim/scripts/sync_pristine.sh software/<name>/work`.
-   - Its `cadzilla.toml` drive 1 must mount `../../czgfx/libdisk/CZGFX.DSK`
+   - Its `cadzilla.toml` drive 1 must mount `../../czgfx/libdisk/CZGFXLIB.DSK`
      with `readonly = true`. If it doesn't (for example after
      `sync_pristine.sh --machine-only`), run
      `tools/altairsim/scripts/attach_libdisk.sh software/<name>/work`.
@@ -52,7 +52,7 @@ prompt is printed; see step 3.
 4. **Is the library stale?** Check whether the library disk is missing, or
    any czgfx source is newer than it:
    ```bash
-   find software/czgfx/src -newer software/czgfx/libdisk/CZGFX.DSK -type f
+   find software/czgfx/src -newer software/czgfx/libdisk/CZGFXLIB.DSK -type f
    ```
    If the disk is missing or this prints anything, do step 1 before step 2.
    Also do step 1 whenever the user changed the library.
@@ -73,8 +73,8 @@ run {input: "R *.*\r", until: "A0>", timeout_ms: 30000}
 run {input: "SUBMIT CZBUILD\r", timeout_ms: 180000}
 ```
 
-- **Check `SHOW MOUNTS`.** drive0 must be `CPM22-8MB-56K-DEV.DSK` (in
-  `czgfx/work`), and drive1 must be `../libdisk/CZGFX.DSK` without
+- **Check `SHOW MOUNTS`.** drive0 must be `CPM22SYS.DSK` (in
+  `czgfx/work`), and drive1 must be `../libdisk/CZGFXLIB.DSK` without
   `(write-protected)`.
 - **Don't use `until: "A0>"` on a SUBMIT.** SuperSUB echoes every line at
   an `A0>` prompt, so the call would stop after the first line. Leave
@@ -110,7 +110,7 @@ run {input: "SUBMIT CZBUILD\r", timeout_ms: 180000}
 ```
 monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>", timeout_ms: 10000}
-monitor {command: "SHOW MOUNTS"}   # drive1 = ../../czgfx/libdisk/CZGFX.DSK (write-protected)
+monitor {command: "SHOW MOUNTS"}   # drive1 = ../../czgfx/libdisk/CZGFXLIB.DSK (write-protected)
 monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/src"}
 run {input: "R <NAME>.MAC\r", until: "A0>", timeout_ms: 15000}
 run {input: "M80 <NAME>,<NAME>=<NAME>\r", until: "A0>", timeout_ms: 60000}
@@ -173,7 +173,7 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 30000}
   `stopped: "idle"`
 - `UNMOUNT dsk0:drive0` and `UNMOUNT dsk0:drive1`
 - `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK
-  software/czgfx/libdisk/CZGFX.DSK` must say `ok` for every image
+  software/czgfx/libdisk/CZGFXLIB.DSK` must say `ok` for every image
 - confirm `git status tools/altairsim/pristine` is clean; if it isn't, stop
   and tell the user
 - a consumer mounts the library disk read-only, so its modification time

@@ -24,8 +24,8 @@ could never be created from the command line in the first place.
 ## Layout
 
 - `pristine/` — the read-only master copy of the CP/M machine definition
-  (`cadzilla.toml`) and disk images (`CPM22-8MB-56K-DEV.DSK`,
-  `BLANK-8MB.DSK`). **Never edit or boot these directly** — always work
+  (`cadzilla.toml`) and the disk image templates (`CPM22SYS.DSK`,
+  `EMPTY.DSK` — see "Disk images" below). **Never edit or boot these directly** — always work
   against a copy in a project's own `work/` (below). CP/M writes to a
   mounted disk in place, so booting or `CONFIG LOAD`-ing
   `pristine/cadzilla.toml`, or `MOUNT`-ing a pristine `.DSK`, writes
@@ -44,17 +44,17 @@ could never be created from the command line in the first place.
   `RUN FF00` startup and the console's Backspace mapping — plus the
   monitor resolution (cad0 `mode = "1024x768"`), stated explicitly rather
   than inherited from the base (see "Display resolution"). See the comments
-  in the file itself for the full reasoning. `CPM22-8MB-56K-DEV.DSK` (drive 0) is an 8MB virtual hard disk
-  carrying CP/M itself (`ASM.COM`, `LOAD.COM`, `DDT.COM`, Microsoft's
-  `M80`/`L80`/`LIB80`/`CREF80.COM`, the host-bridge `R`/`W`/`HDIR.COM`, and
-  more disk tools than the old 8" floppy image had room for) — the "56K" in its name is the CP/M memory footprint (RAM
-  0000-DFFF), not the disk capacity; `BLANK-8MB.DSK` (drive 1) is a second,
-  empty 8MB volume for scratch space. `cadzilla-real.toml` is the
+  in the file itself for the full reasoning. `CPM22SYS.DSK` (drive 0) is an 8MB virtual hard disk
+  carrying CP/M 2.2 for 56K of RAM (0000-DFFF) and its tools (`ASM.COM`,
+  `LOAD.COM`, `DDT.COM`, Microsoft's `M80`/`L80`/`LIB80`/`CREF80.COM`, the
+  host-bridge `R`/`W`/`HDIR.COM`, and more disk tools than the old 8"
+  floppy image had room for); `EMPTY.DSK` is an empty 8MB volume, the
+  template for a project's scratch disk and the library disk. `cadzilla-real.toml` is the
   real-time variant — a delta on the `cadzilla.toml` beside it that sets a
   2 MHz CPU and cad0 `draw_rate = "real"` (see "Running in real time").
 - `scripts/sync_pristine.sh [--machine-only] <dest-dir>` — copies the
-  pristine machine + disk(s) into any destination directory, creating it
-  if needed. Used to set up a new project's own `work/`, and to recover a
+  pristine machine and the disks into any destination directory, creating
+  it if needed: `CPM22SYS.DSK` as is, and `EMPTY.DSK` as `SCRATCH.DSK`. Used to set up a new project's own `work/`, and to recover a
   work directory that's ended up in a bad state. `--machine-only` copies
   just the machine files (`cadzilla.toml`, `cadzilla-real.toml`) and leaves the destination's disks alone — use it to
   pick up a change to the pristine machine definition in every existing
@@ -66,9 +66,10 @@ could never be created from the command line in the first place.
   `pristine/` itself.
 - `scripts/attach_libdisk.sh [--writable] <work-dir>` — points drive 1
   (CP/M `B:`) of a work machine at the czgfx library disk
-  `software/czgfx/libdisk/CZGFX.DSK` (read-only unless `--writable`),
-  creating that disk from `pristine/BLANK-8MB.DSK` if it doesn't exist
-  yet. See "The M80/L80 toolchain" below. Re-run it after
+  `software/czgfx/libdisk/CZGFXLIB.DSK` (read-only unless `--writable`),
+  creating that disk from `pristine/EMPTY.DSK` if it doesn't exist
+  yet, and removes the work dir's now-unmounted `SCRATCH.DSK` if nothing
+  was ever written to it. See "The M80/L80 toolchain" below. Re-run it after
   `sync_pristine.sh --machine-only`, which puts the pristine drive 1 back.
 - `scripts/check_dsk.py <image.DSK>...` — checks every sector of a CP/M
   disk image for a valid stop byte and checksum; exit status 1 on any bad
@@ -90,6 +91,24 @@ project's disk is its own, switching between projects never means
 resetting anything — you just point the server at a different project's
 `work/cadzilla.toml`.
 
+
+## Disk images
+
+Disk images are named for what they hold, not where they came from. The
+names are host-side only (CP/M never sees them) and UPPERCASE, as the
+other files that pass through CP/M are.
+
+| Image | Where | Holds | Mounted as |
+|---|---|---|---|
+| `CPM22SYS.DSK` | `pristine/` | the template: CP/M 2.2 (56K) and the dev tools | never — it is only copied |
+| `EMPTY.DSK` | `pristine/` | the template: an empty 8MB volume | never — it is only copied |
+| `CPM22SYS.DSK` | `software/<project>/work/` | the project's own copy of the system disk: CP/M, the tools, and everything built there | drive 0, `A:` |
+| `SCRATCH.DSK` | `software/<project>/work/` | a copy of `EMPTY.DSK`, for scratch | drive 1, `B:`, in the DRI `ASM` projects |
+| `CZGFXLIB.DSK` | `software/czgfx/libdisk/` | the czgfx library: `CZGFX.INC`, `CZGFX.REL`, `CZLINK.SUB` | drive 1, `B:`, in the M80 projects (writable only in czgfx's own `work/`) |
+| `CZBDEMO.DSK` | `software/czbasic/demodisk/` | the bootable CZBASIC demo disk | drive 0 of its own machine |
+
+`sync_pristine.sh` makes the `work/` copies; `attach_libdisk.sh` swaps an M80
+project's `SCRATCH.DSK` for the library disk.
 ## One-time setup (per machine)
 
 The `claude` CLI isn't always on `PATH` in every environment (e.g. inside
@@ -262,7 +281,7 @@ with the rest; an existing `work/` gets it (or a changed version) from
 
 ### The prompt is `A0>`, not `A>`
 
-`CPM22-8MB-56K-DEV.DSK` boots a CP/M build for an 8MB virtual drive, which
+`CPM22SYS.DSK` boots a CP/M build for an 8MB virtual drive, which
 numbers logical units — the prompt is `A0>` (or `B0>` after `B:`), not the
 plain `A>` of the old 8" floppy image. Every `until` in a `run` call needs
 to match `A0>` — matching against `A>` simply never matches, so the call
@@ -391,7 +410,7 @@ a shared library possible:
 
   API reference: `software/czgfx/README.md`.
 - czgfx builds all of that onto its own **library disk**,
-  `software/czgfx/libdisk/CZGFX.DSK` (gitignored — a build product).
+  `software/czgfx/libdisk/CZGFXLIB.DSK` (gitignored — a build product).
   czgfx's own `work/` mounts it **writable** as drive 1.
 - Every M80 consumer project mounts the same disk as **`B:`, read-only**
   (`readonly = true` in its `work/cadzilla.toml`; `SHOW MOUNTS` says
@@ -401,8 +420,8 @@ a shared library possible:
   `software/gfxdemo/` is the working example.
 
 ```
-drive 0  A:  software/<project>/work/CPM22-8MB-56K-DEV.DSK   the project's own disk
-drive 1  B:  software/czgfx/libdisk/CZGFX.DSK                 czgfx library (read-only here)
+drive 0  A:  software/<project>/work/CPM22SYS.DSK      the project's own disk
+drive 1  B:  software/czgfx/libdisk/CZGFXLIB.DSK      czgfx library (read-only here)
 ```
 
 Build a consumer (from a clean `A0>` on the project's own machine):
@@ -418,7 +437,7 @@ run {input: "<NAME>\r", until: "A0>"}
 then `W <NAME>.COM` (binary) and `W <NAME>.PRN T` into `build/` as usual.
 
 **Rebuild the library first when it's stale** — if anything in
-`software/czgfx/src/` is newer than `libdisk/CZGFX.DSK`, or the disk
+`software/czgfx/src/` is newer than `libdisk/CZGFXLIB.DSK`, or the disk
 doesn't exist yet: `CONFIG LOAD` czgfx's own `work/cadzilla.toml`, boot,
 `R *.*` from `czgfx/src`, `SUBMIT CZBUILD`, `W` the `.REL`/`.PRN` into
 `czgfx/build`, and unmount both drives *before* switching the server to a
@@ -491,7 +510,7 @@ and no `until`, and check that it reports `stopped: "idle"`.
 Afterwards, `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK`
 should say `ok`.
 
-(And `dsk0:drive1` too — `BLANK-8MB.DSK`, or the czgfx library disk on
+(And `dsk0:drive1` too — `SCRATCH.DSK`, or the czgfx library disk on
 an M80 project.)
 
 **Don't force-interrupt a disk operation in flight.** `reset` or `CONFIG
