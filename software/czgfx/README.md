@@ -15,7 +15,9 @@ comes in two parts:
   program that draws only boxes, for example, gets no polygon or curve
   code.
 
-`software/gfxdemo/` is the worked example.
+`software/gfxdemo/` is the worked example. The user guide,
+`docs/czgfx-guide.pdf`, covers the library chapter by chapter with gfxdemo's
+screens; regenerate it with `python3 software/czgfx/tools/mkguide.py`.
 
 ## How it's delivered: versioned library disks
 
