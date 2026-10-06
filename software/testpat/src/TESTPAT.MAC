@@ -1,0 +1,1609 @@
+;
+; TESTPAT.MAC -- CADzilla board bring-up test patterns
+;
+; An interactive menu of pixel-exact test screens for bringing up and
+; debugging a new board. Each screen prints on the console what a good
+; picture looks like and which chips it exercises.
+;
+; How the board turns frame memory into pixels (Rev A schematics):
+;   - Every display fetch reads all 8 banks at once (ACRTC GAI = 8):
+;     16 pixels, P0 (leftmost) .. P15. Every raster is a whole number of
+;     fetches in all three modes, so a pixel's stage is X mod 16.
+;   - Bank n (SRAM U11 U13 U15 U17 U12 U14 U16 U18 for n = 0..7) holds
+;     P2n in its low byte and P2n+1 in its high byte; each pixel byte has
+;     its own 74F245 bus buffer (U20..U35, table BFTB).
+;   - Bit b of all 16 pixels goes into one 74F676: U2 U3 U4 U5 U7 U8 U9
+;     U10 for b = 0..7, pixel Pn on input D(15-n). D15 shifts out first,
+;     so P0 is the leftmost pixel. The overlay (SRAM U19, buffers
+;     U36/U37) has its own 74F676, U6, wired the same way.
+;
+; Menu (the key at the CP/M console):
+;   1  Border            1-pixel white edge, green inset, red corners
+;   2  Offset lines      white lines at X mod 16 = k, one k at a time
+;                        (+/- or 0-F step k)
+;   3  Offset bands      all 16 offsets as a staircase of 16 bands
+;   4  Bit planes        walking-1 / walking-0 bars, one per data bit
+;   5  Pixel position    a color per stage P0..P15, with a key
+;   6  Overlay lines     screen 2 on the overlay over red frame lines
+;                        (O toggles the overlay)
+;   7  Overlay bands     screen 3 on the overlay, likewise
+;   8  Solid fields      whole-screen colors (keys pick the color)
+;   9  Ramps             32-step red, green, blue and white ramps
+;   A  Grey ramp         all 256 indices as a 256-level grey ramp
+;   C  Checkerboards     1x1, 2x2, 1-on-1-off vertical and horizontal
+;   G  Grid              crosshatch, circles and border for geometry
+;   M  Mode              640x480, 800x600 or 1024x768 (GINIT again)
+;   Q  Quit              (also ESC or ^C)
+;
+; Every pattern is sized from CZXMAX/CZYMAX, so it fits whichever mode
+; is selected. The program starts in 1024x768, as machine.toml straps
+; altairsim's monitor; after M, the monitor must match the new mode.
+;
+; Build (czgfx library disk mounted as B:, see cadzilla-build-m80):
+;   A0>M80 TESTPAT,TESTPAT=TESTPAT
+;   A0>SUBMIT B:CZLINK TESTPAT
+;
+        INCLUDE B:CZGFX.INC
+;
+BDOS    EQU     0005H
+CONIN   EQU     1               ;console input (waits, echoes)
+CONOUT  EQU     2
+PSTRING EQU     9
+CR      EQU     0DH
+LF      EQU     0AH
+ESC     EQU     1BH
+CTLC    EQU     03H
+;
+DKBLUE  EQU     BLUE+8          ;the frame under the overlay screens
+GRIDC   EQU     WHITE+12        ;minor grid lines
+;
+        CSEG
+;
+START:  LXI     H,0             ;keep CCP's stack, run on our own
+        DAD     SP
+        SHLD    OLDSP
+        LXI     SP,STACK
+;
+        GINIT   CZM1K           ;1024x768 (= machine.toml), screen cleared
+        LXI     H,MN1K
+        SHLD    MODNM
+        GFONT   CZF8
+        LXI     D,MSGHI
+        CALL    PRINT
+;
+; ================= menu =================
+;
+MENU:   LXI     D,MHDR
+        CALL    PRINT
+        LHLD    MODNM           ;the mode's name, after its length byte
+        INX     H
+        XCHG
+        CALL    PRINT
+        LXI     D,MMENU
+        CALL    PRINT
+        CALL    GETKY
+        CPI     'Q'
+        JZ      EXIT
+        CPI     ESC
+        JZ      EXIT
+        CPI     CTLC
+        JZ      EXIT
+        MOV     C,A
+        LXI     H,DISP
+MNLP:   MOV     A,M             ;key, 0 = end of the table
+        ORA     A
+        JZ      MENU            ;not a menu key
+        INX     H
+        CMP     C
+        JZ      MNGO
+        INX     H
+        INX     H
+        JMP     MNLP
+MNGO:   MOV     E,M             ;the screen's routine
+        INX     H
+        MOV     D,M
+        XCHG
+        LXI     D,MENU          ;it returns to the menu
+        PUSH    D
+        PCHL
+;
+DISP:   DB      '1'
+        DW      SCR1
+        DB      '2'
+        DW      SCR2
+        DB      '3'
+        DW      SCR3
+        DB      '4'
+        DW      SCR4
+        DB      '5'
+        DW      SCR5
+        DB      '6'
+        DW      SCR6
+        DB      '7'
+        DW      SCR7
+        DB      '8'
+        DW      SCR8
+        DB      '9'
+        DW      SCR9
+        DB      'A'
+        DW      SCRA
+        DB      'C'
+        DW      SCRC
+        DB      'G'
+        DW      SCRG
+        DB      'M'
+        DW      SCRM
+        DB      0
+;
+EXIT:   LXI     D,MSGBYE
+        CALL    PRINT
+        LHLD    OLDSP
+        SPHL
+        RET
+;
+;
+; ================= console =================
+;
+PRINT:  MVI     C,PSTRING
+        JMP     BDOS
+;
+PCHAR:  MOV     E,A             ;print the character in A
+        MVI     C,CONOUT
+        JMP     BDOS
+;
+; PDEC -- print A (0..99) in decimal
+;
+PDEC:   MVI     B,'0'-1         ;tens digit
+PDC1:   INR     B
+        SUI     10
+        JNC     PDC1
+        ADI     10+'0'          ;units digit
+        PUSH    PSW
+        MOV     A,B
+        CPI     '0'
+        CNZ     PCHAR           ;no leading zero
+        POP     PSW
+        JMP     PCHAR
+;
+; P3IDX -- print the 3 characters at HL + 3*A (a chip-name table)
+;
+P3IDX:  MOV     E,A
+        MVI     D,0
+        DAD     D
+        DAD     D
+        DAD     D
+        MVI     B,3
+P3LP:   MOV     A,M
+        PUSH    H
+        PUSH    B
+        CALL    PCHAR
+        POP     B
+        POP     H
+        INX     H
+        DCR     B
+        JNZ     P3LP
+        RET
+;
+; HEXCH -- A (0..15) to its hex digit
+;
+HEXCH:  ANI     15
+        CPI     10
+        JC      HXC1
+        ADI     'A'-'0'-10
+HXC1:   ADI     '0'
+        RET
+;
+; HEXVAL -- A = a hex digit key's value 0..15, NC; C if not one
+;
+HEXVAL: SUI     '0'
+        RC                      ;below '0'
+        CPI     10
+        CMC
+        RNC                     ;0..9
+        SUI     'A'-'0'
+        RC                      ;between '9' and 'A'
+        CPI     6
+        CMC
+        RC                      ;past 'F'
+        ADI     10              ;A..F (NC)
+        RET
+;
+; GETKY -- read a key: A = the key, uppercased, then a new line.
+;
+; The key is read with BDOS function 1, not 6 (direct I/O): while
+; function 9 prints, the BDOS polls the keyboard for ^S and keeps any
+; other key it finds in its own buffer, which function 1 reads and
+; function 6 bypasses.
+;
+GETKY:  MVI     C,CONIN
+        CALL    BDOS
+        CPI     'a'
+        JC      GK1
+        CPI     'z'+1
+        JNC     GK1
+        SUI     'a'-'A'
+GK1:    PUSH    PSW
+        LXI     D,MSGNL
+        CALL    PRINT
+        POP     PSW
+        RET
+;
+; FINISH -- wait for the screen to finish drawing, report a command
+; error if there was one, then prompt and read a key: A = the key.
+;
+FINISH: GWAIT
+        JZ      FIN1
+        LXI     D,MSGER         ;command error: say so, clear it
+        CALL    PRINT
+        GABORT
+FIN1:   LXI     D,MSGKEY
+        CALL    PRINT
+        JMP     GETKY
+;
+; OFFKEY -- the offset keys of screens 2 and 6: + = . or space steps
+; OFFS up, - or , steps it down, 0-9/A-F sets it. NC if A was one of
+; them, C if not.
+;
+OFFKEY: CPI     '+'
+        JZ      OKINC
+        CPI     '='
+        JZ      OKINC
+        CPI     '.'
+        JZ      OKINC
+        CPI     ' '
+        JZ      OKINC
+        CPI     '-'
+        JZ      OKDEC
+        CPI     ','
+        JZ      OKDEC
+        CALL    HEXVAL
+        RC
+        STA     OFFS
+        RET
+OKINC:  LDA     OFFS
+        INR     A
+        JMP     OKSET
+OKDEC:  LDA     OFFS
+        DCR     A
+OKSET:  ANI     15              ;wraps; clears carry
+        STA     OFFS
+        RET
+;
+;
+; ================= helpers =================
+;
+; PREP -- every screen starts from the same state: the default
+; palette, the overlay cleared and hidden, drawing on the frame in
+; replace mode with a solid pattern, the whole-screen area, CL0 = 0,
+; the screen cleared to 0. Clobbers all.
+;
+PREP:   CALL    CZPALD##
+        GOVOFF
+        GOVCLS
+        GMODE
+        GPDEF
+        GAFULL
+        GBCOL   0
+        GCLS
+        RET
+;
+; HALF -- HL = HL / 2 (unsigned). SHRN -- HL = HL >> B. SBDE --
+; HL = HL - DE.
+;
+HALF:   ORA     A               ;clear carry
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        RET
+;
+SHRN:   CALL    HALF
+        DCR     B
+        JNZ     SHRN
+        RET
+;
+SBDE:   MOV     A,L
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        RET
+;
+; XINR / YINR -- C if HL is past CZXMAX / CZYMAX. Keep HL, DE.
+;
+XINR:   PUSH    D
+        XCHG
+        LHLD    CZXMAX##
+        JMP     INR1
+YINR:   PUSH    D
+        XCHG
+        LHLD    CZYMAX##
+INR1:   MOV     A,L             ;max - value: borrow if value > max
+        SUB     E
+        MOV     A,H
+        SBB     D
+        XCHG
+        POP     D
+        RET
+;
+; FBOX -- filled box BX0,BY0 .. BX1,BY1 (inclusive) in color A
+;
+FBOX:   GCOLOR
+        LHLD    BY0
+        XCHG
+        LHLD    BX0
+        GMOVE
+        LHLD    BY1
+        XCHG
+        LHLD    BX1
+        GFRECT
+        RET
+;
+; BORDER -- a 1-pixel rectangle round the whole screen in color A.
+; INSET -- the same, 2 pixels in.
+;
+BORDER: GCOLOR
+        GMOVE   0,0
+        LHLD    CZYMAX##
+        XCHG
+        LHLD    CZXMAX##
+        GRECT
+        RET
+;
+INSET:  GCOLOR
+        GMOVE   2,2
+        LXI     B,-2
+        LHLD    CZYMAX##
+        DAD     B
+        XCHG
+        LHLD    CZXMAX##
+        DAD     B
+        GRECT
+        RET
+;
+; FULLV -- the next VLINES run the full height of the screen
+;
+FULLV:  LXI     H,0
+        SHLD    VY0
+        LHLD    CZYMAX##
+        SHLD    VY1
+        RET
+;
+; VLINES -- 1-pixel vertical lines in color A from row VY0 to row VY1
+; (both drawn), at X = C, C+B, C+2B, ... while X <= CZXMAX. Each line
+; is a 1-pixel-wide filled rectangle, so its end pixels are drawn
+; (a line leaves its end point off). Clobbers all.
+;
+VLINES: GCOLOR
+        MOV     A,B
+        STA     VPIT
+        MOV     L,C
+        MVI     H,0
+VLLP:   CALL    XINR
+        RC                      ;past the right edge
+        PUSH    H
+        LHLD    VY0
+        XCHG
+        POP     H
+        GMOVE
+        PUSH    H
+        LHLD    VY1
+        XCHG
+        POP     H
+        GFRECT
+        LDA     VPIT
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        JMP     VLLP
+;
+; CLBL -- the B characters at HL as a label centered on the screen,
+; scale 3, opaque (0 bits in CL0), in color A. Clobbers all.
+;
+CLBL:   GCOLOR
+        SHLD    LPTR
+        MOV     A,B
+        STA     LLEN
+        GTATTR  3,0,TXOPAQ
+        LDA     LLEN            ;half its width: length * 12
+        MOV     L,A
+        MVI     H,0
+        DAD     H
+        DAD     H
+        MOV     D,H
+        MOV     E,L
+        DAD     H
+        DAD     D
+        XCHG                    ;DE = length * 12
+        LHLD    CZXMAX##
+        INX     H
+        CALL    HALF
+        CALL    SBDE
+        PUSH    H               ;X = screen centre - half the width
+        LHLD    CZYMAX##
+        INX     H
+        CALL    HALF
+        LXI     D,-12
+        DAD     D
+        XCHG                    ;DE = Y = centre - half the height
+        POP     H
+        GTPOS
+        LHLD    LPTR
+        LDA     LLEN
+        MOV     B,A
+        GTSTR
+        RET
+;
+; OFFLBL -- 'OFFSET k' (k = OFFS in hex) centered, in color A
+;
+OFFLBL: PUSH    PSW
+        LDA     OFFS
+        CALL    HEXCH
+        STA     LBLOFS+7
+        POP     PSW
+        LXI     H,LBLOFS
+        MVI     B,8
+        JMP     CLBL
+;
+LBLOFS: DB      'OFFSET 0'
+;
+; OFFMSG -- describe offset OFFS on the console: the frame's chips, or
+; with OVF set, the overlay's.
+;
+OFFMSG: LDA     OVF
+        ORA     A
+        LXI     D,MOFO
+        JNZ     OMS1
+        LXI     D,MOFF
+OMS1:   CALL    PRINT
+        LDA     OFFS
+        CALL    PDEC
+        LXI     D,MOFK
+        CALL    PRINT
+        LDA     OFFS
+        CALL    HEXCH
+        CALL    PCHAR
+        LDA     OVF
+        ORA     A
+        LXI     D,MOFX2
+        JNZ     OMS2
+        LXI     D,MOFX1
+OMS2:   CALL    PRINT
+        LDA     OFFS
+        CALL    PDEC
+        LDA     OVF
+        ORA     A
+        JNZ     OMSOV
+;
+        LXI     D,MOFP          ;the frame
+        CALL    PRINT
+        LDA     OFFS
+        CALL    PDEC
+        LXI     D,MOFD
+        CALL    PRINT
+        CALL    PD15N
+        LXI     D,MOFU
+        CALL    PRINT
+        LDA     OFFS            ;bank = P / 2
+        ANI     0EH
+        RRC
+        CALL    PDEC
+        LDA     OFFS
+        ANI     1
+        LXI     D,MLOW
+        JZ      OMS3
+        LXI     D,MHIGH
+OMS3:   CALL    PRINT
+        LDA     OFFS
+        ANI     0EH
+        RRC
+        LXI     H,SRTB
+        CALL    P3IDX
+        LXI     D,MBUF
+        CALL    PRINT
+        LDA     OFFS
+        LXI     H,BFTB
+        CALL    P3IDX
+        LXI     D,MSGNL
+        JMP     PRINT
+;
+OMSOV:  LXI     D,MOVP          ;the overlay
+        CALL    PRINT
+        LDA     OFFS
+        CALL    PDEC
+        LXI     D,MOVD
+        CALL    PRINT
+        CALL    PD15N
+        LXI     D,MOVS
+        CALL    PRINT
+        LDA     OFFS
+        ANI     8
+        LXI     D,MU36
+        JZ      OMS4
+        LXI     D,MU37
+OMS4:   CALL    PRINT
+        LXI     D,MOVT
+        JMP     PRINT
+;
+PD15N:  LDA     OFFS            ;print 15 - OFFS: the 74F676 input
+        CMA
+        ANI     15
+        JMP     PDEC
+;
+; OVTOG -- show or hide the overlay, and say which
+;
+OVTOG:  LDA     OVSHW
+        CMA
+        STA     OVSHW
+        ORA     A
+        JZ      OVT1
+        GOVON
+        LXI     D,MOVON
+        JMP     PRINT
+OVT1:   GOVOFF
+        LXI     D,MOVOF
+        JMP     PRINT
+;
+; OVSHOW -- after drawing an overlay screen: yellow overlay, shown
+;
+OVSHOW: GOVPAL  255,255,0
+        GOVON
+        MVI     A,0FFH
+        STA     OVSHW
+        RET
+;
+;
+; ================= 1: border =================
+;
+SCR1:   CALL    PREP
+        MVI     A,WHITE+BRIGHT
+        CALL    BORDER
+        MVI     A,GREEN+BRIGHT
+        CALL    INSET
+        GCOLOR  RED+BRIGHT      ;the four corner pixels
+        GDOT    0,0
+        LHLD    CZXMAX##
+        GDOT    ,0
+        LHLD    CZYMAX##
+        XCHG
+        GDOT    0
+        LHLD    CZYMAX##
+        XCHG
+        LHLD    CZXMAX##
+        GDOT
+        LHLD    MODNM           ;the mode in the centre
+        MOV     B,M
+        INX     H
+        MVI     A,WHITE+BRIGHT
+        CALL    CLBL
+        LXI     D,MSG1
+        CALL    PRINT
+        CALL    FINISH
+        RET
+;
+;
+; ================= 2: offset lines, one offset =================
+;
+SCR2:   XRA     A
+        STA     OVF
+S2DRW:  CALL    PREP
+        CALL    FULLV
+        LDA     OFFS
+        MOV     C,A
+        MVI     B,16
+        MVI     A,WHITE+BRIGHT
+        CALL    VLINES
+        MVI     A,WHITE+BRIGHT
+        CALL    OFFLBL
+        LXI     D,MSG2
+        CALL    PRINT
+        CALL    OFFMSG
+        CALL    FINISH
+        CALL    OFFKEY
+        JNC     S2DRW
+        RET
+;
+;
+; ================= 3: offset bands, all 16 =================
+;
+SCR3:   CALL    PREP
+        MVI     A,0FFH          ;with labels
+        STA     LBLF
+        MVI     A,WHITE+BRIGHT
+        CALL    BANDS
+        LXI     D,MSG3
+        CALL    PRINT
+        CALL    FINISH
+        RET
+;
+; BANDS -- 16 horizontal bands, band n (top = 0) with 1-pixel lines at
+; X mod 16 = n, in color A; with LBLF set, n in hex at the band's
+; left. Bands are (CZYMAX+1)/16 rows apart with 2 blank rows between.
+;
+BANDS:  STA     BCOL
+        LHLD    CZYMAX##
+        INX     H
+        MVI     B,4
+        CALL    SHRN
+        SHLD    BANDH
+        LHLD    CZYMAX##
+        SHLD    BTOP
+        XRA     A
+        STA     BANDN
+BNLP:   LHLD    BTOP            ;VY1 = the band's top row
+        SHLD    VY1
+        LHLD    BANDH           ;VY0 = top - height + 3
+        XCHG
+        LHLD    BTOP
+        CALL    SBDE
+        INX     H
+        INX     H
+        INX     H
+        SHLD    VY0
+        LDA     BANDN
+        MOV     C,A
+        MVI     B,16
+        LDA     BCOL
+        CALL    VLINES
+        LDA     LBLF
+        ORA     A
+        CNZ     BLBL
+        LHLD    BANDH           ;next band down
+        XCHG
+        LHLD    BTOP
+        CALL    SBDE
+        SHLD    BTOP
+        LDA     BANDN
+        INR     A
+        STA     BANDN
+        CPI     16
+        JNZ     BNLP
+        RET
+;
+; BLBL -- band BANDN's hex digit, scale 2, opaque, at its bottom left
+;
+BLBL:   LDA     BCOL
+        GCOLOR
+        GTATTR  2,0,TXOPAQ
+        LHLD    VY0
+        INX     H
+        INX     H
+        XCHG
+        LXI     H,0
+        GTPOS
+        LDA     BANDN
+        CALL    HEXCH
+        GTCHR
+        RET
+;
+;
+; ================= 4: bit planes =================
+;
+; Palette: index 1<<b is bit b's color (BITCL), index FF xor 1<<b the
+; same at half brightness; 0 stays black and FF white. Any other index
+; that turns up is a bad data bit, shown in its default-palette color.
+;
+SCR4:   CALL    PREP
+        LXI     H,BITCL
+        MVI     A,1
+        STA     PIDX
+S4PAL:  MOV     B,M             ;R,G,B of bit b
+        INX     H
+        MOV     C,M
+        INX     H
+        MOV     E,M
+        INX     H
+        LDA     PIDX
+        CALL    CZPALS##
+        MOV     A,B             ;half brightness for FF xor 1<<b
+        ORA     A
+        RAR
+        MOV     B,A
+        MOV     A,C
+        ORA     A
+        RAR
+        MOV     C,A
+        MOV     A,E
+        ORA     A
+        RAR
+        MOV     E,A
+        LDA     PIDX
+        CMA
+        CALL    CZPALS##
+        LDA     PIDX
+        ADD     A
+        STA     PIDX
+        JNC     S4PAL           ;until the 1 shifts out of bit 7
+;
+        LHLD    CZXMAX##        ;BARW = screen width / 8
+        INX     H
+        MVI     B,3
+        CALL    SHRN
+        SHLD    BARW
+        LHLD    CZYMAX##        ;BANDH = screen height / 4
+        INX     H
+        MVI     B,2
+        CALL    SHRN
+        SHLD    BANDH
+;
+        LHLD    CZYMAX##        ;quarter 4 (top): walking one
+        SHLD    BTOP
+        CALL    QROWS
+        XRA     A
+        STA     BINV
+        CALL    BITBAR
+;
+        CALL    QNEXT           ;quarter 3: FF strip
+        LXI     H,2
+        SHLD    BX0
+        LHLD    CZXMAX##
+        DCX     H
+        DCX     H
+        SHLD    BX1
+        MVI     A,0FFH
+        CALL    FBOX
+;
+        CALL    QNEXT           ;quarter 2: walking zero
+        MVI     A,0FFH
+        STA     BINV
+        CALL    BITBAR
+;
+        CALL    QNEXT           ;quarter 1: 00 inside an FF outline
+        GCOLOR  0FFH
+        LHLD    BY0
+        XCHG
+        LXI     H,2
+        GMOVE
+        LHLD    BY1
+        XCHG
+        LHLD    CZXMAX##
+        DCX     H
+        DCX     H
+        GRECT
+;
+        LXI     D,MSG4
+        CALL    PRINT
+        CALL    FINISH
+        RET
+;
+; QNEXT -- BTOP one quarter (BANDH) down, then QROWS. QROWS -- BY1 =
+; BTOP - 4, BY0 = BTOP - BANDH + 5: the rows of the quarter at BTOP,
+; with 4 blank rows at each side.
+;
+QNEXT:  LHLD    BANDH
+        XCHG
+        LHLD    BTOP
+        CALL    SBDE
+        SHLD    BTOP
+QROWS:  LHLD    BTOP
+        LXI     D,-4
+        DAD     D
+        SHLD    BY1
+        LHLD    BANDH
+        XCHG
+        LHLD    BTOP
+        CALL    SBDE
+        LXI     D,5
+        DAD     D
+        SHLD    BY0
+        RET
+;
+; BITBAR -- 8 bars across BY0..BY1, bar b in index (1<<b) xor BINV,
+; each with its bit number in black. BARW apart, 2 blank columns each
+; side.
+;
+BITBAR: LXI     H,0
+        SHLD    BXL
+        MVI     A,1
+        STA     BARM
+        XRA     A
+        STA     BARB
+BBLP:   LHLD    BXL             ;BX0 = left + 2
+        INX     H
+        INX     H
+        SHLD    BX0
+        LHLD    BARW            ;next left = left + BARW
+        XCHG
+        LHLD    BXL
+        DAD     D
+        SHLD    BXL
+        DCX     H               ;BX1 = next left - 3
+        DCX     H
+        DCX     H
+        SHLD    BX1
+        LDA     BINV
+        MOV     B,A
+        LDA     BARM
+        XRA     B
+        CALL    FBOX
+;
+        GCOLOR  0               ;the bit number, black, transparent
+        GTATTR  3
+        LHLD    BARW            ;X = BX0 + BARW/2 - 14
+        CALL    HALF
+        XCHG
+        LHLD    BX0
+        DAD     D
+        LXI     D,-14
+        DAD     D
+        PUSH    H
+        LHLD    BY1             ;Y = (BY0 + BY1)/2 - 12
+        XCHG
+        LHLD    BY0
+        DAD     D
+        CALL    HALF
+        LXI     D,-12
+        DAD     D
+        XCHG
+        POP     H
+        GTPOS
+        LDA     BARB
+        CALL    HEXCH
+        GTCHR
+;
+        LDA     BARB
+        INR     A
+        STA     BARB
+        LDA     BARM
+        ADD     A
+        STA     BARM
+        JNC     BBLP
+        RET
+;
+; Bit b's color (R,G,B), b = 0..7
+;
+BITCL:  DB      255,0,0         ;0 red
+        DB      0,255,0         ;1 green
+        DB      0,0,255         ;2 blue
+        DB      255,255,0       ;3 yellow
+        DB      0,255,255       ;4 cyan
+        DB      255,0,255       ;5 magenta
+        DB      255,128,0       ;6 orange
+        DB      160,96,255      ;7 violet
+;
+;
+; ================= 5: pixel position / bank ID =================
+;
+; Stage n (X mod 16) in hue n at full brightness for n = 0..7 and hue
+; n-8 at half for n = 8..15 (PIXCOL), over the whole screen above a
+; key of 16 labelled swatches.
+;
+SCR5:   CALL    PREP
+        LHLD    CZYMAX##        ;KEYH = screen height / 8
+        INX     H
+        MVI     B,3
+        CALL    SHRN
+        SHLD    BANDH
+        LXI     D,8             ;the lines: KEYH + 8 .. top
+        DAD     D
+        SHLD    VY0
+        LHLD    CZYMAX##
+        SHLD    VY1
+        XRA     A
+        STA     BANDN
+S5LIN:  LDA     BANDN
+        CALL    PIXCOL
+        PUSH    PSW
+        LDA     BANDN
+        MOV     C,A
+        MVI     B,16
+        POP     PSW
+        CALL    VLINES
+        LDA     BANDN
+        INR     A
+        STA     BANDN
+        CPI     16
+        JNZ     S5LIN
+;
+        LXI     H,0             ;the key: rows 0 .. KEYH-1
+        SHLD    BY0
+        LHLD    BANDH
+        DCX     H
+        SHLD    BY1
+        LHLD    CZXMAX##        ;swatches screen width / 16 apart
+        INX     H
+        MVI     B,4
+        CALL    SHRN
+        SHLD    BARW
+        LXI     H,0
+        SHLD    BXL
+        XRA     A
+        STA     BANDN
+S5KEY:  LHLD    BXL
+        INX     H
+        INX     H
+        SHLD    BX0
+        LHLD    BARW
+        XCHG
+        LHLD    BXL
+        DAD     D
+        SHLD    BXL
+        DCX     H
+        DCX     H
+        DCX     H
+        SHLD    BX1
+        LDA     BANDN
+        CALL    PIXCOL
+        CALL    FBOX
+        GCOLOR  0               ;its hex digit, black, scale 2
+        GTATTR  2
+        LHLD    BARW            ;X = BX0 + BARW/2 - 10
+        CALL    HALF
+        XCHG
+        LHLD    BX0
+        DAD     D
+        LXI     D,-10
+        DAD     D
+        PUSH    H
+        LHLD    BANDH           ;Y = KEYH/2 - 8
+        CALL    HALF
+        LXI     D,-8
+        DAD     D
+        XCHG
+        POP     H
+        GTPOS
+        LDA     BANDN
+        CALL    HEXCH
+        GTCHR
+        LDA     BANDN
+        INR     A
+        STA     BANDN
+        CPI     16
+        JNZ     S5KEY
+;
+        LXI     D,MSG5
+        CALL    PRINT
+        CALL    FINISH
+        RET
+;
+; PIXCOL -- A = stage 0..15: A = its color
+;
+PIXCOL: MOV     B,A
+        ANI     7               ;hue * 32
+        RRC
+        RRC
+        RRC
+        MOV     C,A
+        MOV     A,B
+        ANI     8
+        MVI     A,BRIGHT
+        JZ      PXC1
+        MVI     A,15            ;8..15: half brightness
+PXC1:   ORA     C
+        RET
+;
+;
+; ================= 6: overlay offset lines =================
+;
+; The frame: dark blue, a white border and red lines at offset k. The
+; overlay over it: a border and lines at the same offset, shown in
+; yellow, which must hide the red ones exactly.
+;
+SCR6:   MVI     A,0FFH
+        STA     OVF
+S6DRW:  CALL    PREP
+        GCLS    DKBLUE
+        MVI     A,WHITE+BRIGHT
+        CALL    BORDER
+        CALL    FULLV
+        LDA     OFFS
+        MOV     C,A
+        MVI     B,16
+        MVI     A,RED+BRIGHT
+        CALL    VLINES
+;
+        GOVL
+        MVI     A,OVSET
+        CALL    BORDER
+        CALL    FULLV
+        LDA     OFFS
+        MOV     C,A
+        MVI     B,16
+        MVI     A,OVSET
+        CALL    VLINES
+        MVI     A,OVSET
+        CALL    OFFLBL
+        GFRAME
+        CALL    OVSHOW
+;
+        LXI     D,MSG6
+        CALL    PRINT
+        CALL    OFFMSG
+S6KEY:  CALL    FINISH
+        CPI     'O'
+        JNZ     S6K2
+        CALL    OVTOG
+        JMP     S6KEY
+S6K2:   CALL    OFFKEY
+        JNC     S6DRW
+        RET
+;
+;
+; ================= 7: overlay offset bands =================
+;
+SCR7:   CALL    PREP
+        GCLS    DKBLUE
+        MVI     A,0FFH
+        STA     LBLF
+        MVI     A,RED+BRIGHT    ;red staircase on the frame
+        CALL    BANDS
+        GOVL
+        MVI     A,OVSET         ;the same on the overlay
+        CALL    BANDS
+        GFRAME
+        CALL    OVSHOW
+        LXI     D,MSG7
+        CALL    PRINT
+S7KEY:  CALL    FINISH
+        CPI     'O'
+        RNZ
+        CALL    OVTOG
+        JMP     S7KEY
+;
+;
+; ================= 8: solid fields =================
+;
+SCR8:   CALL    PREP
+        MVI     A,WHITE+BRIGHT
+        STA     FCOL
+        LXI     D,MSG8
+        CALL    PRINT
+S8DRW:  LDA     FCOL
+        CALL    CZCLS##
+        CALL    FINISH
+        MOV     C,A
+        LXI     H,FLDTB
+S8LP:   MOV     A,M             ;key, 0 = end
+        ORA     A
+        RZ                      ;not a color key: back to the menu
+        INX     H
+        CMP     C
+        MOV     A,M
+        INX     H
+        JNZ     S8LP
+        STA     FCOL
+        JMP     S8DRW
+;
+FLDTB:  DB      'K',0
+        DB      'W',WHITE+BRIGHT
+        DB      'R',RED+BRIGHT
+        DB      'G',GREEN+BRIGHT
+        DB      'B',BLUE+BRIGHT
+        DB      'Y',YELLOW+BRIGHT
+        DB      'C',CYAN+BRIGHT
+        DB      'M',MAGENTA+BRIGHT
+        DB      'O',ORANGE+BRIGHT
+        DB      'H',WHITE+15
+        DB      0
+;
+;
+; ================= 9: ramps =================
+;
+; Four bands, top to bottom red, green, blue, white, each the 32
+; default-palette levels of its hue as equal steps across the screen.
+;
+SCR9:   CALL    PREP
+        LHLD    CZYMAX##        ;BANDH = screen height / 4
+        INX     H
+        MVI     B,2
+        CALL    SHRN
+        SHLD    BANDH
+        LHLD    CZXMAX##        ;BARW = screen width / 32
+        INX     H
+        MVI     B,5
+        CALL    SHRN
+        SHLD    BARW
+        LHLD    CZYMAX##
+        SHLD    BTOP
+        CALL    QROWS
+        LXI     H,RMPHU
+        SHLD    RPTR
+S9BND:  LXI     H,0
+        SHLD    BXL
+        XRA     A
+        STA     BARB
+S9STP:  LHLD    BXL
+        SHLD    BX0
+        XCHG
+        LHLD    BARW
+        DAD     D
+        SHLD    BXL
+        DCX     H
+        SHLD    BX1
+        LHLD    RPTR
+        LDA     BARB
+        ADD     M               ;hue + level
+        CALL    FBOX
+        LDA     BARB
+        INR     A
+        STA     BARB
+        CPI     32
+        JNZ     S9STP
+        LHLD    RPTR
+        INX     H
+        SHLD    RPTR
+        MOV     A,M
+        CPI     0FFH
+        JZ      S9END
+        CALL    QNEXT
+        JMP     S9BND
+S9END:  LXI     D,MSG9
+        CALL    PRINT
+        CALL    FINISH
+        RET
+;
+RMPHU:  DB      RED,GREEN,BLUE,WHITE,0FFH
+;
+;
+; ================= A: 256-level grey ramp =================
+;
+; Palette entry i = grey i; bars of index 0..255 left to right, as
+; wide as fit (4/3/2 pixels), centered.
+;
+SCRA:   CALL    PREP
+        XRA     A
+SAPAL:  MOV     B,A
+        MOV     C,A
+        MOV     E,A
+        CALL    CZPALS##
+        MOV     A,B
+        INR     A
+        JNZ     SAPAL
+;
+        LHLD    CZXMAX##        ;width = 256 * W + margin * 2
+        INX     H
+        MOV     A,H
+        STA     BARW            ;W = width / 256
+        MVI     H,0
+        CALL    HALF
+        SHLD    BXL             ;margin = (width mod 256) / 2
+        LXI     H,0
+        SHLD    BY0
+        LHLD    CZYMAX##
+        SHLD    BY1
+        XRA     A
+        STA     BARB
+SABAR:  LHLD    BXL
+        SHLD    BX0
+        LDA     BARW
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        SHLD    BXL
+        DCX     H
+        SHLD    BX1
+        LDA     BARB
+        CALL    FBOX
+        LDA     BARB
+        INR     A
+        STA     BARB
+        JNZ     SABAR
+;
+        LXI     D,MSGA
+        CALL    PRINT
+        CALL    FINISH
+        RET
+;
+;
+; ================= C: checkerboards =================
+;
+; One pattern-RAM fill over the whole screen, white 1 bits on black 0
+; bits. Space (or C) steps to the next pattern.
+;
+SCRC:   XRA     A
+        STA     CHKN
+SCDRW:  CALL    PREP
+        LDA     CHKN            ;HL = CHKTB[CHKN]
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        LXI     H,CHKTB
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        XCHG
+        GLDPAT
+        GPPTR   0,0
+        GCOLOR  WHITE+BRIGHT
+        GBCOL   0
+        GMOVE   0,0
+        LHLD    CZYMAX##
+        XCHG
+        LHLD    CZXMAX##
+        GFRECT
+        LDA     CHKN            ;and its description
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        LXI     H,CHKMS
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        CALL    PRINT
+        LXI     D,MSGC
+        CALL    PRINT
+        CALL    FINISH
+        CPI     ' '
+        JZ      SCNXT
+        CPI     'C'
+        RNZ
+SCNXT:  LDA     CHKN
+        INR     A
+        CPI     4
+        JC      SCN1
+        XRA     A
+SCN1:   STA     CHKN
+        JMP     SCDRW
+;
+CHKTB:  DW      PCHK1,PCHK2,PVERT,PHORZ
+CHKMS:  DW      MCHK1,MCHK2,MVERT,MHORZ
+;
+; Pattern tables: word n is pattern row n, bit 0 the leftmost column
+;
+PCHK1:  DW      16
+        REPT    8
+        DW      5555H,0AAAAH
+        ENDM
+PCHK2:  DW      16
+        REPT    4
+        DW      3333H,3333H,0CCCCH,0CCCCH
+        ENDM
+PVERT:  DW      16
+        REPT    16
+        DW      5555H
+        ENDM
+PHORZ:  DW      16
+        REPT    8
+        DW      0FFFFH,0
+        ENDM
+;
+;
+; ================= G: grid / geometry =================
+;
+; A 32-pixel crosshatch centred on the screen (every 4th line, through
+; the centre, white), a white border, a yellow circle filling the
+; height, cyan circles in the corners and a red dot circle at the
+; centre.
+;
+SCRG:   CALL    PREP
+        LHLD    CZXMAX##        ;GCX, GCY = the centre
+        INX     H
+        CALL    HALF
+        SHLD    GCX
+        LHLD    CZYMAX##
+        INX     H
+        CALL    HALF
+        SHLD    GCY
+;
+        LDA     GCX             ;vertical lines from GCX mod 32
+        ANI     31
+        MOV     L,A
+        MVI     H,0
+SGV:    CALL    XINR
+        JC      SGVD
+        PUSH    H
+        LDA     GCX             ;major line if (X - GCX) mod 128 = 0
+        MOV     B,A
+        MOV     A,L
+        SUB     B
+        ANI     127
+        MVI     A,GRIDC
+        JNZ     SGV1
+        MVI     A,WHITE+BRIGHT
+SGV1:   GCOLOR
+        POP     H
+        LXI     D,0
+        GMOVE
+        PUSH    H
+        LHLD    CZYMAX##
+        XCHG
+        POP     H
+        GFRECT
+        LXI     D,32
+        DAD     D
+        JMP     SGV
+;
+SGVD:   LDA     GCY             ;horizontal lines from GCY mod 32
+        ANI     31
+        MOV     E,A
+        MVI     D,0
+SGH:    XCHG
+        CALL    YINR
+        XCHG
+        JC      SGHD
+        LDA     GCY
+        MOV     B,A
+        MOV     A,E
+        SUB     B
+        ANI     127
+        MVI     A,GRIDC
+        JNZ     SGH1
+        MVI     A,WHITE+BRIGHT
+SGH1:   GCOLOR
+        LXI     H,0
+        GMOVE
+        LHLD    CZXMAX##
+        GFRECT
+        LXI     H,32
+        DAD     D
+        XCHG
+        JMP     SGH
+;
+SGHD:   MVI     A,WHITE+BRIGHT
+        CALL    BORDER
+        GCOLOR  YELLOW+BRIGHT   ;centre circle, radius GCY - 32
+        LHLD    GCY
+        XCHG
+        LHLD    GCX
+        GMOVE
+        LHLD    GCY
+        LXI     D,-32
+        DAD     D
+        GCIRC
+        GCOLOR  RED+BRIGHT      ;small one at the centre
+        LXI     H,8
+        GCIRC
+;
+        LHLD    CZYMAX##        ;corner circles: radius height / 8,
+        INX     H               ;centres radius + 8 in from each side
+        MVI     B,3
+        CALL    SHRN
+        SHLD    BANDH
+        GCOLOR  CYAN+BRIGHT
+        LHLD    BANDH
+        LXI     D,8
+        DAD     D
+        SHLD    BX0             ;near X, Y
+        XCHG
+        LHLD    CZXMAX##
+        CALL    SBDE
+        SHLD    BX1             ;far X
+        LHLD    CZYMAX##
+        CALL    SBDE
+        SHLD    BY1             ;far Y
+        LHLD    BX0
+        XCHG
+        LHLD    BX0
+        CALL    CCIRC           ;bottom left
+        LHLD    BX0
+        XCHG
+        LHLD    BX1
+        CALL    CCIRC           ;bottom right
+        LHLD    BY1
+        XCHG
+        LHLD    BX0
+        CALL    CCIRC           ;top left
+        LHLD    BY1
+        XCHG
+        LHLD    BX1
+        CALL    CCIRC           ;top right
+;
+        LXI     D,MSGG
+        CALL    PRINT
+        CALL    FINISH
+        RET
+;
+; CCIRC -- a circle of radius BANDH round HL, DE
+;
+CCIRC:  GMOVE
+        LHLD    BANDH
+        GCIRC
+        RET
+;
+;
+; ================= M: mode =================
+;
+SCRM:   LXI     D,MMODE
+        CALL    PRINT
+        CALL    GETKY
+        LXI     H,CZM640##
+        LXI     D,MN640
+        CPI     '6'
+        JZ      SMSET
+        LXI     H,CZM800##
+        LXI     D,MN800
+        CPI     '8'
+        JZ      SMSET
+        LXI     H,CZM1K##
+        LXI     D,MN1K
+        CPI     '1'
+        RNZ
+SMSET:  XCHG
+        SHLD    MODNM
+        XCHG
+        CALL    CZINIT##
+        GFONT   CZF8
+        LXI     D,MMSET
+        CALL    PRINT
+        LHLD    MODNM
+        INX     H
+        XCHG
+        CALL    PRINT
+        LXI     D,MMSE2
+        JMP     PRINT
+;
+; Mode names: length, then the name, then '$' for the console
+;
+MN640:  DB      7,'640x480$'
+MN800:  DB      7,'800x600$'
+MN1K:   DB      8,'1024x768$'
+;
+; Chip names: the SRAM of bank 0..7, the bus buffer of pixel P0..P15
+;
+SRTB:   DB      'U11U13U15U17U12U14U16U18'
+BFTB:   DB      'U20U21U24U25U28U29U32U33U22U23U26U27U30U31U34U35'
+;
+;
+; ================= messages =================
+;
+MSGHI:  DB      'CADzilla TESTPAT -- board bring-up test patterns',CR,LF
+        DB      'The monitor (altairsim: cad0 mode) must match the mode shown.'
+        DB      CR,LF,'$'
+MHDR:   DB      CR,LF,'---- CADzilla test patterns -- $'
+MMENU:  DB      ' ----',CR,LF
+        DB      ' 1 Border           2 Offset lines (one)   3 Offset bands (16)'
+        DB      CR,LF
+        DB      ' 4 Bit planes       5 Pixel position/bank  6 Overlay offset lines'
+        DB      CR,LF
+        DB      ' 7 Overlay bands    8 Solid fields         9 Ramps (32 step)'
+        DB      CR,LF
+        DB      ' A Grey ramp (256)  C Checkerboards        G Grid / geometry'
+        DB      CR,LF
+        DB      ' M Mode             Q Quit',CR,LF
+        DB      'Choice? $'
+MSGKEY: DB      '  key (ESC = menu)? $'
+MSGER:  DB      '  ACRTC COMMAND ERROR (CER) -- aborted',CR,LF,'$'
+MSGNL:  DB      CR,LF,'$'
+MSGBYE: DB      'TESTPAT done.',CR,LF,'$'
+;
+MMODE:  DB      'Mode: 6 = 640x480, 8 = 800x600, 1 = 1024x768? $'
+MMSET:  DB      'Board set up for $'
+MMSE2:  DB      ' -- the monitor must match it.',CR,LF,'$'
+;
+MSG1:   DB      'Border: a 1-pixel white rectangle on the outermost pixels,'
+        DB      CR,LF,'  a green one 2 pixels in (one black pixel between),'
+        DB      CR,LF,'  red dots on the 4 corner pixels, the mode in the'
+        DB      ' centre.',CR,LF
+        DB      '  Every edge pixel must be visible.',CR,LF,'$'
+MSG2:   DB      'Offset lines: + - (or space , .) step the offset,'
+        DB      ' 0-F set it.',CR,LF,'$'
+MOFF:   DB      'Offset $'
+MOFO:   DB      'Overlay offset $'
+MOFK:   DB      ' (key $'
+MOFX1:  DB      '): white lines at X mod 16 = $'
+MOFX2:  DB      '): yellow overlay lines over red frame lines,'
+        DB      CR,LF,'  X mod 16 = $'
+MOFP:   DB      CR,LF,'  pixel P$'
+MOFD:   DB      ' of each 16-pixel fetch: 74F676 input D$'
+MOFU:   DB      ' of U2-U5,U7-U10',CR,LF,'  (bits 0-7); bank $'
+MLOW:   DB      ' low byte: SRAM $'
+MHIGH:  DB      ' high byte: SRAM $'
+MBUF:   DB      ', bus buffer $'
+MOVP:   DB      CR,LF,'  overlay pixel P$'
+MOVD:   DB      ': U6 input D$'
+MOVS:   DB      '; overlay SRAM U19, buffer $'
+MU36:   DB      'U36',CR,LF,'$'
+MU37:   DB      'U37',CR,LF,'$'
+MOVT:   DB      '  O toggles the overlay: each red line must hide exactly'
+        DB      ' under a yellow one.',CR,LF,'$'
+MOVON:  DB      '  overlay shown',CR,LF,'$'
+MOVOF:  DB      '  overlay hidden (the red frame lines show)',CR,LF,'$'
+;
+MSG3:   DB      'Offset bands: band n (top = 0, labelled at the left) has'
+        DB      ' lines at',CR,LF
+        DB      '  X mod 16 = n: a staircase, 1 pixel right per band down.'
+        DB      CR,LF
+        DB      '  A band with missing, doubled or moved lines is a bad'
+        DB      ' stage Pn --',CR,LF
+        DB      '  screen 2 at that offset names its chips.',CR,LF,'$'
+MSG4:   DB      'Bit planes, bars left to right = bits 0-7:',CR,LF
+        DB      '  top row     index 1<<b (walking 1), full color',CR,LF
+        DB      '  white strip index FF',CR,LF
+        DB      '  next row    index FF xor 1<<b (walking 0), half color'
+        DB      CR,LF
+        DB      '  outline     index FF, black inside it index 00',CR,LF
+        DB      '  bit    0     1     2     3      4     5       6      7'
+        DB      CR,LF
+        DB      '  color  red   green blue  yellow cyan  magenta orange violet'
+        DB      CR,LF
+        DB      '  74F676 U2    U3    U4    U5     U7    U8      U9     U10'
+        DB      CR,LF
+        DB      '  Any other color, or a tinted strip, is a bad pixel data'
+        DB      ' bit',CR,LF
+        DB      '  (that 74F676, or Bt453 input P0-P7).',CR,LF,'$'
+MSG5:   DB      'Pixel position: each X mod 16 in its own color; the'
+        DB      ' repeating',CR,LF
+        DB      '  16-column sequence must match the key along the bottom.'
+        DB      CR,LF
+        DB      '  pos   0   1   2   3   4   5   6   7   8   9   A   B   C'
+        DB      '   D   E   F',CR,LF
+        DB      '  bank  0L  0H  1L  1H  2L  2H  3L  3H  4L  4H  5L  5H  6L'
+        DB      '  6H  7L  7H',CR,LF
+        DB      '  SRAM  U11 U11 U13 U13 U15 U15 U17 U17 U12 U12 U14 U14 U16'
+        DB      ' U16 U18 U18',CR,LF
+        DB      '  buf   U20 U21 U24 U25 U28 U29 U32 U33 U22 U23 U26 U27 U30'
+        DB      ' U31 U34 U35',CR,LF
+        DB      '  colors 0-7: orange blue green cyan red magenta yellow'
+        DB      ' white;',CR,LF
+        DB      '  8-F the same at half brightness.',CR,LF,'$'
+MSG6:   DB      'Overlay lines: frame dark blue with red lines; the overlay'
+        DB      ' (yellow)',CR,LF
+        DB      '  has a border, the same lines and the label. Keys as'
+        DB      ' screen 2, O toggles.',CR,LF,'$'
+MSG7:   DB      'Overlay bands: screen 3 in red on the frame and in yellow'
+        DB      ' on the',CR,LF
+        DB      '  overlay over it. O toggles the overlay: the two'
+        DB      ' staircases must',CR,LF
+        DB      '  coincide pixel for pixel; U6 stage Pn is band n.',CR,LF
+        DB      '$'
+MSG8:   DB      'Solid fields: K black, W white, R red, G green, B blue,'
+        DB      CR,LF
+        DB      '  Y yellow, C cyan, M magenta, O orange, H 50% grey.'
+        DB      ' Each must be',CR,LF
+        DB      '  even, with no speckle, stripes or tint.',CR,LF,'$'
+MSG9:   DB      'Ramps: red, green, blue, white top to bottom, 32 equal'
+        DB      ' steps each',CR,LF
+        DB      '  from black: every step a little brighter than the one'
+        DB      ' to its left.',CR,LF,'$'
+MSGA:   DB      'Grey ramp: 256 bars, index i = grey i, black at the left.'
+        DB      CR,LF
+        DB      '  Smooth and steadily brighter; a jump or repeat at a'
+        DB      ' power-of-2',CR,LF
+        DB      '  boundary is a bad pixel data bit or DAC input.',CR,LF,'$'
+MSGC:   DB      CR,LF,'  Space or C: next pattern. Every pixel must be crisp,'
+        DB      ' no smear',CR,LF
+        DB      '  or shimmer: the highest dot rate the board produces.'
+        DB      CR,LF,'$'
+MCHK1:  DB      'Checkerboard 1x1$'
+MCHK2:  DB      'Checkerboard 2x2$'
+MVERT:  DB      'Vertical lines, 1 on 1 off$'
+MHORZ:  DB      'Horizontal lines, 1 on 1 off$'
+MSGG:   DB      'Grid: a 32-pixel crosshatch centred on the screen, white'
+        DB      ' every',CR,LF
+        DB      '  128 and through the centre; the circles must be round,'
+        DB      ' the',CR,LF
+        DB      '  squares square and the picture centred on the'
+        DB      ' monitor.',CR,LF,'$'
+;
+;
+; ================= data =================
+;
+MODNM:  DS      2               ;the current mode's name (MN...)
+OFFS:   DB      0               ;the offset of screens 2 and 6
+OVF:    DS      1               ;OFFMSG: 0 the frame, FF the overlay
+OVSHW:  DS      1               ;overlay shown (FF) or hidden (0)
+LBLF:   DS      1               ;BANDS draws labels if not 0
+FCOL:   DS      1               ;screen 8's color
+CHKN:   DS      1               ;screen C's pattern
+PIDX:   DS      1               ;screen 4's palette index
+BINV:   DS      1               ;BITBAR: 0 walking 1, FF walking 0
+BARM:   DS      1               ;BITBAR: the bit mask
+BARB:   DS      1               ;bar / step number
+BANDN:  DS      1               ;band / stage number
+BCOL:   DS      1               ;BANDS color
+VPIT:   DS      1               ;VLINES pitch
+LLEN:   DS      1               ;CLBL length
+LPTR:   DS      2               ;CLBL text
+VY0:    DS      2               ;VLINES rows
+VY1:    DS      2
+BX0:    DS      2               ;FBOX corners
+BY0:    DS      2
+BX1:    DS      2
+BY1:    DS      2
+BXL:    DS      2               ;the next bar's left X
+BARW:   DS      2               ;bar width
+BANDH:  DS      2               ;band height
+BTOP:   DS      2               ;band top row
+RPTR:   DS      2               ;screen 9's hue
+GCX:    DS      2               ;screen G's centre
+GCY:    DS      2
+OLDSP:  DS      2
+        DS      64
+STACK:
+;
+        END     START
