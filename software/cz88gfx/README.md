@@ -37,14 +37,17 @@ listings when the port was made.
 for line, built for the Z80. Each screen's frame, palette and overlay are
 identical, pixel for pixel, to gfxdemo's (czgfx on the 8080).
 `software/cgfxdemo/` is the same ten screens in C, again identical pixel for
-pixel, on the Z80 and the 8080.
+pixel, on the Z80 and the 8080. The user guide, `docs/cz88gfx-guide.pdf`,
+covers the library chapter by chapter for both languages, assembly and C side
+by side, with the demo's screens; regenerate it with
+`python3 software/cz88gfx/tools/mkguide.py`.
 
 ## How it's delivered: versioned releases
 
 | Where | What |
 |---|---|
 | `software/cz88gfx/src/` | sources: `CZ88GFX.INC`, `CZ*.Z88` (one per module), `CZ88CHK.Z88` (the build check); the C bindings: `cz88gfx.h`, `CZC*.Z88`, `czcchk.c` (their build check) |
-| `software/cz88gfx/tools/` | `build.sh`, `release.sh`, `mkfont.py` |
+| `software/cz88gfx/tools/` | `build.sh`, `release.sh`, `mkfont.py`, `mkguide.py` (the user guide) |
 | `software/cz88gfx/build/` | **the dev build**: `CZ88GFX.LIB`, module `.O`/`.LIS`, the checks' `.COM`/`.MAP` (gitignored) |
 | `software/cz88gfx/releases/<major>.<minor>/` | **the releases**: `CZ88GFX.LIB`, `CZ88GFX.INC` and (1.1 on) `cz88gfx.h`, tracked, read-only, never changed |
 

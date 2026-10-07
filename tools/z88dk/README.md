@@ -298,7 +298,8 @@ cz_wait();
   program draws exactly what the assembly one does: `software/cgfxdemo`
   draws z88demo's ten screens pixel for pixel.
 - **Further reading:** `software/cz88gfx/README.md`, "Using it from C", has
-  the API, the conventions and the sizes.
+  the API, the conventions and the sizes. `docs/cz88gfx-guide.pdf` is the
+  user guide, for assembly and C alike.
 
 ### Port I/O
 
