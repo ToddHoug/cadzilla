@@ -1,0 +1,60 @@
+;
+; CZFILL.Z88 -- cz88gfx: PAINT and graphic copy
+; (A port of czgfx 1.0's CZFILL.MAC to z88dk's z80asm.)
+;
+; PAINT fills from CP out to an edge color, in the current color,
+; pattern and drawing mode; pixels already in CL0 or CL1 are edges too
+; (the chip's own rule). AGCPY/RGCPY copy a block of pixels to CP,
+; turned or mirrored on the way.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  CZPANT,CZFLOD,CZGCPY
+        EXTERN  CZPUTW,CZSEND,CZWPR,CZCMD,CZDM
+;
+        SECTION code_user
+;
+; CZPANT -- paint the area round CP, bounded by pixels of color A
+; (EDG = A, PAINT E=0)
+; CZFLOD -- paint the region of color A round CP: its edge is every
+; other color (EDG = A, PAINT E=1)
+;
+CZPANT: PUSH    B
+        MVI     B,OPPANT
+        JMP     PAINT
+CZFLOD: PUSH    B
+        MVI     B,OPPANT+1
+PAINT:  PUSH    H
+        MOV     H,A             ;EDG, the color in both bytes
+        MOV     L,A
+        MVI     A,03H
+        CALL    CZWPR
+        POP     H
+        MOV     A,B
+        CALL    CZCMD
+        POP     B
+        RET
+;
+; CZGCPY -- copy pixels to CP: A = transform (0-7, CPNORM..CPATRN), +10H
+; for RGCPY; HL = table Xs,Ys,DX,DY: the source corner (relative to CP
+; for RGCPY) and the extent to the opposite corner. The source corner
+; lands on CP. The drawing mode applies without its color mode, which
+; must be 00 in a copy. Returns HL just past the table.
+;
+CZGCPY: PUSH    B
+        PUSH    D
+        PUSH    H
+        ANI     17H             ;DSD, and bit 12: RGCPY
+        ORI     OPAGCP
+        MOV     H,A
+        LDA     CZDM
+        ANI     0E7H            ;COL = 00
+        MOV     L,A
+        CALL    CZPUTW
+        POP     H
+        LXI     B,4
+        CALL    CZSEND
+        POP     D
+        POP     B
+        RET
+;

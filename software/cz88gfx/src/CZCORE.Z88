@@ -1,0 +1,167 @@
+;
+; CZCORE.Z88 -- cz88gfx: ACRTC low-level access
+; (A port of czgfx 1.0's CZCORE.MAC to z88dk's z80asm.)
+;
+; Control register writes, the write FIFO, the drawing mode byte, and
+; the end-of-drawing wait. Every other cz88gfx module is built on these.
+; See CZ88GFX.INC for the register conventions.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  CZWREG,CZPUTW,CZWAIT,CZXY,CZSEND,CZRTAB,CZLDW,CZABT
+        PUBLIC  CZDM,CZCMD,CZXYM,CZWPR
+;
+        SECTION code_user
+;
+; CZWREG -- write a 16-bit ACRTC control register (8-bit bus mode).
+; B = register address (even), HL = value. Even AR takes the high
+; byte, odd AR the low byte. AR is set explicitly for both bytes, so
+; this works for r00-r7F (no auto-increment) and r80-rFF alike. Leaves
+; AR = r00, so the FIFO (CZPUTW) can be used straight afterwards.
+;
+CZWREG: MOV     A,B
+        OUT     ACRSR
+        MOV     A,H
+        OUT     ACRDAT
+        MOV     A,B
+        INR     A
+        OUT     ACRSR
+        MOV     A,L
+        OUT     ACRDAT
+        XRA     A
+        OUT     ACRSR
+        RET
+;
+; CZPUTW -- write the word in HL to the write FIFO, high byte first.
+; AR must be r00 (CZINIT and CZWREG leave it there). Waits for WFR.
+;
+CZPUTW: IN      ACRSR
+        ANI     SRWFR
+        JZ      CZPUTW
+        MOV     A,H
+        OUT     ACRDAT
+        MOV     A,L
+        OUT     ACRDAT
+        RET
+;
+; CZLDW -- DE = word at (HL), HL += 2
+;
+CZLDW:  MOV     E,M
+        INX     H
+        MOV     D,M
+        INX     H
+        RET
+;
+; CZSEND -- send BC words from the table at HL to the FIFO (BC > 0).
+; Returns HL past the table, BC = 0. Clobbers DE.
+;
+CZSEND: CALL    CZLDW
+        XCHG
+        CALL    CZPUTW
+        XCHG
+        DCX     B
+        MOV     A,B
+        ORA     C
+        JNZ     CZSEND
+        RET
+;
+; CZWAIT -- wait until the write FIFO is empty and the last command
+; has ended. Returns A = status register, Z set if no command error.
+;
+CZWAIT: PUSH    B
+WAITLP: IN      ACRSR
+        MOV     B,A
+        ANI     SRWFE
+        JZ      WAITLP
+        MOV     A,B
+        ANI     SRCED
+        JZ      WAITLP
+        MOV     A,B
+        ANI     SRCER
+        MOV     A,B
+        POP     B
+        RET
+;
+; CZXY -- send graphic command A (command high byte) with parameters
+; X = HL, Y = DE.
+;
+CZXY:   PUSH    H
+        MOV     H,A
+        MVI     L,0
+        CALL    CZPUTW
+        POP     H
+        CALL    CZPUTW
+        XCHG
+        CALL    CZPUTW
+        XCHG
+        RET
+;
+; CZCMD -- send the drawing command with high byte A and the current
+; drawing mode (CZDM) as its low byte
+;
+CZCMD:  PUSH    H
+        MOV     H,A
+        LDA     CZDM
+        MOV     L,A
+        CALL    CZPUTW
+        POP     H
+        RET
+;
+; CZXYM -- as CZXY, the command carrying the drawing mode
+;
+CZXYM:  CALL    CZCMD
+        CALL    CZPUTW
+        XCHG
+        CALL    CZPUTW
+        XCHG
+        RET
+;
+; CZWPR -- write drawing parameter register A (WPR: 0 CL0, 1 CL1,
+; 2 CCMP, 3 EDG, 4 MASK, 5-7 PRC, 8-0BH area, 0CH-0DH RWP) with HL
+;
+CZWPR:  PUSH    H
+        MVI     H,08H
+        MOV     L,A
+        CALL    CZPUTW
+        POP     H
+        JMP     CZPUTW
+;
+; CZDM -- the drawing mode, AREA (bits 7-5) COL (4-3) OPM (2-0), the
+; low byte of every drawing command. GINIT sets 0 (replace, CMSEL,
+; no area checking); GMODE and CZMODE.Z88's routines change it.
+;
+CZDM:   DB      0
+;
+; CZRTAB -- load ACRTC control registers from the table at HL.
+; Entries: DB register / DW value; DB 0FFH ends. Returns HL past it.
+;
+CZRTAB: PUSH    B
+        PUSH    D
+RTLOOP: MOV     A,M
+        INX     H
+        CPI     0FFH
+        JZ      RTDONE
+        MOV     B,A
+        CALL    CZLDW
+        XCHG
+        CALL    CZWREG
+        XCHG
+        JMP     RTLOOP
+RTDONE: POP     D
+        POP     B
+        RET
+;
+; CZABT -- abort: stop drawing, flush the FIFOs and clear a command
+; error (CCR ABT), then back to 8 bpp with no interrupts.
+;
+CZABT:  PUSH    B
+        PUSH    H
+        MVI     B,02H
+        LXI     H,8300H
+        CALL    CZWREG
+        LXI     H,0300H
+        CALL    CZWREG
+        POP     H
+        POP     B
+        RET
+;

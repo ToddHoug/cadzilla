@@ -1,0 +1,160 @@
+;
+; CZ88CHK.Z88 -- cz88gfx library build check
+;
+; Not a demo: tools/build.sh assembles this against the header and the
+; library just built, and links it for the 8080, 8085 and Z80, so a
+; broken macro or a missing PUBLIC fails the library build instead of
+; the first consumer project. It expands every macro and references
+; every entry point (by name, the way a program outside the macros
+; does); running it does nothing.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        ORG     0100H
+;
+N       DEFL    3               ;(an assembly-time variable, as in a REPT loop)
+;
+START:  RET                     ;nothing below is ever executed
+;
+        GINIT   CZM640
+        GINIT   CZM800
+        GINIT   CZM1K
+        GCLS    0
+        GCLS    BLUE+4
+        GCOLOR  WHITE+BRIGHT
+        CALL    CZCOL
+        GPAL    1,255,128,0
+        GMOVE   10,20
+        GLINE   30,40
+        GRECT   50,60
+        GFRECT  70,80
+        GDOT    90,100
+        GRMOVE  -5,5
+        GRLINE  5,-5
+        GRRECT  10,10
+        GRFRCT  -10,-10
+        GSEG    0,0,639,479
+        GBOX    1,1,638,478
+        GFBOX   2,2,20,20,RED+BRIGHT
+        GPLINE  ((0,0,10,10,20,0))
+        GPOLY   ((100,100,150,100,125,140))
+        GPLT    PTS1
+        GPLG    PTS1
+        GWAIT
+        GABORT
+;
+        GMODE   0
+        GMODE   OMEOR+CMCL1+AMCLIP
+        GOPM    OMOR
+        GCMODE  CMPRAM
+        GAMODE  AMSTOP
+        GBCOL   BLUE+4
+        GCCMP   GREEN+BRIGHT
+        GAREA   10,20,300,200
+        GAFULL
+        GGETCP
+        GRDOT   10,20
+        GPDEF
+        LXI     H,SCN1
+        CALL    CZPSCN
+        GLDPAT  PAT1,0
+        GLDPAT  TIL1,0
+        GLDPAT  PAT2,4
+        GPSCAN  0,0,7,7,0,0
+        GPSCAN  0,0,15,15,1,1
+        GPPTR   0,0
+        GLSTYL  0F0F0H,0
+        GLSTYL  0AAAAH,2
+        GPTN    100,100,16,16,0
+        GPTN    0+(N+1)*2,100,16,16,2+PTSLNT
+        GCIRC   320,240,100
+        GELLIP  320,240,200,100
+        GARC    320,240,320,340,DIRCCW
+        GARC    320,240,320,340,DIRCW
+        GRARC   -100,0,-100,100,DIRCCW
+        GEARC   3,2,320,240,320,340,DIRCCW
+        GREARC  3,2,-100,0,-100,100,DIRCW
+        GPAINT  320,240,WHITE+BRIGHT
+        GFLOOD  320,240,0
+        GCOPY   0,0,99,49,200,200,CPNORM
+        GCOPY   0,0,99,49,200,200,CPR90
+        LXI     H,0
+        MVI     A,CPNORM+10H    ;RGCPY
+        CALL    CZGCPY
+;
+        GOVON
+        GOVOFF
+        GOVPAL  255,255,0
+        GOVL
+        GCOLOR  OVSET
+        GFRAME
+        GOVCLS
+;
+        GFONT   CZF8
+        GFONT   CZF11
+        GTPOS   10,20
+        GTATTR  2,0,0
+        GTATTR  1,2,TXOPAQ
+        GTEXT   "Hello, world"
+        GTSTR
+        GTCHR   'A'
+        GTNL
+;
+; The register forms: what a blank czgfx argument becomes
+;
+        CALL    CZMOVE
+        CALL    CZLINE
+        CALL    CZRECT
+        CALL    CZFRCT
+        CALL    CZDOT
+        CALL    CZRMOV
+        CALL    CZRLIN
+        CALL    CZRRCT
+        CALL    CZRFRC
+        CALL    CZOPM
+        CALL    CZCMOD
+        CALL    CZAMOD
+        CALL    CZCOL0
+        CALL    CZCCMP
+        CALL    CZAMIN
+        CALL    CZAMAX
+        CALL    CZRDOT
+        CALL    CZLPAT
+        CALL    CZLSTY
+        CALL    CZPTN
+        CALL    CZCRCL
+        CALL    CZELPS
+        CALL    CZARC
+        CALL    CZPANT
+        CALL    CZFLOD
+        CALL    CZTPOS
+        CALL    CZTATR
+        CALL    CZTCHR
+        CALL    CZCLS
+        CALL    CZPALS
+        CALL    CZINIT
+;
+        LHLD    CZXMAX
+        LDA     CZMREG
+        LHLD    CZDPB
+        LXI     H,CZTST
+        LXI     H,CZ88VER       ;(the header's version)
+        LHLD    CZYMAX
+        LXI     H,CZPALD
+        LXI     H,CZWREG
+        LXI     H,CZPUTW
+        LXI     H,CZXY
+        LXI     H,CZSEND
+        LXI     H,CZRTAB
+        LXI     H,CZLDW
+        LXI     H,CZDM
+        LXI     H,CZCMD
+        LXI     H,CZXYM
+        LXI     H,CZWPR
+        RET
+;
+        GPTS    PTS1,(5,5,50,5,50,50)
+        GPAT    PAT1,(0FFFFH,8001H,8001H,0FFFFH)
+        GPAT    PAT2,(0AAAAH)
+        GTILE   TIL1,(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,255)
+SCN1:   DB      0,0,7,7,1,1

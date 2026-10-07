@@ -1,0 +1,203 @@
+;
+; CZMODE.Z88 -- cz88gfx: drawing mode, CL0/CCMP, the area, reading back
+; (A port of czgfx 1.0's CZMODE.MAC to z88dk's z80asm.)
+; (the CP, a pixel)
+;
+; The drawing mode byte CZDM (in CZCORE) is the low byte of every
+; drawing command: AREA (bits 7-5), COL (4-3), OPM (2-0), with the
+; values OM..., CM... and AM... of CZ88GFX.INC. GMODE writes all of it;
+; these routines change one field and keep the others.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  CZOPM,CZCMOD,CZAMOD,CZCOL0,CZCCMP
+        PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP,CZRDOT
+        EXTERN  CZDM,CZWPR,CZPUTW,CZXMAX,CZYMAX
+;
+        SECTION code_user
+;
+; CZOPM -- operation mode A (OM...: 0-7)
+; CZCMOD -- color mode A (CM...: 00H, 08H, 10H, 18H)
+; CZAMOD -- area mode A (AM...: 00H, 20H .. 0E0H)
+;
+CZOPM:  PUSH    B
+        MVI     B,0F8H          ;keep AREA and COL
+        JMP     SETF
+CZCMOD: PUSH    B
+        MVI     B,0E7H          ;keep AREA and OPM
+        JMP     SETF
+CZAMOD: PUSH    B
+        MVI     B,1FH           ;keep COL and OPM
+SETF:   MOV     C,A             ;C = the new field, B = the rest
+        MOV     A,B
+        CMA
+        ANA     C
+        MOV     C,A
+        LDA     CZDM
+        ANA     B
+        ORA     C
+        STA     CZDM
+        POP     B
+        RET
+;
+; CZCOL0 -- set CL0 to palette index A (the color of a pattern's 0 bits)
+; CZCCMP -- set CCMP to palette index A (the OMEQ/OMNE compare color)
+; As CZCOL, the index goes in both bytes: two pixels per word at 8 bpp.
+;
+CZCOL0: PUSH    B
+        MVI     B,00H           ;WPR CL0
+        JMP     WPRC
+CZCCMP: PUSH    B
+        MVI     B,02H           ;WPR CCMP
+WPRC:   PUSH    H
+        MOV     H,A
+        MOV     L,A
+        MOV     A,B
+        CALL    CZWPR
+        POP     H
+        POP     B
+        RET
+;
+; CZAMIN -- area low corner: X min = HL, Y min = DE
+; CZAMAX -- area high corner: X max = HL, Y max = DE
+; Both corners are inside the area.
+;
+CZAMIN: MVI     A,08H           ;WPR XMIN
+        CALL    CZWPR
+        XCHG
+        MVI     A,09H           ;WPR YMIN
+        CALL    CZWPR
+        XCHG
+        RET
+CZAMAX: MVI     A,0AH           ;WPR XMAX
+        CALL    CZWPR
+        XCHG
+        MVI     A,0BH           ;WPR YMAX
+        CALL    CZWPR
+        XCHG
+        RET
+;
+; CZAFUL -- the area is the whole screen, 0,0 .. CZXMAX,CZYMAX
+;
+CZAFUL: PUSH    D
+        PUSH    H
+        LXI     H,0
+        LXI     D,0
+        CALL    CZAMIN
+        LHLD    CZYMAX
+        XCHG
+        LHLD    CZXMAX
+        CALL    CZAMAX
+        POP     H
+        POP     D
+        RET
+;
+; CZGCP -- read the drawing pointer back: HL = X, DE = Y (RPR CPX,
+; CPY through the read FIFO). RPR also clears ARD in the status.
+; Preserves BC.
+;
+CZGCP:  LXI     H,0C12H         ;RPR CPX
+        CALL    CZPUTW
+        CALL    RDW
+        PUSH    H
+        LXI     H,0C13H         ;RPR CPY
+        CALL    CZPUTW
+        CALL    RDW
+        XCHG
+        POP     H
+        RET
+;
+; CZRDOT -- read the pixel at X = HL, Y = DE: A = its palette index,
+; NC; or C (A = 0) if X,Y is off the screen. RD reads the word at RWP:
+; word address (CZYMAX-Y) * words per raster + X/2, even X in the low
+; byte. A raster is 16*m words (m = (CZXMAX+1)/32: 20, 25 or 32), so
+; RWP, the address shifted left 4, is rows*m*256 + (X AND NOT 1)*8:
+; Pr0C = 40H (the base screen) + address bits 19-12, Pr0D = bits 11-0
+; shifted left 4. Leaves RWP past the word. Preserves BC, DE, HL.
+;
+CZRDOT: PUSH    B
+        PUSH    D
+        PUSH    H
+        MOV     B,H             ;BC = X
+        MOV     C,L
+        LHLD    CZYMAX          ;DE = rows from the top: CZYMAX - Y
+        MOV     A,L
+        SUB     E
+        MOV     E,A
+        MOV     A,H
+        SBB     D
+        MOV     D,A
+        JC      RDOFF
+        LHLD    CZXMAX          ;X <= CZXMAX?
+        MOV     A,L
+        SUB     C
+        MOV     A,H
+        SBB     B
+        JC      RDOFF
+        INX     H               ;A = m
+        DAD     H
+        DAD     H
+        DAD     H
+        MOV     A,H
+        LXI     H,0             ;HL = rows * m, a bit of m at a time
+RDM1:   ORA     A
+        JZ      RDM3
+        RAR
+        JNC     RDM2
+        DAD     D
+RDM2:   XCHG
+        DAD     H
+        XCHG
+        JMP     RDM1
+RDM3:   XCHG                    ;DE = rows * m
+        MOV     A,C             ;HL = (X AND NOT 1) * 8
+        ANI     0FEH
+        MOV     L,A
+        MOV     H,B
+        DAD     H
+        DAD     H
+        DAD     H
+        MOV     A,H             ;+ rows * m * 256
+        ADD     E
+        MOV     H,A
+        MOV     A,D
+        ACI     0
+        PUSH    H
+        MOV     L,A             ;Pr0C: the base screen, bits 19-12
+        MVI     H,40H
+        MVI     A,0CH
+        CALL    CZWPR
+        POP     H               ;Pr0D: bits 11-0, shifted left 4
+        MVI     A,0DH
+        CALL    CZWPR
+        LXI     H,OPRD*100H     ;RD: the word to the read FIFO
+        CALL    CZPUTW
+        CALL    RDW             ;H = the odd pixel, L = the even one
+        MOV     A,C
+        RAR
+        MOV     A,L
+        JNC     RDX
+        MOV     A,H
+        ORA     A               ;(NC)
+        JMP     RDX
+RDOFF:  XRA     A
+        STC
+RDX:    POP     H
+        POP     D
+        POP     B
+        RET
+;
+; RDW -- HL = the next word from the read FIFO, high byte first
+; (AR is r00, as CZPUTW needs it too)
+;
+RDW:    CALL    RDB
+        MOV     H,A
+        CALL    RDB
+        MOV     L,A
+        RET
+RDB:    IN      ACRSR
+        ANI     SRRFR
+        JZ      RDB
+        IN      ACRDAT
+        RET
+;

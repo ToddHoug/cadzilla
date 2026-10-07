@@ -1,0 +1,1285 @@
+;
+; Z88DEMO.Z88 -- CADzilla cz88gfx graphics library demo
+;
+; software/gfxdemo's GFXDEMO.MAC ported from M80 + czgfx to z88dk's
+; z80asm + cz88gfx (software/cz88gfx): the same ten screens, drawn by the
+; same library code, built on the host and run on a Z80. The port shows
+; what changes between the two (software/cz88gfx/README.md has the full
+; list):
+;   - INCLUDE "CZ88GFX.INC" and ORG 0100H; library names without ##
+;   - every macro argument given: GCLS 0, GMODE 0, GTATTR 2,0,0 for a
+;     czgfx default; CALL CZCOL, CZMOVE, ... (or LXI D,y / CALL CZMOVE)
+;     where czgfx left an argument blank to mean "already in a register"
+;   - lists in parentheses, GPOLY's doubled: GPOLY ((x0,y0,...))
+;   - "strings", % for MOD, REPTI for IRP, ENDR for REPT's ENDM, and
+;     DEFL for SET -- parenthesized, N DEFL (N+1): z80asm substitutes a
+;     DEFL's text, so after N DEFL N+1 twice, N*19 is 0+1+1*19
+; Everything board-specific -- the ACRTC registers, the Bt453 palette,
+; the FIFO protocol -- comes from the library; this file is only the
+; pictures. Ten screens, each described on the console; press any key
+; for the next one, ESC (or ^C) to quit.
+;
+;   1  Palette & fills   all 256 palette entries as filled boxes, hues
+;                        top to bottom, black to full brightness left
+;                        to right, inside a white frame (GFBOX, GBOX)
+;   2  Lines             a 36-spoke starburst from a data table (GMOVE,
+;                        GLINE) and 10 nested rectangles unrolled at
+;                        assembly time by REPT (GBOX)
+;   3  Polys & dots      a 5-point star and a hexagon (GPOLY), a triangle
+;                        from a named table (GPTS, GPLG), a sine wave
+;                        (GPLT) and 400 random dots (GDOT)
+;   4  Curves            concentric circles (GCIRC), a rainbow of half
+;                        circle arcs drawn both ways round (GARC), five
+;                        ellipses (GELLIP) and a spiral of elliptical
+;                        arcs (GEARC)
+;   5  Operation modes   eight panels of colored bands, each overdrawn by
+;                        two overlapping boxes in one operation mode:
+;                        replace, OR, AND, EOR / =CCMP, <>CCMP, <C, >C
+;                        (GOPM, GCCMP)
+;   6  Color modes &     a ring pattern filled in each color mode -- two
+;      pattern RAM       colors, CL1 only, CL0 only -- and a 4x4 color
+;                        tile (GLDPAT, GTILE, GPSCAN, GCMODE, GBCOL);
+;                        dashed lines and shapes (GLSTYL); the pattern
+;                        RAM as a picture, turned and slanted (GPTN)
+;   7  Area, PAINT &     circles clipped to an area and to outside it,
+;      copy              lines that stop at its edge (GAREA, GAMODE,
+;                        GGETCP); a pie chart painted solid, patterned
+;                        and flood-recolored (GPAINT, GFLOOD); a picture
+;                        copied in all eight orientations, XORed and
+;                        clipped (GCOPY)
+;   8  Overlay           screen 1's palette again, and on the 1 bpp
+;                        overlay over it (GOVL ... GFRAME, GOVON,
+;                        GOVPAL): a grid, a circle, a patterned PAINT and
+;                        a solid box, and a crosshair moved in OMEOR
+;   9  Overlay off       GOVOFF: the picture under the overlay untouched;
+;                        then GOVCLS clears it
+;  10  Text overlay      screen 2's lines, and text on the overlay over
+;                        them (GFONT, GTPOS, GTATTR, GTEXT, GTSTR, GTNL):
+;                        both fonts, scaled, turned, both character sets,
+;                        and an opaque status line rewritten in place;
+;                        then a line of text on the frame itself
+;
+; Build on the host (cz88gfx release pinned in cz88gfx.version; see
+; cadzilla-build-z88dk), then R Z88DEMO.COM onto the disk and run it:
+;   tools/z88dk/z88build.sh software/z88demo
+;
+        INCLUDE "CZ88GFX.INC"
+;
+BDOS    EQU     0005H
+CONIN   EQU     1               ;console input (waits, echoes)
+CONOUT  EQU     2
+PSTRING EQU     9
+CR      EQU     0DH
+LF      EQU     0AH
+ESC     EQU     1BH
+CTLC    EQU     03H
+;
+        ORG     0100H
+;
+START:  LXI     H,0             ;keep CCP's stack, run on our own
+        DAD     SP
+        SHLD    OLDSP
+        LXI     SP,STACK
+;
+        LXI     D,MSGHI
+        CALL    PRINT
+        GINIT   CZM1K           ;1024x768, default palette, screen cleared
+;
+        LXI     D,MSG1
+        CALL    PRINT
+        CALL    SCR1
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG2
+        CALL    PRINT
+        CALL    SCR2
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG3
+        CALL    PRINT
+        CALL    SCR3
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG4
+        CALL    PRINT
+        CALL    SCR4
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG5
+        CALL    PRINT
+        CALL    SCR5
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG6
+        CALL    PRINT
+        CALL    SCR6
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG7
+        CALL    PRINT
+        CALL    SCR7
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG8
+        CALL    PRINT
+        CALL    SCR8
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG9
+        CALL    PRINT
+        CALL    SCR9
+        CALL    DONE
+        JZ      EXIT
+;
+        LXI     D,MSG10
+        CALL    PRINT
+        CALL    SCR10
+        CALL    DONE
+;
+EXIT:   LXI     D,MSGBYE
+        CALL    PRINT
+        LHLD    OLDSP
+        SPHL
+        RET
+;
+;
+; ================= console =================
+;
+PRINT:  MVI     C,PSTRING
+        JMP     BDOS
+;
+; DONE -- wait for the screen to finish drawing, report a command
+; error if there was one, then wait for a key. Returns Z if the key
+; was ESC or ^C (quit).
+;
+; The key is read with BDOS function 1, not 6 (direct I/O): while
+; function 9 prints, the BDOS polls the keyboard for ^S and keeps any
+; other key it finds in its own buffer, which function 1 reads and
+; function 6 bypasses -- so a key pressed during the prompt would be
+; lost, and turn up later at the CCP prompt instead.
+;
+DONE:   GWAIT
+        JZ      DNOK
+        LXI     D,MSGER         ;command error: say so, clear it
+        CALL    PRINT
+        GABORT
+        JMP     DNKEY
+DNOK:   LXI     D,MSGOK
+        CALL    PRINT
+DNKEY:  LXI     D,MSGKEY
+        CALL    PRINT
+        MVI     C,CONIN
+        CALL    BDOS
+        PUSH    PSW
+        LXI     D,MSGNL
+        CALL    PRINT
+        POP     PSW
+        CPI     ESC
+        RZ
+        CPI     CTLC
+        RET
+;
+;
+; ================= screen 1: palette & fills =================
+;
+; 32 columns (levels) x 8 rows (hues), 28x80 pixel cells on a 32x90
+; pitch, hue 0 on top. The loop keeps X in GX, Y in GY and the palette
+; index in COLIX, and hands the macros blank arguments ("already in
+; HL/DE") for the computed corners.
+;
+SCR1:   GCLS    0
+        XRA     A
+        STA     COLIX
+        LXI     H,38+7*90       ;bottom Y of the top row
+        SHLD    GY
+S1ROW:  LXI     H,2             ;left X of the first column
+        SHLD    GX
+S1CELL: LDA     COLIX
+        CALL    CZCOL
+        LHLD    GY
+        XCHG                    ;DE = Y
+        LHLD    GX              ;HL = X
+        CALL    CZMOVE
+        LXI     B,27            ;far corner: X+27, Y+79
+        DAD     B
+        XCHG
+        LXI     B,79
+        DAD     B
+        XCHG
+        CALL    CZFRCT
+        LHLD    GX              ;next column
+        LXI     B,32
+        DAD     B
+        SHLD    GX
+        LDA     COLIX
+        INR     A
+        STA     COLIX
+        ANI     31
+        JNZ     S1CELL
+        LHLD    GY              ;next row down
+        LXI     B,-90
+        DAD     B
+        SHLD    GY
+        LDA     COLIX           ;wraps to 0 after all 256
+        ORA     A
+        JNZ     S1ROW
+;
+        GCOLOR  WHITE+BRIGHT
+        GBOX    0,0,1023,767
+        RET
+;
+;
+; ================= screen 2: lines =================
+;
+SCR2:   GCLS    0
+;
+; Starburst: 36 spokes from the centre (272,384), radius 240, one
+; color per spoke cycling through the 8 hues.
+;
+        LXI     H,SPOKES
+        MVI     B,36
+        MVI     C,0             ;hue 0..7
+S2SPK:  MOV     A,C             ;color = hue*32 + BRIGHT
+        RRC
+        RRC
+        RRC
+        ORI     BRIGHT
+        CALL    CZCOL
+        PUSH    H
+        GMOVE   272,384
+        POP     H
+        CALL    CZLDW           ;DE = end X (library routine, direct)
+        PUSH    D
+        CALL    CZLDW           ;DE = end Y
+        XTHL                    ;HL = end X, table pointer on stack
+        CALL    CZLINE
+        POP     H
+        INR     C
+        MOV     A,C
+        ANI     7
+        MOV     C,A
+        DCR     B
+        JNZ     S2SPK
+;
+; Nested rectangles: REPT unrolls one GBOX per level at assembly time,
+; the corners and color computed from the counter N.
+;
+N       DEFL    0
+        REPT    10
+        GCOLOR  0+(N % 8)*32+BRIGHT-(N/8)*12
+        GBOX    560+N*19,160+N*19,992-N*19,608-N*19
+N       DEFL    (N+1)
+        ENDR
+;
+        GCOLOR  WHITE+BRIGHT    ;an X corner to corner of the innermost
+        GSEG    731,331,821,437
+        GSEG    731,437,821,331
+        RET
+;
+;
+; ================= screen 3: polygons, polylines, dots =================
+;
+SCR3:   GCLS    0
+;
+        GCOLOR  YELLOW+BRIGHT   ;5-point star, the points given inline
+        GPOLY   ((240,704,202,595,88,594,179,525,146,414,240,480,334,414,301,525,392,594,278,595))
+;
+        GCOLOR  CYAN+BRIGHT     ;hexagon
+        GPOLY   ((928,544,856,669,712,669,640,544,712,419,856,419))
+;
+        GCOLOR  MAGENTA+BRIGHT  ;triangle from a named table
+        GPLG    TRI
+;
+        GCOLOR  GREEN+BRIGHT    ;sine wave, 33 points
+        GPLT    SINE
+;
+        GCOLOR  WHITE+16        ;axis under the wave
+        GSEG    64,152,987,152
+;
+; 400 dots in the band between the shapes and the wave, at random
+; positions (xorshift), colors cycling through the palette.
+;
+        LXI     B,400
+S3DOT:  CALL    RAND            ;X = 102 + a + a/2, a = R AND 511
+        MOV     A,H
+        ANI     1               ;(ANI also clears CY for the RARs)
+        MOV     H,A
+        MOV     D,A             ;DE = a/2
+        MOV     E,L
+        MOV     A,D
+        RAR
+        MOV     D,A
+        MOV     A,E
+        RAR
+        MOV     E,A
+        DAD     D
+        LXI     D,102
+        DAD     D
+        PUSH    H
+        CALL    RAND            ;Y = 282 + b + b/2, b = R AND 63
+        MOV     A,L
+        ANI     63
+        MOV     E,A
+        RAR
+        ADD     E
+        MOV     E,A
+        MVI     D,0
+        PUSH    H
+        LXI     H,282
+        DAD     D
+        XCHG                    ;DE = Y
+        POP     H
+        MOV     A,H             ;color from the high byte
+        ORI     16              ;never too dark
+        CALL    CZCOL
+        POP     H
+        CALL    CZDOT
+        DCX     B
+        MOV     A,B
+        ORA     C
+        JNZ     S3DOT
+        RET
+;
+;
+; ================= screen 4: curves =================
+;
+SCR4:   GCLS    0
+;
+; 13 concentric circles round (240,440), radius 16 to 208, one hue each.
+; GCIRC with no arguments: centred on the CP, radius in HL.
+;
+        MVI     C,0
+        LXI     H,16
+S4CIR:  MOV     A,C
+        ANI     7
+        RRC
+        RRC
+        RRC
+        ORI     BRIGHT
+        CALL    CZCOL
+        PUSH    H
+        GMOVE   240,440
+        POP     H
+        CALL    CZCRCL
+        LXI     D,16
+        DAD     D
+        INR     C
+        MOV     A,C
+        CPI     13
+        JNZ     S4CIR
+;
+; A rainbow: eight half circles round (240,24), radius 180 down to 75.
+; Even ones start on the right and run counter-clockwise, odd ones
+; start on the left and run clockwise (DIRCW) -- both over the top.
+;
+N       DEFL    0
+        REPTI   HUE,RED,ORANGE,YELLOW,GREEN,CYAN,BLUE,MAGENTA,WHITE
+        GCOLOR  HUE+BRIGHT
+        IF      N % 2
+        GMOVE   60+N*15,24
+        GARC    240,24,420-N*15,24,DIRCW
+        ELSE
+        GMOVE   420-N*15,24
+        GARC    240,24,60+N*15,24,DIRCCW
+        ENDIF
+N       DEFL    (N+1)
+        ENDR
+;
+; Five ellipses round (756,580), from wide and flat to narrow and tall
+;
+N       DEFL    0
+        REPT    5
+        GCOLOR  0+((N+1) % 8)*32+BRIGHT
+        GELLIP  756,580,240-N*40,20+N*40
+N       DEFL    (N+1)
+        ENDR
+;
+; A spiral of 12 elliptical half arcs with semi-axes 4:3, round two
+; centres 14 apart -- (733,200) for the upper halves, (747,200) for the
+; lower ones -- each arc starting where the last ended, 14 wider
+;
+        GMOVE   747,200
+N       DEFL    0
+        REPT    12
+        GCOLOR  CYAN+9+N*2
+        IF      N % 2
+        GEARC   4,3,747,200,747+14+N*14,200,DIRCCW
+        ELSE
+        GEARC   4,3,733,200,733-14-N*14,200,DIRCCW
+        ENDIF
+N       DEFL    (N+1)
+        ENDR
+        RET
+;
+;
+; ================= screen 5: operation modes =================
+;
+; Eight 236 x 352 panels, each eight bands of palette index hue*32+20
+; from the bottom up, then two overlapping boxes drawn in the panel's
+; operation mode and color (PNLTAB). The overlap shows what drawing
+; twice does: nothing more, except in EOR, where it restores the
+; bands. OMEQ/OMNE compare with CCMP = band 2's color.
+;
+SCR5:   GCLS    0
+        GCCMP   GREEN+20
+        XRA     A
+        STA     PNLK
+S5PNL:  LDA     PNLK
+        CALL    PNLX
+        LXI     H,400           ;top row
+        LDA     PNLK
+        CPI     4
+        JC      S5Y
+        LXI     H,16            ;bottom row
+S5Y:    SHLD    GY
+        CALL    BANDS
+        LDA     PNLK            ;HL = PNLTAB + 2*PNLK
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        LXI     H,PNLTAB
+        DAD     D
+        MOV     A,M             ;the operation mode
+        INX     H
+        MOV     B,M             ;the color
+        CALL    CZOPM
+        MOV     A,B
+        CALL    CZCOL
+        LXI     H,BOX1
+        CALL    RFBOX
+        CALL    RFBOX           ;BOX2 follows BOX1
+        GMODE   0
+        LDA     PNLK
+        INR     A
+        STA     PNLK
+        CPI     8
+        JNZ     S5PNL
+        RET
+;
+; BANDS -- eight 236 x 44 bands from GX,GY up, colors hue*32+20
+;
+BANDS:  LHLD    GY
+        SHLD    BY
+        MVI     B,0
+BNDLP:  MOV     A,B
+        RRC
+        RRC
+        RRC
+        ORI     20
+        CALL    CZCOL
+        LHLD    BY
+        XCHG
+        LHLD    GX
+        CALL    CZMOVE
+        PUSH    B
+        LXI     B,235
+        DAD     B
+        XCHG
+        LXI     B,43
+        DAD     B
+        XCHG
+        CALL    CZFRCT
+        LHLD    BY
+        LXI     B,44
+        DAD     B
+        SHLD    BY
+        POP     B
+        INR     B
+        MOV     A,B
+        CPI     8
+        JNZ     BNDLP
+        RET
+;
+;
+; ================= screen 6: color modes and pattern RAM =================
+;
+SCR6:   GCLS    0
+;
+; Four panels of eight 29 x 328 colored bars (hue*32+12), each with a
+; box filled with a 16x16 ring pattern in one color mode -- CMSEL
+; (yellow on blue), CMCL1 (yellow only: the bars show through the 0
+; bits), CMCL0 (blue only) -- and, in the last, a 4x4 color tile in
+; CMPRAM, each cell zoomed to 8x8. The bars go first: every drawing
+; uses the pattern RAM, so they need GINIT's all-ones pattern.
+;
+        XRA     A
+        CALL    S6PNL
+        MVI     A,1
+        CALL    S6PNL
+        MVI     A,2
+        CALL    S6PNL
+        MVI     A,3
+        CALL    S6PNL
+        GLDPAT  RING,0
+        GCOLOR  YELLOW+BRIGHT
+        GBCOL   BLUE+10
+        XRA     A               ;CMSEL is GINIT's color mode
+        CALL    S6BOX
+        GCMODE  CMCL1
+        MVI     A,1
+        CALL    S6BOX
+        GCMODE  CMCL0
+        MVI     A,2
+        CALL    S6BOX
+        GLDPAT  TILE1,0
+        GPSCAN  0,0,3,3,7,7
+        GCMODE  CMPRAM
+        MVI     A,3
+        CALL    S6BOX
+;
+; Line styles (GLSTYL) in CMCL1, so the gaps leave the black alone:
+; solid, long dash, dash, short dash, dots, dash-dot and a dash zoomed
+; x4; then one in CMSEL, which draws its gaps in CL0
+;
+        GCMODE  CMCL1
+        GCOLOR  WHITE+BRIGHT
+        GLSTYL  0FFFFH,0
+        GSEG    32,376,480,376
+        GCOLOR  YELLOW+BRIGHT
+        GLSTYL  0FF00H,0
+        GSEG    32,352,480,352
+        GCOLOR  GREEN+BRIGHT
+        GLSTYL  0F0F0H,0
+        GSEG    32,328,480,328
+        GCOLOR  CYAN+BRIGHT
+        GLSTYL  0CCCCH,0
+        GSEG    32,304,480,304
+        GCOLOR  MAGENTA+BRIGHT
+        GLSTYL  0AAAAH,0
+        GSEG    32,280,480,280
+        GCOLOR  ORANGE+BRIGHT
+        GLSTYL  11FFH,0         ;9 on, 3 off, 1 on, 3 off
+        GSEG    32,256,480,256
+        GCOLOR  RED+BRIGHT
+        GLSTYL  0F0F0H,3
+        GSEG    32,232,480,232
+        GCMODE  CMSEL
+        GBCOL   BLUE+BRIGHT
+        GCOLOR  RED+BRIGHT
+        GLSTYL  0FF00H,1
+        GSEG    32,208,480,208
+;
+; The pattern pointer runs on round a shape's corners: a dashed box, a
+; dashed circle and a dotted triangle
+;
+        GCMODE  CMCL1
+        GCOLOR  YELLOW+BRIGHT
+        GLSTYL  0F0F0H,0
+        GBOX    40,24,200,184
+        GCOLOR  CYAN+BRIGHT
+        GLSTYL  0FF00H,0
+        GCIRC   300,104,80
+        GCOLOR  GREEN+BRIGHT
+        GLSTYL  3333H,0
+        GPOLY   ((400,24,488,24,444,184))
+;
+; PTN draws the pattern RAM itself, here a framed F (FGLYPH) zoomed
+; x4 to 64x64, in CMSEL, white on blue. Top row: turned 0, 90, 180 and
+; 270 degrees. Bottom row: slanted (PTSLNT), turned 90 and slanted, and
+; turned 45 -- a diagonal PTN leaves gaps, as the chip's does.
+;
+        GMODE   0
+        GLDPAT  FGLYPH,0
+        GPSCAN  0,0,15,15,3,3
+        GCOLOR  WHITE+BRIGHT
+        GBCOL   BLUE+8
+        GPTN    544,300,64,64,0
+        GPTN    727,300,64,64,2
+        GPTN    847,363,64,64,4
+        GPTN    904,363,64,64,6
+        GPTN    544,60,64,64,PTSLNT
+        GPTN    760,60,64,64,2+PTSLNT
+        GPTN    904,60,64,64,1
+        GMODE   0
+        JMP     SOLID
+;
+; S6PNL -- panel A's eight bars, hue*32+12, from (GX+2,420) up to 747
+;
+S6PNL:  CALL    PNLX
+        LXI     H,420
+        SHLD    GY
+        LHLD    GX
+        INX     H
+        INX     H
+        SHLD    BY              ;(the bar's X, here)
+        MVI     B,0
+S6BAR:  MOV     A,B
+        RRC
+        RRC
+        RRC
+        ORI     12
+        CALL    CZCOL
+        LHLD    BY
+        LXI     D,420
+        CALL    CZMOVE
+        PUSH    B
+        LXI     B,28
+        DAD     B
+        LXI     D,747
+        CALL    CZFRCT
+        INX     H
+        SHLD    BY
+        POP     B
+        INR     B
+        MOV     A,B
+        CPI     8
+        JNZ     S6BAR
+        RET
+;
+; S6BOX -- panel A's pattern box, the pattern pointer reset so the
+; tiling starts at its corner
+;
+S6BOX:  CALL    PNLX
+        GPPTR   0,0
+        LXI     H,PBOX
+        JMP     RFBOX
+;
+;
+; ================= screen 7: area modes, PAINT and copy =================
+;
+SCR7:   GCLS    0
+;
+; Top left: an area (96,440)-(384,680). 12 circles round (240,560) and
+; two diagonals, drawn twice: yellow in AMCLPD (inside it only), then
+; blue in AMHOLD (outside it only). Both set ARD, having had pixels on
+; the far side to drop. GGETCP reads CP back, which clears ARD.
+;
+        GAREA   96,440,384,680
+        GGETCP
+        GMODE   AMCLPD
+        GCOLOR  YELLOW+BRIGHT
+        CALL    S7CIR
+        GWAIT
+        ANI     SRARD
+        STA     ARD1
+        GGETCP
+        GMODE   AMHOLD
+        GCOLOR  BLUE+BRIGHT
+        CALL    S7CIR
+        GWAIT
+        ANI     SRARD
+        STA     ARD2
+        GMODE   0
+        GCOLOR  WHITE+16
+        GBOX    95,439,385,681
+;
+; Bottom left: an area (112,60)-(368,280). Eight green lines from its
+; centre outwards in AMSTOP stop as they leave it: a red ring on the CP
+; each left (read back with GGETCP). Eight cyan lines from outside
+; inwards in AMSTPI stop as they enter it, a pixel further in: a
+; smaller yellow ring there.
+;
+        GBOX    111,59,369,281
+        GAREA   112,60,368,280
+        GGETCP
+        XRA     A
+        STA     NSTOP
+        STA     NSTPI
+        LXI     H,OUTPTS
+        MVI     C,8
+S7LN:   PUSH    B
+        CALL    CZLDW           ;GX,GY = the far end
+        PUSH    D
+        CALL    CZLDW
+        SHLD    TP
+        XCHG
+        SHLD    GY
+        POP     H
+        SHLD    GX
+        GMODE   AMSTOP          ;out from the centre
+        GCOLOR  GREEN+BRIGHT
+        GMOVE   240,170
+        LHLD    GY
+        XCHG
+        LHLD    GX
+        CALL    CZLINE
+        GWAIT
+        ANI     SRARD
+        JZ      S7L1
+        LXI     H,NSTOP
+        INR     M
+S7L1:   GGETCP                  ;HL,DE = where it stopped
+        MOV     A,C
+        CPI     8
+        JNZ     S7L2
+        SHLD    FSTX            ;(the first line's, to print)
+        XCHG
+        SHLD    FSTY
+S7L2:   GMODE   0
+        GCOLOR  RED+BRIGHT
+        LXI     H,7             ;round the CP
+        CALL    CZCRCL
+        GMODE   AMSTPI          ;in from the far end
+        GCOLOR  CYAN+BRIGHT
+        LHLD    GY
+        XCHG
+        LHLD    GX
+        CALL    CZMOVE
+        GLINE   240,170
+        GWAIT
+        ANI     SRARD
+        JZ      S7L3
+        LXI     H,NSTPI
+        INR     M
+S7L3:   GGETCP
+        GMODE   0
+        GCOLOR  YELLOW+BRIGHT
+        LXI     H,3
+        CALL    CZCRCL
+        LHLD    TP
+        POP     B
+        DCR     C
+        JNZ     S7LN
+        GAFULL
+;
+; Top right: a pie chart -- a white circle and five spokes, then each
+; wedge PAINTed out to the white: red and green solid, the ring
+; pattern in two colors, the color tile in CMPRAM, and blue -- which
+; GFLOOD then paints over, blue pixels only, with yellow rings (CMCL1).
+; PAINT also stops at CL0 and CL1, so CL0 must never be the black
+; being painted over: GBCOL sets it for each wedge.
+;
+        GCOLOR  WHITE+BRIGHT
+        GCIRC   760,580,150
+        GSEG    760,580,912,580
+        GSEG    760,580,708,723
+        GSEG    760,580,617,528
+        GSEG    760,580,708,437
+        GSEG    760,580,876,482
+        GCOLOR  RED+BRIGHT
+        GBCOL   RED+BRIGHT
+        GPAINT  806,646,WHITE+BRIGHT
+        GCOLOR  GREEN+BRIGHT
+        GBCOL   GREEN+BRIGHT
+        GPAINT  687,614,WHITE+BRIGHT
+        GLDPAT  RING,0
+        GCOLOR  YELLOW+BRIGHT
+        GBCOL   ORANGE+12
+        GPAINT  703,523,WHITE+BRIGHT
+        GLDPAT  TILE1,0
+        GPSCAN  0,0,3,3,3,3
+        GCMODE  CMPRAM
+        GPAINT  781,503,WHITE+BRIGHT
+        GMODE   0
+        CALL    SOLID
+        GCOLOR  BLUE+BRIGHT
+        GBCOL   BLUE+BRIGHT
+        GPAINT  835,553,WHITE+BRIGHT
+        GLDPAT  RING,0
+        GCMODE  CMCL1
+        GCOLOR  YELLOW+BRIGHT
+        GBCOL   RED+4
+        GFLOOD  835,553,BLUE+BRIGHT
+        GMODE   0
+        CALL    SOLID
+;
+; Bottom right: a 64x64 picture at (544,250), copied in the other seven
+; orientations (GCOPY: its corner 544,250 lands on the point given),
+; then onto a green box in OMEOR, and through an area in AMCLIP that
+; lets only its middle 32x32 by
+;
+        GFBOX   544,250,607,313,BLUE+6
+        GFBOX   544,250,555,313,RED+BRIGHT
+        GFBOX   544,250,607,261,YELLOW+BRIGHT
+        GFBOX   588,294,603,309,GREEN+BRIGHT
+        GCOLOR  WHITE+BRIGHT
+        GSEG    556,262,607,300
+        GCOPY   544,250,607,313,719,250,CPMIRX
+        GCOPY   544,250,607,313,768,313,CPMIRY
+        GCOPY   544,250,607,313,943,313,CPR180
+        GCOPY   544,250,607,313,544,150,CPTRAN
+        GCOPY   544,250,607,313,656,213,CPR270
+        GCOPY   544,250,607,313,831,150,CPR90
+        GCOPY   544,250,607,313,943,213,CPATRN
+        GFBOX   544,40,607,103,GREEN+8
+        GOPM    OMEOR
+        GCOPY   544,250,607,313,544,40,CPNORM
+        GMODE   0
+        GAREA   672,56,703,87
+        GAMODE  AMCLIP
+        GCOPY   544,250,607,313,656,40,CPNORM
+        GMODE   0
+        GAFULL
+;
+; What the area modes reported
+;
+        LXI     D,MSGA
+        CALL    PRINT
+        LDA     ARD1
+        CALL    PSET
+        LXI     D,MSGB
+        CALL    PRINT
+        LDA     ARD2
+        CALL    PSET
+        LXI     D,MSGC
+        CALL    PRINT
+        LDA     NSTOP
+        CALL    PBYTE
+        LXI     D,MSGD
+        CALL    PRINT
+        LHLD    FSTX
+        CALL    PDEC
+        MVI     A,','
+        CALL    PCHR
+        LHLD    FSTY
+        CALL    PDEC
+        LXI     D,MSGE
+        CALL    PRINT
+        LDA     NSTPI
+        CALL    PBYTE
+        LXI     D,MSGF
+        JMP     PRINT
+;
+; S7CIR -- 12 circles round (240,560), radius 16 to 192, and two
+; diagonals, in the current color and mode
+;
+S7CIR:  LXI     H,16
+S7CL:   PUSH    H
+        GMOVE   240,560
+        POP     H
+        CALL    CZCRCL
+        LXI     D,16
+        DAD     D
+        MOV     A,L
+        CPI     208
+        JNZ     S7CL
+        GSEG    40,380,440,740
+        GSEG    40,740,440,380
+        RET
+;
+;
+; ================= screen 8: the overlay =================
+;
+; Screen 1's palette on the frame, then drawn on the overlay above it,
+; in yellow: a grid every 64 pixels, a circle, a box PAINTed with the
+; ring pattern and a solid one, and a crosshair stepped across in OMEOR
+; -- each drawn, then drawn again to undraw it, the last one left. At
+; 1 bpp the colors are OVSET and OVCLR; PAINT also stops at CL0 and
+; CL1, so CL0 goes to OVSET too, never the 0 being painted over.
+;
+SCR8:   CALL    SCR1
+        GOVPAL  255,255,0
+        GOVL
+        GCOLOR  OVSET
+        GBCOL   OVSET
+        GBOX    96,96,288,256   ;(PAINTed before the grid crosses it)
+        GLDPAT  RING,0
+        GCMODE  CMCL1
+        GPAINT  192,176,OVSET
+        GMODE   0
+        CALL    SOLID
+        GMOVE   736,96
+        GFRECT  928,256
+N       DEFL    1
+        REPT    15
+        GSEG    N*64,0,N*64,767
+N       DEFL    (N+1)
+        ENDR
+N       DEFL    1
+        REPT    11
+        GSEG    0,N*64,1023,N*64
+N       DEFL    (N+1)
+        ENDR
+        GCIRC   512,384,200
+        GMODE   OMEOR
+        LXI     H,200
+        SHLD    GX
+        SHLD    GY
+        MVI     C,20
+S8XH:   CALL    XHAIR           ;draw it
+        DCR     C
+        JZ      S8XD            ;(the last one stays)
+        CALL    XHAIR           ;undraw it
+        LHLD    GX
+        LXI     D,25
+        DAD     D
+        SHLD    GX
+        LHLD    GY
+        LXI     D,15
+        DAD     D
+        SHLD    GY
+        JMP     S8XH
+S8XD:   GMODE   0
+        GFRAME
+        GOVON
+        RET
+;
+; XHAIR -- an 81-pixel crosshair centred on GX,GY, in the current mode
+; (in OMEOR its centre, drawn by both lines, toggles back off)
+;
+XHAIR:  PUSH    B
+        LHLD    GY
+        XCHG
+        LHLD    GX
+        LXI     B,-40
+        DAD     B
+        CALL    CZMOVE
+        LXI     B,81
+        DAD     B
+        CALL    CZLINE
+        LHLD    GY
+        LXI     B,-40
+        DAD     B
+        XCHG
+        LHLD    GX
+        CALL    CZMOVE
+        XCHG
+        LXI     B,81
+        DAD     B
+        XCHG
+        CALL    CZLINE
+        POP     B
+        RET
+;
+;
+; ================= screen 9: the overlay off =================
+;
+; GOVOFF hides the overlay: screen 8's picture shows through untouched,
+; since nothing drawn on the overlay ever reached the frame. GOVCLS then
+; clears the overlay, hidden or not.
+;
+SCR9:   GOVOFF
+        GOVCLS
+        RET
+;
+;
+; ================= screen 10: a text overlay =================
+;
+; Screen 2's lines on the frame; on the overlay above them, in white:
+; a title in the 9x11 font at scale 2, each font at a larger scale, the
+; whole character set of each (three lines, GTNL), text turned 90 and
+; 45 degrees, and an opaque status line (TXOPAQ: its 0 bits clear the
+; overlay) written, then rewritten in place. Then, back on the frame, a
+; line of text in red drawn into the picture itself.
+;
+SCR10:  CALL    SCR2
+        GOVCLS
+        GOVPAL  255,255,255
+        GOVL
+        GCOLOR  OVSET
+        GBCOL   OVCLR
+        GFONT   CZF11
+        GTATTR  2,0,0
+        GTPOS   24,730
+        GTEXT   "CADzilla text overlay"
+        GTATTR  3,0,0
+        GTPOS   300,650
+        GTEXT   "CZF11 x3"
+        GFONT   CZF8
+        GTATTR  4,0,0
+        GTPOS   24,650
+        GTEXT   "CZF8 x4"
+        GFONT   CZF11
+        GTATTR  1,0,0
+        GTPOS   24,110
+        CALL    CHSET
+        GFONT   CZF8
+        GTPOS   340,110
+        CALL    CHSET
+        GTATTR  2,2,0
+        GTPOS   1012,150
+        GTEXT   "turned 90"
+        GTATTR  1,1,0
+        GTPOS   290,400
+        GTEXT   "45 degrees, along a spoke"
+        GTATTR  2,0,TXOPAQ
+        GTPOS   620,40
+        GTEXT   "STATUS: WORKING"
+        GTPOS   620,40
+        GTEXT   "STATUS: READY  "
+        GFRAME
+        GCOLOR  RED+BRIGHT
+        GTATTR  2,0,0
+        GTPOS   620,130
+        GTEXT   "and text on the frame"
+        GOVON
+        RET
+;
+; CHSET -- the character set, 20H-7EH, as three lines of 32 from the pen
+;
+CHSET:  LXI     H,ASCII
+        MVI     C,3
+CHS1:   MVI     B,32
+        GTSTR
+        LXI     D,32
+        DAD     D
+        GTNL
+        DCR     C
+        JNZ     CHS1
+        RET
+;
+;
+; ================= helpers for screens 4-7 =================
+;
+; PNLX -- GX = the left edge of panel column A AND 3: 16 + column*252
+;
+PNLX:   ANI     3
+        LXI     H,16
+        LXI     D,252
+PNLXL:  JZ      PNLXD
+        DAD     D
+        DCR     A
+        JMP     PNLXL
+PNLXD:  SHLD    GX
+        RET
+;
+; OFFXY -- (HL) = dX,dY: HL = GX+dX, DE = GY+dY, TP = just past them
+;
+OFFXY:  CALL    CZLDW           ;DE = dX
+        PUSH    D
+        CALL    CZLDW           ;DE = dY
+        SHLD    TP
+        LHLD    GY
+        DAD     D
+        XCHG                    ;DE = GY+dY
+        POP     H
+        PUSH    D
+        XCHG
+        LHLD    GX
+        DAD     D               ;HL = GX+dX
+        POP     D
+        RET
+;
+; RFBOX -- filled box, corners GX,GY plus the two dX,dY pairs at HL.
+; Returns HL just past them.
+;
+RFBOX:  CALL    OFFXY
+        CALL    CZMOVE
+        LHLD    TP
+        CALL    OFFXY
+        CALL    CZFRCT
+        LHLD    TP
+        RET
+;
+; SOLID -- pattern RAM all ones again, the full 16x16 scan window
+;
+SOLID:  GLDPAT  ONES,0
+        GPSCAN  0,0,15,15,0,0
+        RET
+;
+; PSET -- print "set" if A <> 0, else "clear"
+; PBYTE -- print A in decimal
+; PDEC -- print HL in decimal, without leading zeros
+; PCHR -- print the character in A
+; All clobber every register but PCHR, which keeps BC, DE and HL.
+;
+PSET:   ORA     A
+        LXI     D,MSGSET
+        JNZ     PRINT
+        LXI     D,MSGCLR
+        JMP     PRINT
+PBYTE:  MOV     L,A
+        MVI     H,0
+PDEC:   MVI     B,0             ;no digit printed yet
+        LXI     D,-10000
+        CALL    PDIG
+        LXI     D,-1000
+        CALL    PDIG
+        LXI     D,-100
+        CALL    PDIG
+        LXI     D,-10
+        CALL    PDIG
+        MOV     A,L
+        ADI     '0'
+        JMP     PCHR
+PDIG:   MVI     C,'0'-1         ;C = '0' + how many times DE goes
+PDLP:   INR     C
+        DAD     D
+        JC      PDLP
+        MOV     A,L             ;one too many: HL -= DE
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        MOV     A,C
+        CPI     '0'
+        JNZ     PDOUT
+        INR     B               ;a leading zero is not printed
+        DCR     B
+        RZ
+PDOUT:  MVI     B,1
+        MOV     A,C
+PCHR:   PUSH    B
+        PUSH    D
+        PUSH    H
+        MOV     E,A
+        MVI     C,CONOUT
+        CALL    BDOS
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; RAND -- 16-bit xorshift (7,9,8): SEED = next value, returned in HL.
+; Preserves BC, DE.
+;
+RAND:   LHLD    SEED
+        MOV     A,H             ;x ^= x << 7
+        RAR
+        MOV     A,L
+        RAR
+        XRA     H
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     A,H
+        RAR
+        XRA     L
+        MOV     L,A             ;x ^= x >> 9
+        XRA     H               ;x ^= x << 8
+        MOV     H,A
+        SHLD    SEED
+        RET
+;
+;
+; ================= data =================
+;
+; Starburst end points: 36 X,Y pairs on a circle of radius 240
+;
+SPOKES: DW      512,384,508,426,498,466,480,504
+        DW      456,538,426,568,392,592,354,610
+        DW      314,620,272,624,230,620,190,610
+        DW      152,592,118,568,88,538,64,504
+        DW      46,466,36,426,32,384,36,342
+        DW      46,302,64,264,88,230,118,200
+        DW      152,176,190,158,230,148,272,144
+        DW      314,148,354,158,392,176,426,200
+        DW      456,230,480,264,498,302,508,342
+;
+        GPTS    TRI,(480,448,576,704,400,640)
+;
+; Sine wave: a point table written out by hand -- the same layout
+; GPTS builds (DW count, then X,Y pairs), for lists too long for one
+; macro line
+;
+SINE:   DW      33
+        DW      64,152,93,186,122,214,150,233
+        DW      179,240,208,233,237,214,266,186
+        DW      294,152,323,118,352,90,381,71
+        DW      410,64,438,71,467,90,496,118
+        DW      525,152,554,186,582,214,611,233
+        DW      640,240,669,233,698,214,726,186
+        DW      755,152,784,118,813,90,842,71
+        DW      870,64,899,71,928,90,957,118
+        DW      986,152
+;
+MSGHI:  DB      "Z88DEMO -- CADzilla cz88gfx library demo (z88dk z80asm)",CR,LF,'$'
+MSG1:   DB      "Screen 1: palette & fills -- 256 GFBOX cells, GBOX frame",CR,LF,'$'
+MSG2:   DB      "Screen 2: lines -- GLINE starburst, REPT-unrolled GBOX nest",CR,LF,'$'
+MSG3:   DB      "Screen 3: GPOLY star + hexagon, GPLG triangle, GPLT sine, GDOT",CR,LF,'$'
+;
+; Screen 5: each panel's operation mode and color, and its two boxes
+; (offsets from the panel's corner)
+;
+PNLTAB: DB      OMREP,WHITE+BRIGHT      ;replace
+        DB      OMOR,BRIGHT             ;OR 31: each band's hue at full
+        DB      OMAND,0EFH              ;AND: level bit 4 off, 20 -> 4
+        DB      OMEOR,0FFH              ;EOR: twice is back to the band
+        DB      OMEQ,WHITE+BRIGHT       ;only where P = CCMP: band 2
+        DB      OMNE,WHITE+BRIGHT       ;everywhere but band 2
+        DB      OMLT,RED+BRIGHT         ;where P < 159: bands 0-4
+        DB      OMGT,RED+BRIGHT         ;where P > 159: bands 5-7
+BOX1:   DW      40,30,150,230
+BOX2:   DW      86,122,196,322
+;
+; Screen 6: the pattern box in each panel (offsets from its corner)
+;
+PBOX:   DW      16,24,219,303
+;
+; Screen 7: the far ends of the area lines
+;
+OUTPTS: DW      16,170,16,16,240,16,464,16
+        DW      464,170,464,340,240,340,16,340
+;
+; Pattern RAM tables. Word n is row n, bottom row first; bit 0 is the
+; left column.
+;
+; A 16x16 ring
+;
+        GPAT    RING,(0,0,07E0H,1FF8H,1E78H,381CH,381CH,300CH,300CH,381CH,381CH,1E78H,1FF8H,07E0H,0,0)
+;
+; A framed F -- which way up it lands shows how GPTN turned it. Written
+; out by hand, the same layout GPAT builds.
+;
+FGLYPH: DW      16
+        DW      0FFFFH,8001H,8001H,800DH,800DH,800DH,800DH,800DH
+        DW      83FDH,83FDH,800DH,800DH,8FFDH,8FFDH,8001H,0FFFFH
+;
+; All ones: every pixel in CL1, as after GINIT
+;
+ONES:   DW      16
+        REPT    16
+        DW      0FFFFH
+        ENDR
+;
+; A 4x4 CMPRAM color tile, bottom row first: the eight hues at full
+; brightness, in two orders
+;
+        GTILE   TILE1,(159,223,95,127,63,191,31,255,223,95,127,159,191,31,255,63)
+;
+MSG4:   DB      "Screen 4: curves -- GCIRC circles, GARC rainbow (CCW and CW),"
+        DB      CR,LF,"  GELLIP ellipses, GEARC spiral",CR,LF,'$'
+MSG5:   DB      "Screen 5: operation modes (GOPM) -- top: replace OR AND EOR,"
+        DB      CR,LF,"  bottom: =CCMP <>CCMP <C >C",CR,LF,'$'
+MSG6:   DB      "Screen 6: color modes CMSEL CMCL1 CMCL0 CMPRAM (GLDPAT, GTILE),"
+        DB      CR,LF,"  GLSTYL line styles, GPTN turned and slanted",CR,LF,'$'
+MSG7:   DB      "Screen 7: GAREA clip/hole and stop lines, GPAINT/GFLOOD pie,"
+        DB      CR,LF,"  GCOPY in 8 orientations, with EOR and clipped",CR,LF,'$'
+MSG8:   DB      "Screen 8: the overlay (GOVL..GFRAME, GOVON) -- a grid, circle,"
+        DB      CR,LF,"  patterned and solid boxes and an EOR crosshair, over screen 1"
+        DB      CR,LF,'$'
+MSG9:   DB      "Screen 9: GOVOFF -- the picture under the overlay is untouched;"
+        DB      CR,LF,"  then GOVCLS clears it",CR,LF,'$'
+MSG10:  DB      "Screen 10: a text overlay (GFONT CZF8/CZF11, GTEXT, GTNL) over"
+        DB      CR,LF,"  screen 2 -- scaled, turned, opaque -- and text on the frame"
+        DB      CR,LF,'$'
+;
+; Screen 10: the character set, 20H-7FH (7FH draws as a blank)
+;
+ASCII:
+N       DEFL    20H
+        REPT    96
+        DB      N
+N       DEFL    (N+1)
+        ENDR
+;
+MSGA:   DB      "  AMCLPD: ARD $"
+MSGB:   DB      ", AMHOLD: ARD $"
+MSGC:   DB      CR,LF,"  AMSTOP stopped $"
+MSGD:   DB      " of 8 lines, the first at $"
+MSGE:   DB      "; AMSTPI stopped $"
+MSGF:   DB      " of 8",CR,LF,'$'
+MSGSET: DB      "set$"
+MSGCLR: DB      "clear$"
+MSGOK:  DB      "  drawn OK",CR,LF,'$'
+MSGER:  DB      "  ACRTC COMMAND ERROR (CER) -- aborted",CR,LF,'$'
+MSGKEY: DB      "  press a key (ESC quits)...$"
+MSGNL:  DB      CR,LF,'$'
+MSGBYE: DB      "Z88DEMO done.",CR,LF,'$'
+;
+SEED:   DW      0ACE1H
+GX:     DS      2
+GY:     DS      2
+COLIX:  DS      1
+TP:     DS      2               ;offset table pointer (OFFXY)
+PNLK:   DS      1               ;panel number (SCR5)
+BY:     DS      2               ;band Y (BANDS), bar X (S6PNL)
+ARD1:   DS      1               ;ARD after AMCLPD (SCR7)
+ARD2:   DS      1               ;ARD after AMHOLD
+NSTOP:  DS      1               ;lines AMSTOP stopped
+NSTPI:  DS      1               ;lines AMSTPI stopped
+FSTX:   DS      2               ;where the first AMSTOP line stopped
+FSTY:   DS      2
+OLDSP:  DS      2
+        DS      64
+STACK:
+;

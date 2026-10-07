@@ -1,6 +1,6 @@
 ---
 name: new-cadzilla-project
-description: Scaffolds a new 8080/8085/Z80 CP/M software project in the CADzilla repo under software/<name>/, with a starter source file for any of the four toolchains -- the original DRI ASM.COM (single .ASM), Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:), the z88dk host cross-assembler for the 8080, 8085 or Z80 with Intel and/or Zilog mnemonics (.Z88, --cpu), or the z88dk zcc C compiler for the 8080, 8085 or Z80 (lowercase .c plus a .Z88 module, --cpu) -- then drives the altairsim MCP server through a first build and run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080/8085/Z80 assembly or C program for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
+description: Scaffolds a new 8080/8085/Z80 CP/M software project in the CADzilla repo under software/<name>/, with a starter source file for any of the four toolchains -- the original DRI ASM.COM (single .ASM), Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:), the z88dk host cross-assembler for the 8080, 8085 or Z80 with Intel and/or Zilog mnemonics (.Z88, --cpu; pins the cz88gfx graphics library, czgfx ported to z80asm), or the z88dk zcc C compiler for the 8080, 8085 or Z80 (lowercase .c plus a .Z88 module, --cpu) -- then drives the altairsim MCP server through a first build and run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080/8085/Z80 assembly or C program for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
 ---
 
 # New CADzilla project
@@ -17,19 +17,21 @@ There are four toolchains. The project is built for one of them:
 |---|---|---|---|
 | `asm` (default) | one self-contained `<NAME>.ASM`; DRI `ASM.COM` + `LOAD.COM`; no INCLUDE, no macros, no linker | `cadzilla-build-asm` | `software/hello` |
 | `m80` | relocatable `<NAME>.MAC`; Microsoft `M80` + `L80`; `INCLUDE B:CZGFX.INC`, the czgfx graphics macros and library, linked with `SUBMIT B:CZLINK` | `cadzilla-build-m80` | `software/gfxdemo` |
-| `z88dk` | `<NAME>.Z88` (plus any other `.Z88` modules); z88dk's `z80asm`, run **on the host** by `tools/z88dk/z88build.sh`; Intel and/or Zilog mnemonics; targets the 8080, 8085 or Z80 (`--cpu`); no czgfx | `cadzilla-build-z88dk` | `software/zhello` |
+| `z88dk` | `<NAME>.Z88` (plus any other `.Z88` modules); z88dk's `z80asm`, run **on the host** by `tools/z88dk/z88build.sh`; Intel and/or Zilog mnemonics; targets the 8080, 8085 or Z80 (`--cpu`); draws with **cz88gfx** (czgfx ported to z80asm), pinned in `cz88gfx.version` | `cadzilla-build-z88dk` | `software/zhello`, `software/z88demo` (draws) |
 | `zcc` | **C**: lowercase `<name>.c` (plus any other `.c` and `.Z88` modules); z88dk's `zcc`, run **on the host** by `tools/z88dk/zccbuild.sh`; targets the 8080, 8085 or Z80 (`--cpu`); no czgfx | `cadzilla-build-zcc` | `software/chello` |
 
-**Recommend `m80` for anything that draws on the CADzilla board.** The
-czgfx library already does the board setup and the drawing primitives,
-which an `asm` project would have to copy in whole (as `firstdraw` and
-`drawdemo` did). `asm` is fine for small console-only programs. **Use
-`z88dk` when the target is an 8085 or a Z80, when the user wants Zilog
-mnemonics or Z80 instructions, or when they ask for host-side
-cross-assembly.** **Use `zcc` when the user wants to write C.** Neither
-z88dk toolchain has a graphics library yet (czgfx is M80-only). If the
-user hasn't said which toolchain and it isn't obvious from what the program
-does, ask.
+**For anything that draws on the CADzilla board, use a toolchain with a
+graphics library: `m80` (czgfx) or `z88dk` (cz88gfx).** Both libraries
+already do the board setup and the drawing primitives, which an `asm`
+project would have to copy in whole (as `firstdraw` and `drawdemo` did).
+They have the same routines and macros. `m80` builds with the period tools
+inside CP/M; `z88dk` builds on the host and can target the 8085 or Z80.
+`asm` is fine for small console-only programs. **Use `z88dk` when the
+target is an 8085 or a Z80, when the user wants Zilog mnemonics or Z80
+instructions, or when they ask for host-side cross-assembly.** **Use `zcc`
+when the user wants to write C**; no graphics library links with C yet. If
+the user hasn't said which toolchain and it isn't obvious from what the
+program does, ask.
 
 ## 1. Get the project name
 
@@ -60,7 +62,11 @@ writes it to `machine.toml` as a `cpu0` `[[board]]` block (`type = "z80"`
 etc.). That block both replaces the emulated CPU card in `work/cadzilla.toml`
 and gives `z88build.sh` its `-m` flag (`zccbuild.sh`: its C library), so the
 code and the machine always agree. An
-existing `machine.toml`'s `cpu0` wins over `--cpu`. The z88dk starter
+existing `machine.toml`'s `cpu0` wins over `--cpu`. A z88dk project also
+gets the newest cz88gfx release pinned in its tracked `cz88gfx.version`
+(an existing pin is kept; with no release yet, no pin), so it can
+`INCLUDE "CZ88GFX.INC"` and draw. The library links only what a program
+uses, so a program that draws nothing carries none of it. The z88dk starter
 `src/<NAME>.Z88` (LF line endings, which z80asm accepts) prints the message
 and then `Built for <X>, running on <Y>`. `<Y>` comes from detecting the CPU
 at run time, so the line proves the build target and the emulated CPU match.

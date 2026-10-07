@@ -1,0 +1,19 @@
+# software/z88demo's own straps on top of tools/altairsim/pristine/cadzilla.toml.
+# tools/altairsim/scripts/sync_pristine.sh appends this to work/cadzilla.toml
+# (a later [[board]] block for the same id overrides pristine's). Only
+# [[board]] tables may appear here.
+#
+# The monitor resolution: 640x480, 800x600 or 1024x768 --
+# if the program programs the ACRTC, its timing must agree with it.
+[[board]]
+id   = "cad0"
+mode = "1024x768"
+
+# The CPU: 8080, 8085 or z80. A `type` replaces pristine's cpu0 outright, so
+# clock_hz is restated (flat out; cadzilla-real.toml still sets 2 MHz on top).
+# tools/z88dk/z88build.sh reads this same block for z80asm's -m flag, so the
+# code and the emulated CPU always agree.
+[[board]]
+type     = "z80"
+id       = "cpu0"
+clock_hz = 0

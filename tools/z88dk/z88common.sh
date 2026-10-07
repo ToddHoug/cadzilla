@@ -1,6 +1,7 @@
 # Shared helpers for the CADzilla z88dk build scripts -- sourced, not run:
 #   tools/z88dk/z88build.sh   .Z88 assembly (z80asm)
 #   tools/z88dk/zccbuild.sh   C (zcc), plus any .Z88 modules
+#   software/cz88gfx/tools/build.sh   the cz88gfx graphics library
 # See tools/z88dk/README.md.
 
 # find_z80asm: set Z80ASM (and SNAP=1 for the snap), the snap's name first,
@@ -60,6 +61,41 @@ read_cpu() {
       exit 1
       ;;
   esac
+}
+
+# read_cz88gfx <project>: the cz88gfx graphics library, if the project pins it
+# in cz88gfx.version: a release ("1.0" -> software/cz88gfx/releases/1.0/) or
+# "dev" (software/cz88gfx's own src/ and build/, warning if that build is older
+# than its sources). Sets CZ88GFX to the pin and CZ88FLAGS to the z80asm flags
+# that put CZ88GFX.INC on the include path and link CZ88GFX.LIB; both empty
+# without a pin. Exits on a pin that names no release.
+read_cz88gfx() {
+  CZ88GFX=""
+  CZ88FLAGS=()
+  local pin="$1/cz88gfx.version"
+  [ -f "$pin" ] || return 0
+  local root inc lib
+  root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)/software/cz88gfx"
+  CZ88GFX="$(sed 's/#.*//' "$pin" | tr -d ' \t\r' | grep -v '^$' | head -n1)"
+  if [ "$CZ88GFX" = dev ]; then
+    inc="$root/src"
+    lib="$root/build/CZ88GFX.LIB"
+    if [ ! -f "$lib" ]; then
+      echo "error: cz88gfx.version is 'dev' but there is no $lib -- run software/cz88gfx/tools/build.sh" >&2
+      exit 1
+    fi
+    if [ -n "$(find "$root/src" -type f -newer "$lib" | head -n1)" ]; then
+      echo "warning: cz88gfx's sources are newer than its dev build -- run software/cz88gfx/tools/build.sh" >&2
+    fi
+  else
+    inc="$root/releases/$CZ88GFX"
+    lib="$inc/CZ88GFX.LIB"
+    if [[ ! "$CZ88GFX" =~ ^[0-9]+\.[0-9]+$ ]] || [ ! -f "$lib" ]; then
+      echo "error: cz88gfx.version pins '$CZ88GFX', which is not a release in $root/releases/ ($(ls "$root/releases" 2>/dev/null | tr '\n' ' ')) or 'dev'" >&2
+      exit 1
+    fi
+  fi
+  CZ88FLAGS=(-I"$inc" -l="$lib")
 }
 
 # read_flags <file>: set FLAGS from an optional flags file -- one line or

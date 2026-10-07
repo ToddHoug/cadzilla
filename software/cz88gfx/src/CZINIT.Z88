@@ -1,0 +1,373 @@
+;
+; CZINIT.Z88 -- cz88gfx: board setup and screen clear
+; (A port of czgfx 1.0's CZINIT.MAC to z88dk's z80asm.)
+;
+; CZINIT programs the MODE register, the ACRTC control registers, the
+; Bt453 palette and the ACRTC drawing parameters for one display mode,
+; then clears the screen and the overlay. The mode is given as a
+; descriptor:
+;
+;   CZM640  640x480  (VESA 640x480@60)
+;   CZM800  800x600  (VESA 800x600@60)
+;   CZM1K   1024x768 (VESA 1024x768@60, the board's default strap)
+;
+; The monitor must be strapped for the same mode (cad0 `mode` in the
+; project's machine file) -- the board doesn't reject a mismatch, it just
+; shows the picture in the wrong place. All are 8 bpp, single access, one
+; base screen at frame buffer word 0, with the drawing origin at the
+; bottom-left pixel (Y up).
+;
+; A descriptor is:
+;   DB  MODE register value
+;   DW  mode control register table (CZRTAB format; it also sets MWR0,
+;       the overlay's CHR screen)
+;   DW  mode drawing parameters: DPMLEN FIFO words (ADR limits, the
+;       frame's ORG), then 3 more: the overlay's ORG (CZOVL)
+;   DW  X max, Y max, words per raster - 1
+;
+; The overlay (CZOVL.Z88) is drawn through the upper screen (DN 0), made
+; a CHR screen one bit per frame pixel: MW = words per raster / 8, and
+; its ORG on the overlay word of the frame's own ORG pixel, ORG/8. It is
+; never displayed (DCR keeps SE0 off): the board shows the overlay
+; alongside the frame's own display fetches instead.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  CZINIT,CZM640,CZM800,CZM1K,CZXMAX,CZYMAX,CZCLS,CZPDEF
+        PUBLIC  CZOCLS,CZMREG,CZDPB
+        EXTERN  CZRTAB,CZSEND,CZPUTW,CZLDW,CZPALD,CZDM
+;
+DPMLEN  EQU     7               ;words in a mode drawing parameter block
+;
+        SECTION code_user
+;
+; CZINIT -- set up the board for the mode descriptor at HL and clear
+; the screen to color 0. The drawing mode, colors, pattern RAM and area
+; go back to their defaults; the overlay is cleared and hidden, overlay
+; color 2 is white, and drawing is on the frame. Clobbers all registers.
+;
+CZINIT: XRA     A               ;drawing mode: replace, CMSEL, no area
+        STA     CZDM
+        MOV     A,M             ;MODE: sync polarity, access mode;
+        INX     H               ;OLEN (overlay hidden), OLSEL 0
+        STA     CZMREG
+        OUT     MODEREG
+        CALL    CZLDW           ;DE = mode control register table
+        PUSH    H
+        LXI     H,RPRE          ;abort, 8 bpp, display stopped and off
+        CALL    CZRTAB
+        XCHG
+        CALL    CZRTAB          ;timing for this mode
+        LXI     H,RPOST         ;everything else, display started
+        CALL    CZRTAB          ;(leaves AR = r00 for the FIFO)
+        CALL    CZPALD          ;Bt453 default palette
+        LXI     H,DPCOM         ;drawing parameters common to all modes
+        LXI     B,(DPCEND-DPCOM)/2
+        CALL    CZSEND
+        POP     H
+        CALL    CZLDW           ;DE = mode drawing parameters
+        PUSH    H
+        XCHG
+        SHLD    CZDPB           ;(the ORGs in it: CZOVL)
+        LXI     B,DPMLEN
+        CALL    CZSEND
+        POP     H
+        CALL    CZLDW           ;screen size
+        XCHG
+        SHLD    CZXMAX
+        XCHG
+        CALL    CZLDW
+        XCHG
+        SHLD    CZYMAX
+        XCHG
+        CALL    CZLDW
+        XCHG
+        SHLD    WMAX
+        MVI     A,2             ;Bt453 overlay color 2 (the one the board
+        OUT     DACADR          ;shows): white
+        MVI     A,0FFH
+        OUT     DACOVL
+        OUT     DACOVL
+        OUT     DACOVL
+        CALL    CZOCLS
+        XRA     A
+;       JMP     CZCLS           ;(falls through)
+;
+; CZCLS -- clear the whole base screen to palette index A
+;
+CZCLS:  PUSH    B
+        PUSH    D
+        PUSH    H
+        MOV     B,A
+        LXI     H,CLSTAB        ;RWP: base screen, top raster; CLR op
+        MVI     C,(CLSEND-CLSTAB)/2
+CLSLP:  CALL    CZLDW
+        XCHG
+        CALL    CZPUTW
+        XCHG
+        DCR     C
+        JNZ     CLSLP
+        MOV     H,B             ;fill data: color in both pixels
+        MOV     L,B
+        CALL    CZPUTW
+        LHLD    WMAX            ;width in words - 1
+        CALL    CZPUTW
+        CALL    NEGYM           ;-(height - 1): downward from the top
+        CALL    CZPUTW
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; CZOCLS -- clear the whole overlay to 0: CLR on the upper screen, the
+; overlay's CHR screen, so the words go to the overlay SRAM. Works
+; whether drawing is on the frame or the overlay (CLR goes by RWP's
+; screen, not ORG's, and doesn't care about GBM).
+;
+CZOCLS: PUSH    B
+        PUSH    D
+        PUSH    H
+        LXI     H,OCLTAB        ;RWP: upper screen, top raster; CLR 0
+        MVI     C,(OCLEND-OCLTAB)/2
+OCLLP:  CALL    CZLDW
+        XCHG
+        CALL    CZPUTW
+        XCHG
+        DCR     C
+        JNZ     OCLLP
+        LHLD    WMAX            ;overlay width in words - 1:
+        INX     H               ;(WMAX+1)/8 - 1
+        MVI     C,3
+OCLSH:  ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        DCR     C
+        JNZ     OCLSH
+        DCX     H
+        CALL    CZPUTW
+        CALL    NEGYM           ;-(height - 1)
+        CALL    CZPUTW
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; NEGYM -- HL = -CZYMAX
+;
+NEGYM:  LHLD    CZYMAX
+        MOV     A,L
+        CMA
+        MOV     L,A
+        MOV     A,H
+        CMA
+        MOV     H,A
+        INX     H
+        RET
+;
+;
+; CZPDEF -- the pattern RAM, scan window and pointer back as CZINIT
+; leaves them: all ones, 0..15 x 0..15, no zoom, at 0,0 (the first
+; part of DPCOM). Preserves BC, DE, HL.
+;
+CZPDEF: PUSH    B
+        PUSH    D
+        PUSH    H
+        LXI     H,DPCOM
+        LXI     B,(DPPEND-DPCOM)/2
+        CALL    CZSEND
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+CLSTAB: DW      080CH,4000H     ;RWP: base screen, address 0 (top raster)
+        DW      080DH,0000H
+        DW      5800H           ;CLR (data, width, height follow)
+CLSEND:
+;
+OCLTAB: DW      080CH,0000H     ;RWP: upper screen (the overlay), word 0
+        DW      080DH,0000H
+        DW      5800H,0000H     ;CLR, data 0 (width, height follow)
+OCLEND:
+;
+; Screen size of the current mode (CZINIT sets them)
+;
+CZXMAX: DW      639
+CZYMAX: DW      479
+WMAX:   DW      319
+;
+; CZMREG -- the MODE register's value: it is write-only, so this copy
+; is the only record (CZOVL sets OLEN in it)
+; CZDPB -- the current mode's drawing parameter block (CZOVL finds the
+; frame's ORG at +8 and the overlay's at +14)
+;
+CZMREG: DB      03H
+CZDPB:  DW      D640
+;
+; ---- mode descriptors ----
+;
+CZM640: DB      03H             ;MODE: HSPOL=VSPOL=1 (negative), single
+        DW      R640
+        DW      D640
+        DW      639,479,319
+;
+CZM800: DB      00H             ;MODE: HSPOL=VSPOL=0 (positive), single
+        DW      R800
+        DW      D800
+        DW      799,599,399
+;
+CZM1K:  DB      03H             ;MODE: HSPOL=VSPOL=1 (negative), single
+        DW      R1K
+        DW      D1K
+        DW      1023,767,511
+;
+; ---- control registers: DB register / DW value, 0FFH ends ----
+;
+RPRE:   DB      02H             ;CCR: ABT - abort, flush FIFOs
+        DW      8300H
+        DB      02H             ;CCR: GBM=011 8 bpp, no interrupts
+        DW      0300H
+        DB      04H             ;OMR: M/S=1, STR=0 (stopped), RAM=1
+        DW      80B0H           ;  static RAM, GAI=011 +8, ACM=00 single
+        DB      06H             ;DCR: all screens off while programming
+        DW      0000H
+        DB      0FFH
+;
+; Timing, 16 pixels per memory cycle (8 words, GAI +8). Values from
+; the board's VESA mode table (altairsim docs/boards/cadzilla.md).
+;
+R640:   DB      82H             ;HSR: HC=49 (50 cycles), HSW=6
+        DW      3106H
+        DB      84H             ;HDR: HDS=2, HDW=39 (40 cycles = 640 px)
+        DW      0227H
+        DB      86H             ;VSR: VC=525 rasters
+        DW      020DH
+        DB      88H             ;VDR: VDS=32, VSW=2
+        DW      2002H
+        DB      8AH             ;SP1: base screen 480 rasters
+        DW      01E0H
+        DB      0CAH            ;MWR1: graphic, 320 words per raster
+        DW      0140H
+        DB      0C2H            ;MWR0: the overlay's CHR screen, 40 words
+        DW      8028H
+        DB      0FFH
+;
+R800:   DB      82H             ;HSR: HC=65 (66 cycles), HSW=8
+        DW      4108H
+        DB      84H             ;HDR: HDS=5, HDW=49 (50 cycles = 800 px)
+        DW      0531H
+        DB      86H             ;VSR: VC=628 rasters
+        DW      0274H
+        DB      88H             ;VDR: VDS=22, VSW=4
+        DW      1604H
+        DB      8AH             ;SP1: base screen 600 rasters
+        DW      0258H
+        DB      0CAH            ;MWR1: graphic, 400 words per raster
+        DW      0190H
+        DB      0C2H            ;MWR0: the overlay's CHR screen, 50 words
+        DW      8032H
+        DB      0FFH
+;
+R1K:    DB      82H             ;HSR: HC=83 (84 cycles), HSW=8
+        DW      5308H
+        DB      84H             ;HDR: HDS=9, HDW=63 (64 cycles = 1024 px)
+        DW      093FH
+        DB      86H             ;VSR: VC=806 rasters
+        DW      0326H
+        DB      88H             ;VDR: VDS=28, VSW=6
+        DW      1C06H
+        DB      8AH             ;SP1: base screen 768 rasters
+        DW      0300H
+        DB      0CAH            ;MWR1: graphic, 512 words per raster
+        DW      0200H
+        DB      0C2H            ;MWR0: the overlay's CHR screen, 64 words
+        DW      8040H
+        DB      0FFH
+;
+RPOST:  DB      8CH             ;SP0: upper screen (disabled)
+        DW      0000H
+        DB      8EH             ;SP2: lower screen (disabled)
+        DW      0000H
+        DB      90H             ;BCR: no blink
+        DW      0000H
+        DB      92H             ;HWR: window (disabled)
+        DW      0000H
+        DB      94H             ;VWS
+        DW      0000H
+        DB      96H             ;VWW
+        DW      0000H
+        DB      98H             ;GCR: graphic cursor (not supported)
+        DW      0000H
+        DB      9AH
+        DW      0000H
+        DB      9CH
+        DW      0000H
+        DB      0C8H            ;RAR1: base screen raster address
+        DW      0000H
+        DB      0CCH            ;SAR1: start address = 0 (high nibble)
+        DW      0000H
+        DB      0CEH            ;SAR1: start address = 0 (low word)
+        DW      0000H
+        DB      0E0H            ;BCUR1/2: block cursors (not supported)
+        DW      0000H
+        DB      0E2H
+        DW      0000H
+        DB      0E4H
+        DW      0000H
+        DB      0E6H
+        DW      0000H
+        DB      0E8H            ;CDR: cursor definition
+        DW      0000H
+        DB      0EAH            ;ZFR: no zoom (not supported)
+        DW      0000H
+        DB      06H             ;DCR: SE1 - base screen displayed
+        DW      4000H
+        DB      04H             ;OMR: as above with STR=1 - start
+        DW      0C0B0H
+        DB      0FFH
+;
+; ---- drawing parameters, streamed through the FIFO as words ----
+;
+DPCOM:  DW      1800H,32        ;WPTN PRA=0, n=32 bytes (8-bit bus)
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH     ;pattern RAM all ones
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
+        DW      0805H,0000H     ;PRC: PPY=PPX=0, zoom counts 0
+        DW      0806H,0000H     ;PRC: PSY=PSX=0
+        DW      0807H,0F0F0H    ;PRC: PEY=PEX=15, no pattern zoom
+DPPEND:                         ;(the pattern part ends: CZPDEF)
+        DW      0800H,0000H     ;CL0 = 0
+        DW      0801H,0FFFFH    ;CL1 = 0FFH (bright white)
+        DW      0802H,0000H     ;CCMP
+        DW      0803H,0000H     ;EDG
+        DW      0804H,0FFFFH    ;MASK: all bits
+        DW      0808H,0         ;ADR XMIN
+        DW      0809H,0         ;ADR YMIN
+        DW      080CH,4000H     ;RWP: base screen, address 0 (top raster)
+        DW      080DH,0000H
+DPCEND:
+;
+; Per mode: ADR XMAX/YMAX, and ORG at the bottom-left pixel, i.e. word
+; address (height-1)*words per raster, DPD=0; then the overlay's ORG,
+; on screen 0 at (height-1)*(words per raster/8), DPD=0.
+;
+D640:   DW      080AH,639       ;ADR XMAX
+        DW      080BH,479       ;ADR YMAX
+        DW      0400H,4025H,6C00H ;ORG: 256C0H = 479*320
+        DW      0400H,0004H,0AD80H ;overlay ORG: DN 0, 4AD8H = 479*40
+;
+D800:   DW      080AH,799       ;ADR XMAX
+        DW      080BH,599       ;ADR YMAX
+        DW      0400H,403AH,7F00H ;ORG: 3A7F0H = 599*400
+        DW      0400H,0007H,4FE0H ;overlay ORG: DN 0, 74FEH = 599*50
+;
+D1K:    DW      080AH,1023      ;ADR XMAX
+        DW      080BH,767       ;ADR YMAX
+        DW      0400H,405FH,0E000H ;ORG: 5FE00H = 767*512
+        DW      0400H,000BH,0FC00H ;overlay ORG: DN 0, 0BFC0H = 767*64
+;

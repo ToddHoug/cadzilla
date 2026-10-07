@@ -1,0 +1,115 @@
+;
+; CZTXL.Z88 -- cz88gfx: the text pen, attributes, characters and lines
+; (A port of czgfx 1.0's CZTXL.MAC to z88dk's z80asm.)
+;
+; The text calls around CZTXT.Z88's core (CZTFNT, CZTSTR), kept apart
+; so that a program that only draws strings (and stores into
+; CZTST itself) doesn't carry them. They work on CZTXT's text state,
+; CZTST.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  CZTPOS,CZTATR,CZTCHR,CZTNL
+        EXTERN  CZTST,CZTSTR
+;
+        SECTION code_user
+;
+; CZTPOS -- put the pen at X = HL, Y = DE: the bottom-left corner of the
+; next character's cell. It is also the start of the line, for CZTNL.
+;
+CZTPOS: SHLD    CZTST           ;+0 the pen
+        SHLD    CZTST+4         ;+4 the start of the line
+        XCHG
+        SHLD    CZTST+2
+        SHLD    CZTST+6
+        XCHG
+        RET
+;
+; CZTATR -- A = scale (1-16), B = direction (0-7: rows 45 degrees
+; apart, counter-clockwise from +X), C = flags (TXOPAQ)
+;
+CZTATR: ORA     A
+        JNZ     TA1
+        INR     A               ;(scale 0 is 1)
+TA1:    STA     CZTST+8
+        MOV     A,B
+        ANI     7
+        STA     CZTST+9
+        MOV     A,C
+        STA     CZTST+10
+        RET
+;
+; CZTCHR -- draw the character A at the pen and move the pen on.
+; Returns C if no font has been chosen.
+;
+CZTCHR: PUSH    B
+        PUSH    H
+        STA     CBUF
+        LXI     H,CBUF
+        MVI     B,1
+        CALL    CZTSTR
+        POP     H
+        POP     B
+        RET
+;
+; CZTNL -- a new line: the start of the line moves one line on -- the
+; cell height times the scale, 90 degrees clockwise from the text's
+; direction (down, for ordinary text) -- and the pen goes there.
+; Preserves BC, DE, HL.
+;
+CZTNL:  PUSH    B
+        PUSH    D
+        PUSH    H
+        LDA     CZTST+8         ;the scale
+        MOV     B,A
+        LDA     CZTST+9         ;the direction, turned 90 degrees
+        ADI     6               ;clockwise
+        ANI     7
+        ADD     A
+        MOV     C,A             ;C = its offset in DIRT
+        LDA     CZTST+12        ;the cell height
+        MOV     E,A
+        XRA     A
+NLM:    ADD     E               ;times the scale
+        DCR     B
+        JNZ     NLM
+        MOV     B,A             ;B = the line's step
+        MOV     E,C
+        MVI     D,0
+        LXI     H,DIRT
+        DAD     D
+        MOV     A,M             ;dx
+        INX     H
+        MOV     C,M             ;dy
+        LHLD    CZTST+4         ;the start of the line: X
+        CALL    NLADD
+        SHLD    CZTST+4
+        SHLD    CZTST
+        MOV     A,C
+        LHLD    CZTST+6         ;and Y
+        CALL    NLADD
+        SHLD    CZTST+6
+        SHLD    CZTST+2
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; NLADD -- HL += B times the sign A (-1, 0, 1)
+;
+NLADD:  ORA     A
+        RZ
+        MOV     E,B
+        MVI     D,0
+        JP      P,NLA1          ;(Intel JP: jump if plus; z80asm needs P,)
+        MOV     A,E
+        CMA
+        MOV     E,A
+        MVI     D,0FFH
+        INX     D
+NLA1:   DAD     D
+        RET
+;
+DIRT:   DB      1,0, 1,1, 0,1, -1,1, -1,0, -1,-1, 0,-1, 1,-1
+CBUF:   DB      0
+;

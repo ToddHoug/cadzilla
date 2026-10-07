@@ -23,8 +23,12 @@ The `cadzilla-build-z88dk` skill drives all of this. To start a project, use
 the `new-cadzilla-project` skill with `--toolchain z88dk --cpu 8080|8085|z80`.
 `software/zhello` is the reference project.
 
-There is no graphics library for this toolchain yet. czgfx is M80 `.REL` code,
-which z80asm can't link.
+Programs draw with **cz88gfx** (`software/cz88gfx/`), czgfx ported to z80asm
+and built into a z80asm library on the host. A project pins a cz88gfx release
+in its `cz88gfx.version`, and `z88build.sh` puts `CZ88GFX.INC` on the include
+path and links the library. See [Graphics: cz88gfx](#graphics-cz88gfx) below.
+czgfx itself, as M80 `.REL` code, can't be linked by z80asm. It stays the
+library for the M80 flow.
 
 The same z88dk also compiles **C** for the same three CPUs: see
 [C with zcc](#c-with-zcc) below.
@@ -53,6 +57,7 @@ scratch experiments, use `~/snap/z88dk/common/`.
 | `src/`, `include/` | searched for `INCLUDE`d files (`.INC`) |
 | `machine.toml` | tracked: the monitor resolution (cad0 `mode`) **and the CPU** (cpu0 `type`) |
 | `z88dk.flags` | optional, tracked: extra z80asm flags, e.g. `-ucase`; `#` starts a comment |
+| `cz88gfx.version` | optional, tracked: the cz88gfx release it builds against (`1.0`), or `dev`. See [Graphics: cz88gfx](#graphics-cz88gfx) |
 | `build/` | build output, gitignored |
 | `work/` | the project's own altairsim machine and disks, gitignored |
 
@@ -150,6 +155,37 @@ two disagree, the Zilog meaning wins:
   (`interpreting indirect value as immediate`). `z88build.sh` makes that
   warning a build error.
 - Hex is `0FFH`, `$FF` or `0xFF`. `$` alone is the current address.
+- **`DEFL` substitutes text, not a value.** After `N DEFL 0` and two
+  `N DEFL N+1`, `N*19` is `0+1+1*19` = 20, not 38. Parenthesize:
+  `N DEFL (N+1)`. This is M80's `SET`, so it bites when porting `REPT` loops.
+- **Macro arguments:** no `IFB`/`IFNB` (a macro can't test for a blank
+  argument), and no `<...>` grouping. A list is one parenthesized argument,
+  and `REPTI` walks it. A macro's only argument written `(a,b)` is read as
+  the call's own argument list, so double it: `M ((a,b))`. `IRP` is `REPTI`;
+  `REPT`/`REPTI` end with `ENDR`; `MOD` is `%`. M80's `NAME##` external is
+  `EXTERN NAME`, and an `EXTERN` nothing uses links nothing in.
+
+## Graphics: cz88gfx
+
+`software/cz88gfx/` is czgfx ported to z80asm: the same 8080 routines,
+names and register conventions, in a z80asm library (`CZ88GFX.LIB`) that
+links into an 8080, 8085 or Z80 program. Its README has the API, and a
+table for porting czgfx code. `software/z88demo/` is gfxdemo ported to it.
+
+- **Using it:** pin a release, `echo 1.0 > software/<name>/cz88gfx.version`
+  (`new_project.sh --toolchain z88dk` pins the newest one). Then
+  `INCLUDE "CZ88GFX.INC"` and draw. `z88build.sh` adds
+  `-I software/cz88gfx/releases/1.0` and `-l=.../CZ88GFX.LIB`, and its
+  first line names the pin. Only the library modules the program uses go
+  into the `.COM`; the `.MAP` lists them, and the `.SYM` includes their
+  labels.
+- **Macros:** every argument is required (z80asm can't test for a blank
+  one). czgfx's "already in a register" forms are a plain `CALL CZxxxx`.
+- **Changing it:** `software/cz88gfx/tools/build.sh` builds
+  `build/CZ88GFX.LIB`, and links a check program against it for all three
+  CPUs. A project pinned to `dev` builds against that. Then raise
+  `CZ88VER` and run `tools/release.sh` to make a release,
+  `releases/<major>.<minor>/`.
 
 ## C with zcc
 
@@ -261,7 +297,7 @@ The header holds:
 | Bt453 overlay registers | `CZ_DAC_OVL_COLOR1`..`3` |
 
 - Its values come from the board manual, the PLD equations and the datasheets.
-  It doesn't depend on czgfx.
+  It doesn't depend on czgfx or cz88gfx.
 - The base is `CZ_BASE`, `0x70` by default. For a board strapped elsewhere
   (SW1-1..5), put `-DCZ_BASE=0x..` in the project's `zcc.flags`.
 - Each access is atomic, but a **sequence** isn't. That covers an address
@@ -308,4 +344,6 @@ library exports. On the Z80 both are plain `IN`/`OUT (C)` and safe, but
   `inp()`/`outp()`.
 - `-compiler=sdcc` in `zcc.flags` works for the Z80 only, and it changes the
   calling convention.
-- czgfx doesn't link with C yet: it is M80 `.REL` code.
+- No graphics library links with C yet. czgfx is M80 `.REL` code, and
+  cz88gfx has no sccz80 (`_name`) entry points; see
+  [Graphics: cz88gfx](#graphics-cz88gfx).

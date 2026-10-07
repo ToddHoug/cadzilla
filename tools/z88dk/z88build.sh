@@ -15,6 +15,12 @@
 #                    and the machine always agree. No block = 8080 (pristine's).
 #   z88dk.flags      optional: extra z80asm flags, e.g. -ucase or -no-synth
 #                    ('#' starts a comment)
+#   cz88gfx.version  optional: the cz88gfx graphics library release it builds
+#                    against ("1.0", or "dev" for software/cz88gfx's own
+#                    build). Puts CZ88GFX.INC on the include path and links
+#                    CZ88GFX.LIB; only the library modules the program
+#                    references go into the .COM. See
+#                    software/cz88gfx/README.md.
 #
 # Writes into build/ (gitignored), uppercase like every other build artifact:
 #   <NAME>.COM   the program, ready for `R <NAME>.COM` in CP/M
@@ -43,6 +49,7 @@ mkdir -p "$BUILD"
 find_z80asm
 check_snap_path "$PROJ"
 read_cpu "$PROJ"
+read_cz88gfx "$PROJ"
 
 # The modules: the main one has the ORG, the rest follow it.
 shopt -s nullglob
@@ -82,14 +89,14 @@ for f in "${ALL[@]}"; do lint_jp_cp "$SRC/$f"; done
 # .COM behind looking current.
 rm -f "$BUILD/$NAME.COM" "$BUILD/$NAME.MAP" "$BUILD/$NAME.SYM"
 
-echo "z88dk: $NAME for $CPU (${MAIN[0]}${OTHERS[*]:+ + ${OTHERS[*]}})"
+echo "z88dk: $NAME for $CPU (${MAIN[0]}${OTHERS[*]:+ + ${OTHERS[*]}})${CZ88GFX:+, cz88gfx $CZ88GFX}"
 # Run from src/ with bare names: -O keeps a source's relative path, so this is
 # what puts the objects and listings straight into build/.
 RC=0
 OUT="$(
   cd "$SRC"
   "$Z80ASM" -m"$CPU" -I"$SRC" -I"$PROJ/include" -O"$BUILD" -b -l -m \
-    -o="$BUILD/$NAME.COM" "${FLAGS[@]}" "${MAIN[0]}" "${OTHERS[@]}" 2>&1
+    -o="$BUILD/$NAME.COM" "${CZ88FLAGS[@]}" "${FLAGS[@]}" "${MAIN[0]}" "${OTHERS[@]}" 2>&1
 )" || RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT" >&2
 

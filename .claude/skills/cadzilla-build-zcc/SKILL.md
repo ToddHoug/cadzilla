@@ -178,7 +178,8 @@ unless asked.
     call a shared self-modifying RAM stub, which is slow and not
     interrupt-safe. `zccbuild.sh` fails such a build (the `iotmp` error), and
     `inp()` doesn't even link there (`undefined symbol: inp_fastcall`).
-- czgfx doesn't link with C yet: it is M80 `.REL` code.
+- No graphics library links with C yet: czgfx is M80 `.REL` code, and
+  cz88gfx (the z80asm port, for `.Z88` programs) has no sccz80 entry points.
 
 ## Timing
 

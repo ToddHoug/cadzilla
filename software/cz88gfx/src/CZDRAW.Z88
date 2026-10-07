@@ -1,0 +1,64 @@
+;
+; CZDRAW.Z88 -- cz88gfx: basic drawing primitives
+; (A port of czgfx 1.0's CZDRAW.MAC to z88dk's z80asm.)
+;
+; Color, move, line, rectangle, filled rectangle and dot, in absolute
+; (X = HL, Y = DE) and relative (dX = HL, dY = DE, from the current
+; drawing pointer, CP) forms. Every entry preserves BC, DE and HL.
+; Everything but the moves is drawn in the current drawing mode (CZDM).
+;
+; The ACRTC does not draw a line's end point, so a closed shape drawn
+; from lines lights each corner exactly once.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  CZCOL,CZMOVE,CZLINE,CZRECT,CZFRCT,CZDOT
+        PUBLIC  CZRMOV,CZRLIN,CZRRCT,CZRFRC
+        EXTERN  CZPUTW,CZXY,CZXYM,CZCMD
+;
+        SECTION code_user
+;
+; CZCOL -- set the drawing color to palette index A (WPR CL1). With
+; GINIT's pattern RAM, all ones, every pixel draws with CL1. At 8 bpp
+; the index is replicated into both bytes of the color register.
+;
+CZCOL:  PUSH    H
+        PUSH    PSW
+        LXI     H,0801H         ;WPR CL1
+        CALL    CZPUTW
+        POP     PSW
+        MOV     H,A
+        MOV     L,A
+        CALL    CZPUTW
+        POP     H
+        RET
+;
+; Absolute: X = HL, Y = DE
+;
+CZMOVE: MVI     A,OPMOVE        ;CP = X,Y
+        JMP     CZXY
+CZLINE: MVI     A,OPLINE        ;line CP to X,Y; CP = X,Y
+        JMP     CZXYM
+CZRECT: MVI     A,OPRECT        ;rectangle, corners CP and X,Y
+        JMP     CZXYM
+CZFRCT: MVI     A,OPFRCT        ;filled rectangle, corners CP and X,Y
+        JMP     CZXYM
+;
+; Relative: dX = HL, dY = DE
+;
+CZRMOV: MVI     A,OPRMOV
+        JMP     CZXY
+CZRLIN: MVI     A,OPRLIN
+        JMP     CZXYM
+CZRRCT: MVI     A,OPRRCT
+        JMP     CZXYM
+CZRFRC: MVI     A,OPRFRC
+        JMP     CZXYM
+;
+; CZDOT -- set the pixel at X = HL, Y = DE (CP = X,Y)
+;
+CZDOT:  MVI     A,OPMOVE
+        CALL    CZXY
+        MVI     A,OPDOT
+        JMP     CZCMD
+;

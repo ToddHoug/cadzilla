@@ -22,7 +22,9 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   `cpu0` block: 8080, 8085 or z80), which the build and the emulator both
   follow
 - `software/czgfx/` — the shared czgfx graphics-primitive library (M80
-  macros + relocatable modules).
+  macros + relocatable modules). It is deliberately built only with period
+  tools (M80/LIB80/L80 inside CP/M), as the all-vintage example; the z88dk
+  flow has its own port, cz88gfx (below).
   - It builds onto its gitignored build disk
     `software/czgfx/libdisk/CZGFXLIB.DSK`.
   - `tools/release.sh` snapshots that disk as a tracked, never-changed
@@ -34,6 +36,21 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
     czgfx change reaches a project only when its pin moves.
 
   See `software/czgfx/README.md`.
+- `software/cz88gfx/` — cz88gfx, czgfx ported to z88dk's z80asm: the same
+  8080 routines, names and macros, but independent of czgfx (no shared
+  files).
+  - `tools/build.sh` builds it on the host into the gitignored
+    `build/CZ88GFX.LIB`, and links its check program `CZ88CHK` for all
+    three CPUs.
+  - `tools/release.sh` snapshots that library and `CZ88GFX.INC` into the
+    tracked, read-only `releases/<version>/` (version: `CZ88VER` in
+    `CZ88GFX.INC`).
+  - A z88dk project pins a release (or `dev`) in its tracked
+    `cz88gfx.version`, and `tools/z88dk/z88build.sh` adds the include path
+    and links the library.
+  - `software/z88demo/` is gfxdemo ported to it.
+
+  See `software/cz88gfx/README.md`.
 - `tools/altairsim/pristine/` — master CP/M machine + disk images.
   **Never boot, `CONFIG LOAD` or `MOUNT` anything from here**; always use a
   project's own `work/`. Kept read-only on the host; its git status must
@@ -81,8 +98,8 @@ over its MCP server; `tools/altairsim/README.md`):
   `tools/z88dk/z88build.sh` into `build/<NAME>.COM`, which altairsim only
   `R`s onto the project's disk and runs. The CPU is the `cpu0` block in the
   project's `machine.toml`, which sets both z80asm's `-m` and the emulated
-  CPU. No czgfx yet (`zhello`; skill `cadzilla-build-z88dk`;
-  `tools/z88dk/README.md`).
+  CPU. Draws with cz88gfx, pinned in `cz88gfx.version` (`zhello`,
+  `z88demo`; skill `cadzilla-build-z88dk`; `tools/z88dk/README.md`).
 - **z88dk `zcc`** (snap) — **C** for the 8080, 8085 or Z80, compiled on the
   host by `tools/z88dk/zccbuild.sh`:
   - lowercase `src/*.c`, plus any `.Z88` assembly modules, become
@@ -92,7 +109,7 @@ over its MCP server; `tools/altairsim/README.md`):
   - `#include <cadzilla.h>` gives the board's ports as inline `IN`/`OUT`
     `__sfr`s. It lives in `tools/z88dk/include/` and is independent of
     czgfx;
-  - no czgfx yet.
+  - no graphics library yet (cz88gfx is for `.Z88` programs only).
 
   Project `chello`, skill `cadzilla-build-zcc`; see "C with zcc" in
   `tools/z88dk/README.md`.

@@ -1,0 +1,129 @@
+;
+; CZPAT.Z88 -- cz88gfx: the pattern RAM
+; (A port of czgfx 1.0's CZPAT.MAC to z88dk's z80asm.)
+;
+; Loading the ACRTC's 16-word pattern RAM (WPTN), a one-row line style,
+; and PTN, which draws the pattern RAM itself as a small picture. The
+; scan window and pointer (PRC, Pr05-07) are set with CZWPR -- the
+; GPSCAN and GPPTR macros -- or at run time with CZPSCN; CZPDEF (in
+; CZINIT) puts all of it back. See CZ88GFX.INC for the pattern layout.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  CZLPAT,CZLSTY,CZPTN,CZPSCN
+        EXTERN  CZPUTW,CZSEND,CZLDW,CZWPR,CZCMD
+;
+        SECTION code_user
+;
+; CZLPAT -- load the pattern RAM from word A (0-15) with the table at
+; HL: DW n (1-16), then n words, as GPAT and GTILE build it. Returns
+; HL just past the table.
+;
+CZLPAT: PUSH    B
+        PUSH    D
+        PUSH    H
+        ANI     0FH             ;WPTN, PRA = A
+        MOV     L,A
+        MVI     H,18H
+        CALL    CZPUTW
+        POP     H
+        CALL    CZLDW           ;DE = n
+        XCHG
+        PUSH    H
+        DAD     H               ;in 8-bit bus mode WPTN counts bytes
+        CALL    CZPUTW
+        POP     B               ;BC = n words
+        XCHG
+        CALL    CZSEND
+        POP     D
+        POP     B
+        RET
+;
+; CZLSTY -- line style: pattern row 0 = HL (bit 0 first), scan window
+; columns 0-15 of row 0 only, each bit drawn A+1 times (A = 0-15),
+; pointer at the start
+;
+CZLSTY: PUSH    B
+        PUSH    H
+        ANI     0FH             ;C = Pr07 low: PEX=15, PZX=A
+        ORI     0F0H
+        MOV     C,A
+        LXI     H,1800H         ;WPTN PRA=0, 2 bytes: row 0
+        CALL    CZPUTW
+        LXI     H,2
+        CALL    CZPUTW
+        POP     H
+        PUSH    H
+        CALL    CZPUTW
+        MOV     L,C             ;Pr07: PEY=0, PZY=0 -- one row
+        MVI     H,0
+        MVI     A,07H
+        CALL    CZWPR
+        LXI     H,0             ;Pr06: PSY=PSX=0
+        MVI     A,06H
+        CALL    CZWPR
+        MVI     A,05H           ;Pr05: pointer 0,0, zoom counters 0
+        CALL    CZWPR
+        POP     H
+        POP     B
+        RET
+;
+; CZPSCN -- the scan window and zoom, with the pointer at its start, at
+; run time (GPSCAN takes constants): HL = a 6-byte table x0,y0,x1,y1
+; (0-15), zx,zy (0-15: each bit drawn zx+1 times across, zy+1 up).
+; Returns HL past the table. Preserves BC, DE.
+;
+CZPSCN: PUSH    D
+        CALL    PSXY            ;DE = y0*1000H + x0*10H
+        XCHG
+        MVI     A,06H           ;Pr06: the window's start
+        CALL    CZWPR
+        PUSH    H
+        XCHG
+        CALL    PSXY            ;DE = y1*1000H + x1*10H, + the zooms
+        MOV     A,M
+        ANI     0FH
+        ORA     E
+        MOV     E,A
+        INX     H
+        MOV     A,M
+        ANI     0FH
+        ORA     D
+        MOV     D,A
+        INX     H
+        XCHG                    ;(DE = past the table)
+        MVI     A,07H           ;Pr07: its end and the zoom
+        CALL    CZWPR
+        POP     H
+        MVI     A,05H           ;Pr05: the pointer at the start
+        CALL    CZWPR
+        XCHG
+        POP     D
+        RET
+;
+; PSXY -- DE = the nibbles at HL, HL+1 as y*1000H + x*10H; HL += 2
+;
+PSXY:   MOV     A,M
+        INX     H
+        CALL    PSNIB
+        MOV     E,A
+        MOV     A,M
+        INX     H
+        CALL    PSNIB
+        MOV     D,A
+        RET
+PSNIB:  ANI     0FH
+        RLC
+        RLC
+        RLC
+        RLC
+        RET
+;
+; CZPTN -- draw the pattern RAM as a picture at CP: HL = size, H =
+; height-1, L = width-1 (SZ); A = direction (0-7, +PTSLNT)
+;
+CZPTN:  ANI     0FH
+        ORI     OPPTN
+        CALL    CZCMD
+        JMP     CZPUTW
+;

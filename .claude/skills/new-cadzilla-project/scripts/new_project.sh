@@ -22,7 +22,10 @@
 #   z88dk  z88dk's z80asm, run on the HOST (tools/z88dk/z88build.sh): a
 #        <NAME>.Z88 in Intel and/or Zilog mnemonics, built straight to
 #        build/<NAME>.COM, which altairsim then only R's onto the disk and runs
-#        (cadzilla-build-z88dk skill). No czgfx.
+#        (cadzilla-build-z88dk skill). The project pins the newest cz88gfx
+#        release (czgfx ported to z80asm) in software/<name>/cz88gfx.version,
+#        so it can INCLUDE "CZ88GFX.INC" and draw; a program that draws
+#        nothing links none of it.
 #   zcc  z88dk's zcc, C compiled on the HOST (tools/z88dk/zccbuild.sh): a
 #        lowercase src/<name>.c plus an assembly module src/CPUID.Z88, built
 #        straight to build/<NAME>.COM, which altairsim then only R's onto the
@@ -326,6 +329,23 @@ if [ "$TOOLCHAIN" = "m80" ]; then
     echo "Pinned czgfx $LATEST in $PIN"
   fi
   "$REPO_ROOT/tools/altairsim/scripts/attach_libdisk.sh" "$PROJECT_DIR/work"
+fi
+
+# A z88dk project links the cz88gfx library on the host (z88build.sh), from
+# the release its tracked cz88gfx.version pins -- the newest one, for a new
+# project; an existing pin is never changed. No release yet: no pin.
+if [ "$TOOLCHAIN" = "z88dk" ]; then
+  PIN="$PROJECT_DIR/cz88gfx.version"
+  if [ ! -f "$PIN" ]; then
+    LATEST="$(ls "$REPO_ROOT/software/cz88gfx/releases" 2>/dev/null \
+              | grep -E '^[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)"
+    if [ -n "$LATEST" ]; then
+      echo "$LATEST" > "$PIN"
+      echo "Pinned cz88gfx $LATEST in $PIN"
+    else
+      echo "note: no cz88gfx release in software/cz88gfx/releases -- no cz88gfx.version pin written"
+    fi
+  fi
 fi
 
 if [ "$TOOLCHAIN" = "m80" ]; then
@@ -656,6 +676,9 @@ echo "  include/.gitkeep"
 echo "  build/.gitkeep"
 if [ "$TOOLCHAIN" = "z88dk" ] || [ "$TOOLCHAIN" = "zcc" ]; then
   echo "  machine.toml        (tracked: cad0 mode = $MODE, cpu0 = $CPU)"
+  if [ -f "$PROJECT_DIR/cz88gfx.version" ] && [ "$TOOLCHAIN" = "z88dk" ]; then
+    echo "  cz88gfx.version     (tracked: cz88gfx $(head -n1 "$PROJECT_DIR/cz88gfx.version"), linked by z88build.sh)"
+  fi
 else
   echo "  machine.toml        (tracked: cad0 mode = $(grep -E '^mode' "$OVERLAY" | sed 's/.*"\(.*\)".*/\1/'))"
 fi

@@ -1,6 +1,6 @@
 ---
 name: cadzilla-build-z88dk
-description: Builds, runs and debugs a CADzilla software project that uses the z88dk host toolchain -- a <NAME>.Z88 source in Intel (8080) and/or Zilog (Z80) mnemonics, assembled on the HOST by z88dk's z80asm via tools/z88dk/z88build.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, all through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .Z88 file (software/zhello, anything scaffolded with --toolchain z88dk), retarget one to another CPU, or asks about assembling for the 8085 or Z80, mixing Intel and Zilog mnemonics, or cross-assembling on the host. For .ASM projects use cadzilla-build-asm; for .MAC projects use cadzilla-build-m80; for C (.c) projects, even ones with .Z88 modules, use cadzilla-build-zcc.
+description: Builds, runs and debugs a CADzilla software project that uses the z88dk host toolchain -- a <NAME>.Z88 source in Intel (8080) and/or Zilog (Z80) mnemonics, assembled on the HOST by z88dk's z80asm via tools/z88dk/z88build.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, all through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .Z88 file (software/zhello, software/z88demo, anything scaffolded with --toolchain z88dk), retarget one to another CPU, draw with the cz88gfx graphics library (INCLUDE "CZ88GFX.INC", cz88gfx.version pin), change, rebuild or release cz88gfx itself (software/cz88gfx), port czgfx/M80 drawing code to z80asm, or asks about assembling for the 8085 or Z80, mixing Intel and Zilog mnemonics, or cross-assembling on the host. For .ASM projects use cadzilla-build-asm; for .MAC projects use cadzilla-build-m80; for C (.c) projects, even ones with .Z88 modules, use cadzilla-build-zcc.
 ---
 
 # Build a CADzilla project with z88dk (host cross-assembler)
@@ -10,7 +10,9 @@ them **on the host**, for the 8080, 8085 or Z80, straight into
 `build/<NAME>.COM`. altairsim then only copies that `.COM` onto the project's
 own CP/M disk with `R` and runs it, on an emulated CPU of the same type.
 `tools/z88dk/README.md` has the background and the syntax traps. The reference
-project is `software/zhello` (Z80).
+project is `software/zhello` (Z80). A project that draws uses **cz88gfx**, the
+z80asm port of czgfx (`software/cz88gfx/README.md`). Its reference is
+`software/z88demo` (gfxdemo ported, Z80).
 
 ## 0. Before building
 
@@ -24,6 +26,12 @@ project is `software/zhello` (Z80).
   software/<name>/work` so the emulator follows.
 - **The project needs its own `work/`.** If it's missing, create it with
   `tools/altairsim/scripts/sync_pristine.sh software/<name>/work`.
+- **The cz88gfx pin**, for a project that draws, is
+  `software/<name>/cz88gfx.version`: a release (`1.0`, from
+  `software/cz88gfx/releases/`) or `dev` (the library's own current build).
+  Nothing is mounted for it: the build links it on the host. If the project
+  uses `dev` and `software/cz88gfx/src/` changed, rebuild the library first
+  (below).
 
 ## 1. Build on the host
 
@@ -45,6 +53,40 @@ tools/z88dk/z88build.sh software/<name>
     it with 8080 instructions (`LHLD nn` / `SPHL`).
 - `error: ... outside $HOME`: the z88dk snap can only see non-hidden paths
   under `$HOME` (never `/tmp`).
+- With a pin, the first line ends `, cz88gfx <pin>`. `error: cz88gfx.version
+  pins 'X', which is not a release` lists the releases there are.
+  `undefined symbol` for a `CZxxxx` name means it isn't in the pinned
+  release, or the program has no pin and no `INCLUDE "CZ88GFX.INC"`.
+  `number of macro arguments` on a `G...` macro means a czgfx-style blank or
+  omitted argument. Every argument is required, so write the default out,
+  or load the registers and `CALL` the routine (the porting table in
+  `software/cz88gfx/README.md`).
+
+## 1a. The cz88gfx library itself (only when changing it)
+
+```bash
+software/cz88gfx/tools/build.sh      # -> software/cz88gfx/build/CZ88GFX.LIB
+```
+
+- It assembles every `src/CZ*.Z88` module (8080 code, `-m8080`) into the
+  library. Then it links `src/CZ88CHK.Z88`, which expands every macro and
+  references every entry point, against it for the 8080, 8085 and Z80. Good
+  means three `check: build/CHK....COM links` lines. Any error exits
+  non-zero.
+- A new routine: make it `PUBLIC` in its module, add it to the header's
+  `EXTERN` block (and a macro if useful), and use it in `CZ88CHK.Z88`. A new
+  module is just a new `src/CZxxxx.Z88`; there is no link order to keep.
+- Try it in a program pinned to `dev` (`software/z88demo`). Check the
+  pictures as well as the build (step 2, then a snapshot). z88demo draws
+  exactly gfxdemo's screens.
+- **Release:** raise `CZ88VER` in `src/CZ88GFX.INC`, rebuild, then run
+  `software/cz88gfx/tools/release.sh`. It writes the read-only
+  `software/cz88gfx/releases/<M>.<m>/` (`CZ88GFX.LIB` + `CZ88GFX.INC`),
+  refuses a stale build or an existing release, and prints the `git add`.
+  Then move each project that wants it: edit its `cz88gfx.version` and
+  rebuild it.
+- Leave czgfx (`software/czgfx/`, M80) alone: it is the separate
+  period-tools library, and the two share no files.
 
 ## 2. Boot the project's machine, copy the `.COM` in, run it
 
@@ -73,6 +115,9 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
 - Confirm the program's own console output appears in the last call. That is
   the real proof. A starter program prints `Built for <X>, running on <Y>`,
   and the two should match.
+- For a program that draws, also check the picture. `board_get cad0` should
+  show CER clear and `picture` at the mode's full size `at (0,0)`. To compare
+  pixels, `snapshot` into the scratchpad and decode the frame buffer.
 - `W` is only for files the program writes in CP/M. Pull them into `build/`
   (binary, never with `T` for binary data).
 
