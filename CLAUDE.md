@@ -18,7 +18,9 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   project that draws also has a tracked `machine.toml` overlay pinning its
   display resolution (cad0 `mode`: 640x480, 800x600 or 1024x768, default
   1024x768); the code's timing (`GINIT CZM...` or its own register table)
-  must match it
+  must match it. A z88dk project's `machine.toml` also pins its CPU (a
+  `cpu0` block: 8080, 8085 or z80), which the build and the emulator both
+  follow
 - `software/czgfx/` — the shared czgfx graphics-primitive library (M80
   macros + relocatable modules).
   - It builds onto its gitignored build disk
@@ -37,7 +39,8 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   project's own `work/`. Kept read-only on the host; its git status must
   stay clean.
 - `docs/` — design notes, decisions, datasheets
-- `tools/` — build/assemble/program scripts
+- `tools/` — build/assemble/program scripts; `tools/z88dk/` is the z88dk host
+  toolchain (`z88build.sh`, README)
 - `tests/` — emulator test programs and expected output
 
 ## Conventions
@@ -46,8 +49,8 @@ However, lower case cadzilla should be used for all filename, directory or comma
 
 Files that pass through the CP/M toolchain — assembly source and the build
 artifacts it produces, i.e. everything under `software/<project>/src/` and
-`software/<project>/build/` (`.ASM`, `.MAC`, `.INC`, `.SUB`, `.REL`, `.COM`,
-`.HEX`, `.PRN`, etc.), plus CP/M disk images (`.DSK`) — are the
+`software/<project>/build/` (`.ASM`, `.MAC`, `.Z88`, `.INC`, `.SUB`, `.REL`, `.COM`,
+`.HEX`, `.PRN`, `.LIS`, `.MAP`, `.SYM`, etc.), plus CP/M disk images (`.DSK`) — are the
 one exception to the lowercase rule above: they are UPPERCASE on **both**
 the host and the CP/M side (8.3 names as they exist on the emulated CP/M
 disk, e.g. `HELLO.ASM`), so the same name is used consistently everywhere.
@@ -58,8 +61,8 @@ sidesteps: CP/M uppercases everything typed at its console anyway, so a
 mixed-case CP/M-side name could never be created from the command line in
 the first place.
 
-Software toolchains (both run inside CP/M 2.2 on altairsim, driven over
-its MCP server; `tools/altairsim/README.md`):
+Software toolchains (the first two run inside CP/M 2.2 on altairsim, driven
+over its MCP server; `tools/altairsim/README.md`):
 - **DRI `ASM.COM` + `LOAD.COM`** — the original flow: one self-contained
   `.ASM` per program, no INCLUDE/macros/linker (`hello`, `firstdraw`,
   `drawdemo`; skill `cadzilla-build-asm`).
@@ -67,8 +70,15 @@ its MCP server; `tools/altairsim/README.md`):
   relocatable `.MAC` sources, macros, and the shared czgfx library linked
   from the project's pinned czgfx release on `B:` (`czgfx`, `gfxdemo`,
   `czbasic`; skill `cadzilla-build-m80`).
-- New projects: skill `new-cadzilla-project` (`--toolchain asm|m80`,
-  `--mode WxH`).
+- **z88dk `z80asm`** (snap) — a host cross-assembler for the 8080, 8085 or
+  Z80, taking Intel and/or Zilog mnemonics: `src/*.Z88` built on the host by
+  `tools/z88dk/z88build.sh` into `build/<NAME>.COM`, which altairsim only
+  `R`s onto the project's disk and runs. The CPU is the `cpu0` block in the
+  project's `machine.toml`, which sets both z80asm's `-m` and the emulated
+  CPU. No czgfx yet (`zhello`; skill `cadzilla-build-z88dk`;
+  `tools/z88dk/README.md`).
+- New projects: skill `new-cadzilla-project` (`--toolchain asm|m80|z88dk`,
+  `--cpu 8080|8085|z80` for z88dk, `--mode WxH`).
 
 _TBD — fill in as tooling is chosen: KiCAD version, GAL assembler
 (e.g. WinCUPL/GALasm), default git branch, commit attribution._

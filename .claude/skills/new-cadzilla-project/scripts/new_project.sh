@@ -3,7 +3,7 @@
 # plus a minimal starter assembly source file, correctly CR/LF-terminated and
 # uppercased for CP/M.
 #
-# Usage: new_project.sh <project-name> [--toolchain asm|m80] [--mode WxH] [--cpm-name NAME] [welcome-message]
+# Usage: new_project.sh <project-name> [--toolchain asm|m80|z88dk] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] [welcome-message]
 #
 # --mode is the display resolution: 640x480, 800x600 or 1024x768 (default,
 # the pristine machine's). It is written to the project's tracked
@@ -19,6 +19,15 @@
 #        modules (cadzilla-build-m80 skill). The project pins the newest
 #        czgfx release in software/<name>/czgfx.version, and its work machine
 #        gets its own copy of that release as drive 1 (B:), read-only.
+#   z88dk  z88dk's z80asm, run on the HOST (tools/z88dk/z88build.sh): a
+#        <NAME>.Z88 in Intel and/or Zilog mnemonics, built straight to
+#        build/<NAME>.COM, which altairsim then only R's onto the disk and runs
+#        (cadzilla-build-z88dk skill). No czgfx.
+#
+# --cpu (z88dk only; default 8080) is the target CPU: 8080, 8085 or z80. It is
+# written to machine.toml as a cpu0 [[board]] block, which both puts that CPU in
+# the emulator and gives z80asm its -m flag. An existing machine.toml's cpu0
+# wins over --cpu, as its mode wins over --mode.
 #
 # --cpm-name is for when <project-name> itself doesn't fit CP/M's 8.3 limit
 # (8 characters before the extension) -- e.g. `new_project.sh firstdraw
@@ -31,6 +40,7 @@ MESSAGE=""
 CPM_NAME_OVERRIDE=""
 TOOLCHAIN="asm"
 MODE="1024x768"
+CPU=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -42,9 +52,17 @@ while [ $# -gt 0 ]; do
       MODE="$2"
       shift 2
       ;;
+    --cpu)
+      if [ $# -lt 2 ]; then
+        echo "error: --cpu needs a value (8080, 8085 or z80)" >&2
+        exit 1
+      fi
+      CPU="$2"
+      shift 2
+      ;;
     --toolchain)
       if [ $# -lt 2 ]; then
-        echo "error: --toolchain needs a value (asm or m80)" >&2
+        echo "error: --toolchain needs a value (asm, m80 or z88dk)" >&2
         exit 1
       fi
       TOOLCHAIN="$2"
@@ -73,7 +91,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$NAME" ]; then
-  echo "Usage: $0 <project-name> [--toolchain asm|m80] [--mode WxH] [--cpm-name NAME] [welcome-message]" >&2
+  echo "Usage: $0 <project-name> [--toolchain asm|m80|z88dk] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] [welcome-message]" >&2
   exit 1
 fi
 
@@ -96,16 +114,41 @@ set_mode "$MODE"
 case "$TOOLCHAIN" in
   asm) EXT="ASM" ;;
   m80) EXT="MAC" ;;
+  z88dk) EXT="Z88" ;;
   *)
-    echo "error: --toolchain must be asm or m80, not '$TOOLCHAIN'" >&2
+    echo "error: --toolchain must be asm, m80 or z88dk, not '$TOOLCHAIN'" >&2
     exit 1
     ;;
 esac
 
+# The target CPU: only the z88dk toolchain assembles for anything but the 8080.
+if [ "$TOOLCHAIN" = "z88dk" ]; then
+  CPU="${CPU:-8080}"
+  case "$CPU" in
+    8080|8085|z80) ;;
+    *)
+      echo "error: --cpu must be 8080, 8085 or z80, not '$CPU'" >&2
+      exit 1
+      ;;
+  esac
+elif [ -n "$CPU" ]; then
+  echo "error: --cpu is for --toolchain z88dk only (ASM.COM and M80 assemble 8080 code)" >&2
+  exit 1
+fi
+
 MESSAGE="${MESSAGE:-Welcome to CADzilla: ${NAME}!}"
 
-if [[ "$MESSAGE" == *"'"* ]]; then
+if [ "$TOOLCHAIN" = "z88dk" ]; then
+  if [[ "$MESSAGE" == *'"'* ]]; then
+    echo "error: welcome message can't contain a double quote -- it goes inside a DB \"...\" string in the source and would break the assembly" >&2
+    exit 1
+  fi
+elif [[ "$MESSAGE" == *"'"* ]]; then
   echo "error: welcome message can't contain a single quote -- it goes inside a DB '...' string in the source and would break the assembly" >&2
+  exit 1
+fi
+if [[ "$MESSAGE" == *'$'* ]]; then
+  echo "error: welcome message can't contain a \$ -- BDOS function 9 stops printing at the first one" >&2
   exit 1
 fi
 
@@ -171,7 +214,24 @@ if [ -e "$OVERLAY" ]; then
   if [ -n "$EXISTING" ]; then
     set_mode "$EXISTING"
   fi
-  echo "Keeping existing $OVERLAY (mode $MODE)"
+  if [ "$TOOLCHAIN" = "z88dk" ]; then
+    # Its cpu0 block, read as tools/z88dk/z88build.sh reads it.
+    EXISTING_CPU="$(awk '
+      /^[[:space:]]*\[/ { if (id == "cpu0" && type != "") cpu = type; id = ""; type = ""; next }
+      /^[[:space:]]*id[[:space:]]*=/   { s = $0; sub(/#.*/, "", s); gsub(/.*=[[:space:]]*"|".*/, "", s); id = s }
+      /^[[:space:]]*type[[:space:]]*=/ { s = $0; sub(/#.*/, "", s); gsub(/.*=[[:space:]]*"|".*/, "", s); type = s }
+      END { if (id == "cpu0" && type != "") cpu = type; print cpu }
+    ' "$OVERLAY")"
+    if [ -n "$EXISTING_CPU" ]; then
+      CPU="$EXISTING_CPU"
+    else
+      echo "warning: $OVERLAY has no cpu0 block -- the machine and z88build.sh both use pristine's 8080" >&2
+      CPU="8080"
+    fi
+    echo "Keeping existing $OVERLAY (mode $MODE, cpu $CPU)"
+  else
+    echo "Keeping existing $OVERLAY (mode $MODE)"
+  fi
 else
   if [ "$TOOLCHAIN" = "m80" ]; then
     AGREE="GINIT $CZMODE in src/$CPM_NAME.MAC must agree with it"
@@ -190,6 +250,19 @@ else
 id   = "cad0"
 mode = "$MODE"
 EOF
+  if [ "$TOOLCHAIN" = "z88dk" ]; then
+    cat >> "$OVERLAY" <<EOF
+
+# The CPU: 8080, 8085 or z80. A \`type\` replaces pristine's cpu0 outright, so
+# clock_hz is restated (flat out; cadzilla-real.toml still sets 2 MHz on top).
+# tools/z88dk/z88build.sh reads this same block for z80asm's -m flag, so the
+# code and the emulated CPU always agree.
+[[board]]
+type     = "$CPU"
+id       = "cpu0"
+clock_hz = 0
+EOF
+  fi
 fi
 
 # Each project gets its own altairsim work directory (gitignored) -- its own
@@ -270,6 +343,159 @@ STACK:
 ;
         END     START
 EOF
+elif [ "$TOOLCHAIN" = "z88dk" ]; then
+# A z88dk starter: print the message, then the CPU it was assembled for and the
+# CPU it finds itself running on. Intel mnemonics for the 8080/8085, Zilog for
+# the Z80 (with Z80-only instructions, so a wrong -m fails the build). No
+# CR/LF needed -- z80asm runs on the host and takes either line ending.
+if [ "$CPU" = "z80" ]; then
+cat > "$ASM_PATH" <<EOF
+; $CPM_NAME.Z88 -- CADzilla program, z88dk toolchain
+;
+; Built on the host by z88dk's z80asm, then copied onto the CP/M disk and run
+; (cadzilla-build-z88dk skill):
+;   tools/z88dk/z88build.sh software/$NAME       -> build/$CPM_NAME.COM
+;   A0>R $CPM_NAME.COM                          (hb0 HOSTDIR = build/)
+;   A0>$CPM_NAME
+;
+; The target CPU ($CPU) is machine.toml's cpu0 block: it is both the emulated
+; CPU and z80asm's -m flag. z80asm takes Intel and Zilog mnemonics alike, even
+; mixed in one file -- but JP and CP always mean the Zilog jump and compare
+; (tools/z88dk/README.md).
+;
+; The program prints the CPU it was built for and the one it is running on;
+; the two should always match.
+;
+        ORG     0100H           ;a CP/M .COM
+;
+BDOS    EQU     0005H
+PSTRING EQU     9
+CR      EQU     0DH
+LF      EQU     0AH
+;
+start:  ld      ix,0            ;keep CCP's stack, run on our own. IX is
+        add     ix,sp           ;Z80-only, so -m8080/-m8085 refuse these
+        ld      (oldsp),ix      ;(z80asm makes 8080 code for some others)
+        ld      sp,stack
+        ld      de,MSG
+        call    print
+        ld      de,BUILT
+        call    print
+;
+; Which CPU is this? 7FH+1 overflows: the Z80 sets P/V for that, the 8080 and
+; 8085 set P for parity, and 80H has odd parity, so P is clear.
+        ld      a,7fh
+        inc     a
+        ld      de,CZ80
+        jp      pe,show
+; The 8085's ANA always sets AC; the 8080's sets it from bit 3 of the operands,
+; which are 0 here. AC is bit 4 of the flags byte PUSH PSW saves.
+        xor     a
+        and     a
+        push    af
+        pop     hl
+        ld      a,l
+        and     10h
+        ld      de,C8085
+        jp      nz,show
+        ld      de,C8080
+show:   call    print
+        ld      sp,(oldsp)
+        ret                     ;back to the CCP
+;
+print:  ld      c,PSTRING       ;print the \$-terminated string at DE
+        jp      BDOS
+;
+MSG:    DB      "$MESSAGE",CR,LF,"\$"
+BUILT:  DB      "Built for "
+        IFDEF   __CPU_Z80__     ;z80asm defines one of these, from -m
+        DB      "Z80"
+        ENDIF
+        IFDEF   __CPU_8085__
+        DB      "8085"
+        ENDIF
+        IFDEF   __CPU_8080__
+        DB      "8080"
+        ENDIF
+        DB      ", running on \$"
+CZ80:   DB      "Z80",CR,LF,"\$"
+C8085:  DB      "8085",CR,LF,"\$"
+C8080:  DB      "8080",CR,LF,"\$"
+;
+oldsp:  DS      2
+        DS      64
+stack:
+EOF
+else
+cat > "$ASM_PATH" <<EOF
+; $CPM_NAME.Z88 -- CADzilla program, z88dk toolchain
+;
+; Built on the host by z88dk's z80asm, then copied onto the CP/M disk and run
+; (cadzilla-build-z88dk skill):
+;   tools/z88dk/z88build.sh software/$NAME       -> build/$CPM_NAME.COM
+;   A0>R $CPM_NAME.COM                          (hb0 HOSTDIR = build/)
+;   A0>$CPM_NAME
+;
+; The target CPU ($CPU) is machine.toml's cpu0 block: it is both the emulated
+; CPU and z80asm's -m flag. z80asm takes Intel and Zilog mnemonics alike, even
+; mixed in one file -- but JP and CP always mean the Zilog jump and compare
+; (tools/z88dk/README.md).
+;
+; The program prints the CPU it was built for and the one it is running on;
+; the two should always match.
+;
+        ORG     0100H           ;a CP/M .COM
+;
+BDOS    EQU     0005H
+PSTRING EQU     9
+CR      EQU     0DH
+LF      EQU     0AH
+;
+START:  LXI     D,MSG
+        CALL    PRINT
+        LXI     D,BUILT
+        CALL    PRINT
+;
+; Which CPU is this? 7FH+1 overflows: the Z80 sets P/V for that, the 8080 and
+; 8085 set P for parity, and 80H has odd parity, so P is clear.
+        MVI     A,7FH
+        INR     A
+        LXI     D,CZ80
+        JPE     SHOW
+; The 8085's ANA always sets AC; the 8080's sets it from bit 3 of the operands,
+; which are 0 here. AC is bit 4 of the flags byte PUSH PSW saves.
+        XRA     A
+        ANA     A
+        PUSH    PSW
+        POP     H
+        MOV     A,L
+        ANI     10H
+        LXI     D,C8085
+        JNZ     SHOW
+        LXI     D,C8080
+SHOW:   CALL    PRINT
+        RET                     ;back to the CCP
+;
+PRINT:  MVI     C,PSTRING       ;print the \$-terminated string at DE
+        JMP     BDOS
+;
+MSG:    DB      "$MESSAGE",CR,LF,"\$"
+BUILT:  DB      "Built for "
+        IFDEF   __CPU_Z80__     ;z80asm defines one of these, from -m
+        DB      "Z80"
+        ENDIF
+        IFDEF   __CPU_8085__
+        DB      "8085"
+        ENDIF
+        IFDEF   __CPU_8080__
+        DB      "8080"
+        ENDIF
+        DB      ", running on \$"
+CZ80:   DB      "Z80",CR,LF,"\$"
+C8085:  DB      "8085",CR,LF,"\$"
+C8080:  DB      "8080",CR,LF,"\$"
+EOF
+fi
 else
 # A minimal, self-contained starter: BDOS function 9 prints a '$'-terminated
 # string. No INCLUDE (ASM.COM doesn't support it) and no underscores in any
@@ -296,17 +522,25 @@ fi
 # CP/M's assemblers require CR/LF line endings -- an LF-only file silently
 # assembles to nothing at all, with no error (ASM.COM: just an empty "000H
 # USE FACTOR").
-"$REPO_ROOT/tools/altairsim/scripts/crlf.sh" "$ASM_PATH"
+if [ "$TOOLCHAIN" != "z88dk" ]; then
+  "$REPO_ROOT/tools/altairsim/scripts/crlf.sh" "$ASM_PATH"
+fi
 
 echo "Created/filled in $PROJECT_DIR"
 if [ "$TOOLCHAIN" = "m80" ]; then
   echo "  src/$CPM_NAME.MAC   (CR/LF line endings, ready for M80.COM; uses czgfx from B:)"
+elif [ "$TOOLCHAIN" = "z88dk" ]; then
+  echo "  src/$CPM_NAME.Z88   (for z80asm on the host: tools/z88dk/z88build.sh software/$NAME)"
 else
   echo "  src/$CPM_NAME.ASM   (CR/LF line endings, ready for ASM.COM)"
 fi
 echo "  include/.gitkeep"
 echo "  build/.gitkeep"
-echo "  machine.toml        (tracked: cad0 mode = $(grep -E '^mode' "$OVERLAY" | sed 's/.*"\(.*\)".*/\1/'))"
+if [ "$TOOLCHAIN" = "z88dk" ]; then
+  echo "  machine.toml        (tracked: cad0 mode = $MODE, cpu0 = $CPU)"
+else
+  echo "  machine.toml        (tracked: cad0 mode = $(grep -E '^mode' "$OVERLAY" | sed 's/.*"\(.*\)".*/\1/'))"
+fi
 if [ "$TOOLCHAIN" = "m80" ]; then
   echo "  work/               (this project's own altairsim machine + disk; B: = czgfx library, read-only)"
 else

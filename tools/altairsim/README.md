@@ -1,7 +1,8 @@
 # tools/altairsim — CADzilla's 8080/CP/M build-and-run environment
 
-Every `software/<project>` in this repo is 8080 assembly meant to assemble
-and run under CP/M 2.2. Before it ever touches real S100/Altair hardware,
+Every `software/<project>` in this repo is assembly meant to run under CP/M
+2.2: 8080 code assembled inside CP/M by `ASM.COM` or `M80`, or 8080, 8085 or
+Z80 code cross-assembled on the host by z88dk (`tools/z88dk/README.md`). Before it ever touches real S100/Altair hardware,
 it's built and exercised on [altairsim](https://github.com/) (installed
 locally at `~/altairsim`), driven by an AI assistant through altairsim's
 built-in MCP server. This directory holds everything that workflow needs.
@@ -257,6 +258,35 @@ picture anywhere else, or smaller than the mode, means program and strap
 disagree. To try another mode for one session without changing anything,
 `monitor {command: "SET cad0 mode=800x600"}` works until the next `CONFIG
 LOAD`.
+
+### Choosing the CPU — `cpu0` in the same overlay
+
+Pristine's machine has an 8080, the CPU of the `ASM.COM` and M80 projects. A
+project built with z88dk for an **8085 or Z80** puts that CPU in its
+emulator with a `cpu0` block in its `machine.toml`:
+
+```toml
+[[board]]
+type     = "z80"          # 8080 | 8085 | z80
+id       = "cpu0"
+clock_hz = 0
+```
+
+- A `[[board]]` with a `type` and an existing id **replaces** that board, so
+  this swaps pristine's 8080 card for altairsim's 8085 or Z80 card. The
+  replacement starts from scratch, which is why `clock_hz` is restated.
+  `cadzilla-real.toml` still sets 2 MHz on top.
+- CP/M 2.2, the DBL boot PROM and the BIOS are 8080 code, so they boot
+  unchanged on all three cores. The tools on the disk (ASM, M80, ...) run as
+  well.
+- `tools/z88dk/z88build.sh` reads the same block for z80asm's `-m` flag, so a
+  z88dk program and its machine can't disagree about the CPU. The `new-cadzilla-project`
+  skill writes the block for every z88dk project (`--cpu`, default 8080).
+
+To **change** it: edit the block, run `sync_pristine.sh --machine-only
+software/<name>/work`, then rebuild and `CONFIG LOAD`. To **check** it: the
+register line `CONFIG LOAD` prints shows `IX`/`IY` and the alternate bank on a
+Z80, and the extra `V`/`K` flags on an 8085. `SHOW cpu0` names the core.
 
 ### Running in real time — `work/cadzilla-real.toml`
 
