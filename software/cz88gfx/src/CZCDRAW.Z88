@@ -1,0 +1,114 @@
+;
+; CZCDRAW.Z88 -- cz88gfx C bindings for CZDRAW: color, move, line,
+; rectangles and dots (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_color,_cz_move,_cz_line,_cz_rect,_cz_frect,_cz_dot
+        PUBLIC  _cz_rmove,_cz_rline,_cz_rrect,_cz_rfrect
+        PUBLIC  _cz_seg,_cz_box,_cz_fbox
+        EXTERN  CZCPOP,CZCAV
+;
+        SECTION code_user
+;
+; void cz_color(unsigned char c) fastcall
+;
+_cz_color:
+        MOV     A,L
+        JMP     CZCOL
+;
+; void cz_move(int x, int y), and the same for the rest
+;
+_cz_move:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZMOVE
+_cz_line:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZLINE
+_cz_rect:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZRECT
+_cz_frect:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZFRCT
+_cz_dot:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZDOT
+_cz_rmove:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZRMOV
+_cz_rline:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZRLIN
+_cz_rrect:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZRRCT
+_cz_rfrect:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZRFRC
+;
+; void cz_seg(int x1, int y1, int x2, int y2) -- line x1,y1 to x2,y2
+; void cz_box(int x1, int y1, int x2, int y2) -- rectangle outline
+; void cz_fbox(int x1, int y1, int x2, int y2, unsigned char c)
+;
+_cz_seg:
+        LXI     H,CZLINE
+        JMP     PT2
+_cz_box:
+        LXI     H,CZRECT
+        JMP     PT2
+_cz_fbox:
+        MVI     C,5
+        CALL    CZCPOP
+        LDA     CZCAV+8
+        CALL    CZCOL
+        LXI     H,CZFRCT
+        JMP     P2GO
+;
+; PT2 -- the two-point entries: the four arguments off the stack, then
+; P2GO: CZMOVE to the first point and on to the routine at HL with the
+; second point in HL, DE. The routine returns to the C caller.
+;
+PT2:    SHLD    P2RT
+        MVI     C,4
+        CALL    CZCPOP
+        LHLD    P2RT
+P2GO:   PUSH    H               ;the routine, for the RET below
+        LHLD    CZCAV+2
+        XCHG
+        LHLD    CZCAV
+        CALL    CZMOVE
+        LHLD    CZCAV+6
+        XCHG
+        LHLD    CZCAV+4
+        RET
+;
+P2RT:   DW      0
+;

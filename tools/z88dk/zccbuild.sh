@@ -23,6 +23,11 @@
 #                    and the machine always agree. No block = 8080 (pristine's).
 #   zcc.flags        optional: extra zcc flags, e.g. -O3, -lm, -DDEBUG
 #                    ('#' starts a comment)
+#   cz88gfx.version  optional: the cz88gfx graphics library release it builds
+#                    against ("1.1" or later, or "dev"). Puts cz88gfx.h on the
+#                    include path (#include <cz88gfx.h>) and links CZ88GFX.LIB;
+#                    only the modules the program uses go into the .COM. See
+#                    software/cz88gfx/README.md, "Using it from C".
 #
 # Writes into build/ (gitignored), uppercase like every other build artifact:
 #   <NAME>.COM   the program, ready for `R <NAME>.COM` in CP/M
@@ -52,28 +57,28 @@ BUILD="$PROJ/build"
 mkdir -p "$BUILD"
 
 find_z80asm
-# zcc: the snap's name first, then a native install's.
-if command -v z88dk.zcc >/dev/null 2>&1; then
-  ZCC=z88dk.zcc
-elif command -v zcc >/dev/null 2>&1; then
-  ZCC=zcc
-else
-  echo "error: z88dk's zcc not found (snap: z88dk.zcc, native: zcc)" >&2
-  exit 1
-fi
+find_zcc
 check_snap_path "$PROJ"
 read_cpu "$PROJ"
+read_cz88gfx "$PROJ"
+zcc_clib
 
 # Shared headers for every zcc project (cadzilla.h), after the project's own.
 ZINC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/include"
 
-# The C library for the CPU (lib/config/cpm.cfg): it also sets the compiler's
-# and assembler's -m flag and defines __8080 / __8085 / __Z80.
-case "$CPU" in
-  8080) CLIB=8080 ;;
-  8085) CLIB=8085 ;;
-  z80)  CLIB=default ;;
-esac
+# The cz88gfx graphics library, if the project pins it: cz88gfx.h (and
+# CZ88GFX.INC, for the .Z88 modules) on the include path, CZ88GFX.LIB linked.
+# Its C bindings start with release 1.1.
+GFXINC=()
+GFXLIB=()
+if [ -n "$CZ88GFX" ]; then
+  if [ ! -f "$CZ88INC/cz88gfx.h" ]; then
+    echo "error: cz88gfx $CZ88GFX has no C bindings (no cz88gfx.h in $CZ88INC) -- pin release 1.1 or later in cz88gfx.version" >&2
+    exit 1
+  fi
+  GFXINC=(-I"$CZ88INC")
+  GFXLIB=(-l"$CZ88LIB")
+fi
 
 # The modules. zcc matches suffixes case-sensitively, so a .C or .H is a
 # mistake here, not a style choice.
@@ -133,7 +138,7 @@ read_flags "$PROJ/zcc.flags"
 # .COM behind looking current.
 rm -f "$BUILD/$NAME.COM" "$BUILD/$NAME.MAP" "$BUILD/$NAME.SYM" "$BUILD/CRT0.LIS"
 
-echo "zcc: $NAME for $CPU (${MAIN[0]}${OTHERS[*]:+ + ${OTHERS[*]}}${ZS[*]:+ + ${ZS[*]}})"
+echo "zcc: $NAME for $CPU (${MAIN[0]}${OTHERS[*]:+ + ${OTHERS[*]}}${ZS[*]:+ + ${ZS[*]}})${CZ88GFX:+, cz88gfx $CZ88GFX}"
 
 # Uppercase names for the outputs, as for every build artifact in this repo --
 # after a failed build too, since the listings show where it failed. zcc writes
@@ -164,7 +169,7 @@ for f in "${ZS[@]}"; do
     echo "$f: warning: no SECTION -- its code lands wherever the linker puts the unnamed section; start it with SECTION code_user" >&2
   fi
   RC=0
-  OUT="$(cd "$SRC" && "$Z80ASM" -m"$CPU" -I"$SRC" -I"$PROJ/include" -I"$ZINC" -O"$BUILD" -l "$f" 2>&1)" || RC=$?
+  OUT="$(cd "$SRC" && "$Z80ASM" -m"$CPU" -I"$SRC" -I"$PROJ/include" "${GFXINC[@]}" -I"$ZINC" -O"$BUILD" -l "$f" 2>&1)" || RC=$?
   [ -n "$OUT" ] && printf '%s\n' "$OUT" >&2
   if [ "$RC" -ne 0 ]; then tidy; exit "$RC"; fi
   check_indirect_immediate "$OUT" "$BUILD/$NAME.COM"
@@ -177,8 +182,8 @@ done
 RC=0
 OUT="$(
   cd "$SRC"
-  "$ZCC" +cpm -clib="$CLIB" -I"$SRC" -I"$PROJ/include" -I"$ZINC" -m --list --c-code-in-asm \
-    -o "$BUILD/$NAME.COM" "${FLAGS[@]}" "${MAIN[0]}" "${OTHERS[@]}" "${OBJS[@]}" 2>&1
+  "$ZCC" +cpm -clib="$CLIB" -I"$SRC" -I"$PROJ/include" "${GFXINC[@]}" -I"$ZINC" -m --list --c-code-in-asm \
+    -o "$BUILD/$NAME.COM" "${FLAGS[@]}" "${MAIN[0]}" "${OTHERS[@]}" "${OBJS[@]}" "${GFXLIB[@]}" 2>&1
 )" || RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT" >&2
 tidy

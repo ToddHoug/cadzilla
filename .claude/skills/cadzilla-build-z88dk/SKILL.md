@@ -70,19 +70,33 @@ software/cz88gfx/tools/build.sh      # -> software/cz88gfx/build/CZ88GFX.LIB
 
 - It assembles every `src/CZ*.Z88` module (8080 code, `-m8080`) into the
   library. Then it links `src/CZ88CHK.Z88`, which expands every macro and
-  references every entry point, against it for the 8080, 8085 and Z80. Good
-  means three `check: build/CHK....COM links` lines. Any error exits
-  non-zero.
+  references every entry point, against it for the 8080, 8085 and Z80. It
+  also compiles the C bindings' check, `src/czcchk.c`, with zcc for each
+  CPU. Good means six `check: build/...COM links` lines (three `CHK`, three
+  `CCHK`). Any error exits non-zero.
 - A new routine: make it `PUBLIC` in its module, add it to the header's
   `EXTERN` block (and a macro if useful), and use it in `CZ88CHK.Z88`. A new
   module is just a new `src/CZxxxx.Z88`; there is no link order to keep.
-- Try it in a program pinned to `dev` (`software/z88demo`). Check the
-  pictures as well as the build (step 2, then a snapshot). z88demo draws
-  exactly gfxdemo's screens.
-- **Release:** raise `CZ88VER` in `src/CZ88GFX.INC`, rebuild, then run
+- **The C bindings** (1.1 on) are the `src/CZC*.Z88` stub modules (one per
+  library module) and `src/cz88gfx.h`. Give a new routine a C entry too:
+  - a stub, or a `DEFC` alias when the routine needs nothing but HL, in the
+    matching `CZC*.Z88`;
+  - its prototype in `cz88gfx.h`;
+  - a call in `czcchk.c`;
+  - a row in the README's C table.
+
+  `software/cz88gfx/README.md`, "How the bindings work", has the calling
+  conventions.
+- Try it in a program pinned to `dev` (`software/z88demo`;
+  `software/cgfxdemo` for C). Check the pictures as well as the build
+  (step 2, then a snapshot). z88demo draws exactly gfxdemo's screens, and
+  cgfxdemo exactly z88demo's.
+- **Release:** raise `CZ88VER` in `src/CZ88GFX.INC` and `CZ88GFX_VERSION`
+  in `src/cz88gfx.h` together, rebuild, then run
   `software/cz88gfx/tools/release.sh`. It writes the read-only
-  `software/cz88gfx/releases/<M>.<m>/` (`CZ88GFX.LIB` + `CZ88GFX.INC`),
-  refuses a stale build or an existing release, and prints the `git add`.
+  `software/cz88gfx/releases/<M>.<m>/` (`CZ88GFX.LIB`, `CZ88GFX.INC`,
+  `cz88gfx.h`), refuses a stale build, an existing release or mismatched
+  versions, and prints the `git add`.
   Then move each project that wants it: edit its `cz88gfx.version` and
   rebuild it.
 - Leave czgfx (`software/czgfx/`, M80) alone: it is the separate

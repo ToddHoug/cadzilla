@@ -1,0 +1,10 @@
+;
+; CZCF11.Z88 -- cz88gfx C bindings: the CZF11 font under its C name,
+; cz_f11 (cz88gfx.h). Naming it links CZFN11.Z88 in, as GFONT CZF11 does.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_f11
+;
+        DEFC    _cz_f11 = CZF11
+;

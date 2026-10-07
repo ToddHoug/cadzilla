@@ -1,0 +1,39 @@
+;
+; CZCTXL.Z88 -- cz88gfx C bindings for CZTXL: the pen, attributes,
+; characters and new lines (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_tpos,_cz_tattr,_cz_tchr,_cz_tnl
+;
+        SECTION code_user
+;
+        DEFC    _cz_tnl = CZTNL         ;void cz_tnl(void)
+;
+; void cz_tpos(int x, int y)
+;
+_cz_tpos:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZTPOS
+;
+; void cz_tattr(unsigned char scale, unsigned char dir, unsigned char flags)
+;
+_cz_tattr:
+        POP     H               ;the return address
+        POP     D               ;E = flags
+        POP     B               ;C = dir
+        XTHL                    ;HL = scale, the return address back
+        MOV     B,C
+        MOV     C,E
+        MOV     A,L
+        JMP     CZTATR
+;
+; void cz_tchr(char c) fastcall
+;
+_cz_tchr:
+        MOV     A,L
+        JMP     CZTCHR
+;

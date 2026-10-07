@@ -1,0 +1,26 @@
+;
+; CZCINIT.Z88 -- cz88gfx C bindings for CZINIT: setup, clearing, the
+; mode descriptors and the screen size (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_init,_cz_cls,_cz_ovcls,_cz_pdef
+        PUBLIC  _cz_m640,_cz_m800,_cz_m1k,_cz_xmax,_cz_ymax
+;
+        SECTION code_user
+;
+        DEFC    _cz_init = CZINIT       ;void cz_init(const void *mode) fastcall
+        DEFC    _cz_ovcls = CZOCLS      ;void cz_ovcls(void)
+        DEFC    _cz_pdef = CZPDEF       ;void cz_pdef(void)
+        DEFC    _cz_m640 = CZM640       ;the mode descriptors
+        DEFC    _cz_m800 = CZM800
+        DEFC    _cz_m1k = CZM1K
+        DEFC    _cz_xmax = CZXMAX       ;unsigned cz_xmax, cz_ymax
+        DEFC    _cz_ymax = CZYMAX
+;
+; void cz_cls(unsigned char c) fastcall
+;
+_cz_cls:
+        MOV     A,L
+        JMP     CZCLS
+;

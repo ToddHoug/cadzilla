@@ -38,17 +38,20 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   See `software/czgfx/README.md`.
 - `software/cz88gfx/` — cz88gfx, czgfx ported to z88dk's z80asm: the same
   8080 routines, names and macros, but independent of czgfx (no shared
-  files).
+  files). From 1.1 it also has C bindings for zcc: `cz88gfx.h` and the
+  `CZC*.Z88` stub modules, which jump into the same routines.
   - `tools/build.sh` builds it on the host into the gitignored
-    `build/CZ88GFX.LIB`, and links its check program `CZ88CHK` for all
-    three CPUs.
-  - `tools/release.sh` snapshots that library and `CZ88GFX.INC` into the
-    tracked, read-only `releases/<version>/` (version: `CZ88VER` in
-    `CZ88GFX.INC`).
-  - A z88dk project pins a release (or `dev`) in its tracked
-    `cz88gfx.version`, and `tools/z88dk/z88build.sh` adds the include path
-    and links the library.
-  - `software/z88demo/` is gfxdemo ported to it.
+    `build/CZ88GFX.LIB`. It links the check programs `CZ88CHK` (assembly)
+    and `czcchk.c` (C) for all three CPUs.
+  - `tools/release.sh` snapshots that library, `CZ88GFX.INC` and
+    `cz88gfx.h` into the tracked, read-only `releases/<version>/`. The
+    version is `CZ88VER` in `CZ88GFX.INC`, matched by `CZ88GFX_VERSION` in
+    `cz88gfx.h`.
+  - A z88dk or zcc project pins a release (or `dev`) in its tracked
+    `cz88gfx.version`. `tools/z88dk/z88build.sh` or `zccbuild.sh` then adds
+    the include path and links the library; C needs 1.1 or later.
+  - `software/z88demo/` is gfxdemo ported to it. `software/cgfxdemo/` is
+    the same in C, pixel-identical.
 
   See `software/cz88gfx/README.md`.
 - `tools/altairsim/pristine/` — master CP/M machine + disk images.
@@ -109,10 +112,11 @@ over its MCP server; `tools/altairsim/README.md`):
   - `#include <cadzilla.h>` gives the board's ports as inline `IN`/`OUT`
     `__sfr`s. It lives in `tools/z88dk/include/` and is independent of
     czgfx;
-  - no graphics library yet (cz88gfx is for `.Z88` programs only).
+  - draws with cz88gfx's C bindings, `#include <cz88gfx.h>`, pinned in
+    `cz88gfx.version` (1.1 or later).
 
-  Project `chello`, skill `cadzilla-build-zcc`; see "C with zcc" in
-  `tools/z88dk/README.md`.
+  Projects `chello` and `cgfxdemo` (draws). Skill `cadzilla-build-zcc`; see
+  "C with zcc" in `tools/z88dk/README.md`.
 - New projects: skill `new-cadzilla-project`
   (`--toolchain asm|m80|z88dk|zcc`, `--cpu 8080|8085|z80` for z88dk and zcc,
   `--mode WxH`).

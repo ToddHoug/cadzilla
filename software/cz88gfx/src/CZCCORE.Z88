@@ -1,0 +1,59 @@
+;
+; CZCCORE.Z88 -- cz88gfx C bindings for CZCORE: wait, abort, the drawing
+; mode byte and raw ACRTC access (cz88gfx.h)
+;
+; The C entry points take their arguments as CZCARG.Z88 describes. An
+; entry that only needs HL, or nothing, is the library routine itself
+; under its C name (DEFC).
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_wait,_cz_abort,_cz_setmode,_cz_putw,_cz_cmd,_cz_wpr
+        PUBLIC  _cz_wreg
+;
+        SECTION code_user
+;
+        DEFC    _cz_abort = CZABT       ;void cz_abort(void)
+        DEFC    _cz_putw = CZPUTW       ;void cz_putw(unsigned w) fastcall
+;
+; unsigned char cz_wait(void) -- the status register once drawing ends
+;
+_cz_wait:
+        CALL    CZWAIT
+        MOV     L,A
+        MVI     H,0
+        RET
+;
+; void cz_setmode(unsigned char m) fastcall
+;
+_cz_setmode:
+        MOV     A,L
+        STA     CZDM
+        RET
+;
+; void cz_cmd(unsigned char op) fastcall -- command op, with the mode
+;
+_cz_cmd:
+        MOV     A,L
+        JMP     CZCMD
+;
+; void cz_wpr(unsigned char r, unsigned v) -- drawing parameter r = v
+;
+_cz_wpr:
+        POP     D
+        POP     H
+        POP     B
+        PUSH    D
+        MOV     A,C
+        JMP     CZWPR
+;
+; void cz_wreg(unsigned char r, unsigned v) -- control register r = v
+;
+_cz_wreg:
+        POP     D
+        POP     H
+        POP     B
+        PUSH    D
+        MOV     B,C
+        JMP     CZWREG
+;

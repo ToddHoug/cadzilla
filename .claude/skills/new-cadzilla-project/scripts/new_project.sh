@@ -29,7 +29,9 @@
 #   zcc  z88dk's zcc, C compiled on the HOST (tools/z88dk/zccbuild.sh): a
 #        lowercase src/<name>.c plus an assembly module src/CPUID.Z88, built
 #        straight to build/<NAME>.COM, which altairsim then only R's onto the
-#        disk and runs (cadzilla-build-zcc skill). No czgfx.
+#        disk and runs (cadzilla-build-zcc skill). Like z88dk, it pins the
+#        newest cz88gfx release in software/<name>/cz88gfx.version, so it can
+#        #include <cz88gfx.h> and draw (C bindings: release 1.1 and later).
 #
 # --cpu (z88dk and zcc only; default 8080) is the target CPU: 8080, 8085 or
 # z80. It is written to machine.toml as a cpu0 [[board]] block, which both puts
@@ -331,10 +333,11 @@ if [ "$TOOLCHAIN" = "m80" ]; then
   "$REPO_ROOT/tools/altairsim/scripts/attach_libdisk.sh" "$PROJECT_DIR/work"
 fi
 
-# A z88dk project links the cz88gfx library on the host (z88build.sh), from
-# the release its tracked cz88gfx.version pins -- the newest one, for a new
-# project; an existing pin is never changed. No release yet: no pin.
-if [ "$TOOLCHAIN" = "z88dk" ]; then
+# A z88dk or zcc project links the cz88gfx library on the host (z88build.sh,
+# zccbuild.sh), from the release its tracked cz88gfx.version pins -- the
+# newest one, for a new project; an existing pin is never changed. No release
+# yet: no pin.
+if [ "$TOOLCHAIN" = "z88dk" ] || [ "$TOOLCHAIN" = "zcc" ]; then
   PIN="$PROJECT_DIR/cz88gfx.version"
   if [ ! -f "$PIN" ]; then
     LATEST="$(ls "$REPO_ROOT/software/cz88gfx/releases" 2>/dev/null \

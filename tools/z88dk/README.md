@@ -30,7 +30,8 @@ path and links the library. See [Graphics: cz88gfx](#graphics-cz88gfx) below.
 czgfx itself, as M80 `.REL` code, can't be linked by z80asm. It stays the
 library for the M80 flow.
 
-The same z88dk also compiles **C** for the same three CPUs: see
+The same z88dk also compiles **C** for the same three CPUs, and C programs
+draw with cz88gfx too, through its C bindings (release 1.1 on): see
 [C with zcc](#c-with-zcc) below.
 
 ## Install
@@ -172,20 +173,21 @@ names and register conventions, in a z80asm library (`CZ88GFX.LIB`) that
 links into an 8080, 8085 or Z80 program. Its README has the API, and a
 table for porting czgfx code. `software/z88demo/` is gfxdemo ported to it.
 
-- **Using it:** pin a release, `echo 1.0 > software/<name>/cz88gfx.version`
+- **Using it:** pin a release, `echo 1.1 > software/<name>/cz88gfx.version`
   (`new_project.sh --toolchain z88dk` pins the newest one). Then
   `INCLUDE "CZ88GFX.INC"` and draw. `z88build.sh` adds
-  `-I software/cz88gfx/releases/1.0` and `-l=.../CZ88GFX.LIB`, and its
+  `-I software/cz88gfx/releases/1.1` and `-l=.../CZ88GFX.LIB`, and its
   first line names the pin. Only the library modules the program uses go
   into the `.COM`; the `.MAP` lists them, and the `.SYM` includes their
   labels.
 - **Macros:** every argument is required (z80asm can't test for a blank
   one). czgfx's "already in a register" forms are a plain `CALL CZxxxx`.
+- **From C:** see [Graphics from C](#graphics-from-c).
 - **Changing it:** `software/cz88gfx/tools/build.sh` builds
-  `build/CZ88GFX.LIB`, and links a check program against it for all three
-  CPUs. A project pinned to `dev` builds against that. Then raise
-  `CZ88VER` and run `tools/release.sh` to make a release,
-  `releases/<major>.<minor>/`.
+  `build/CZ88GFX.LIB`, and links its check programs (assembly and C)
+  against it for all three CPUs. A project pinned to `dev` builds against
+  that. Then raise `CZ88VER` (and `cz88gfx.h`'s `CZ88GFX_VERSION`) and run
+  `tools/release.sh` to make a release, `releases/<major>.<minor>/`.
 
 ## C with zcc
 
@@ -214,6 +216,7 @@ src/*.Z88 ──z80asm -m<cpu>──► build/<MOD>.O ────┴─zcc +cpm
 | `src/`, `include/` | searched for `#include` (`.h`) and `INCLUDE` files |
 | `machine.toml` | tracked: cad0 `mode` and the cpu0 `type`, as above |
 | `zcc.flags` | optional, tracked: extra zcc flags, e.g. `-O3`, `-lm`, `-DDEBUG`, `-pragma-define:...`; `#` starts a comment |
+| `cz88gfx.version` | optional, tracked: the cz88gfx release it draws with, `1.1` or later (or `dev`). See [Graphics from C](#graphics-from-c) |
 
 **C sources are lowercase.** zcc matches suffixes case-sensitively and won't
 take a `.C` or `.H`. The repo's uppercase rule is for files that reach a CP/M
@@ -266,6 +269,36 @@ Running the program is the same as for a `.Z88` project (above).
   - the result goes back in HL (a `char` in L, a `long` in DEHL);
   - AF, BC, DE and HL are free to change; on a Z80, keep IX and IY.
 - **Inline assembly:** `#asm` ... `#endasm` inside a C function also works.
+
+### Graphics from C
+
+A zcc project draws with **cz88gfx**, the same library the `.Z88` programs
+use, through its C bindings (release 1.1 and later):
+
+```c
+#include <cz88gfx.h>
+
+cz_init(CZ_M1K);
+cz_color(CZ_WHITE + CZ_BRIGHT);
+cz_box(0, 0, 1023, 767);
+cz_wait();
+```
+
+- **Pinning:** `echo 1.1 > software/<name>/cz88gfx.version`.
+  `new_project.sh --toolchain zcc` pins the newest release.
+- **What `zccbuild.sh` does with the pin:**
+  - it puts the release on the include path, for `cz88gfx.h` and, for the
+    project's `.Z88` modules, `CZ88GFX.INC`;
+  - it links `CZ88GFX.LIB`;
+  - its first line names the pin;
+  - a 1.0 pin (no C bindings) is an error.
+- **How it works:** each `cz_` function is a few instructions of assembly
+  that jump into the library's own routine. It is not a C reimplementation,
+  which would be bigger and slower (see [Port I/O](#port-io)). So a C
+  program draws exactly what the assembly one does: `software/cgfxdemo`
+  draws z88demo's ten screens pixel for pixel.
+- **Further reading:** `software/cz88gfx/README.md`, "Using it from C", has
+  the API, the conventions and the sizes.
 
 ### Port I/O
 
@@ -344,6 +377,6 @@ library exports. On the Z80 both are plain `IN`/`OUT (C)` and safe, but
   `inp()`/`outp()`.
 - `-compiler=sdcc` in `zcc.flags` works for the Z80 only, and it changes the
   calling convention.
-- No graphics library links with C yet. czgfx is M80 `.REL` code, and
-  cz88gfx has no sccz80 (`_name`) entry points; see
-  [Graphics: cz88gfx](#graphics-cz88gfx).
+- For graphics, use cz88gfx's C bindings; see
+  [Graphics from C](#graphics-from-c). czgfx itself is M80 `.REL` code and
+  can't be linked.

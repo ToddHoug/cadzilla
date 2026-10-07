@@ -1,0 +1,77 @@
+;
+; CZCMODE.Z88 -- cz88gfx C bindings for CZMODE: the drawing mode's
+; fields, CL0/CCMP, the area, reading back (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_opm,_cz_cmode,_cz_amode,_cz_bcol,_cz_ccmp
+        PUBLIC  _cz_area,_cz_afull,_cz_getcp,_cz_rdot
+        EXTERN  CZCPOP,CZCAV
+;
+        SECTION code_user
+;
+        DEFC    _cz_afull = CZAFUL      ;void cz_afull(void)
+;
+; void cz_opm(unsigned char m) fastcall, and the same for the rest
+;
+_cz_opm:
+        MOV     A,L
+        JMP     CZOPM
+_cz_cmode:
+        MOV     A,L
+        JMP     CZCMOD
+_cz_amode:
+        MOV     A,L
+        JMP     CZAMOD
+_cz_bcol:
+        MOV     A,L
+        JMP     CZCOL0
+_cz_ccmp:
+        MOV     A,L
+        JMP     CZCCMP
+;
+; void cz_area(int x1, int y1, int x2, int y2)
+;
+_cz_area:
+        MVI     C,4
+        CALL    CZCPOP
+        LHLD    CZCAV+2
+        XCHG
+        LHLD    CZCAV
+        CALL    CZAMIN
+        LHLD    CZCAV+6
+        XCHG
+        LHLD    CZCAV+4
+        JMP     CZAMAX
+;
+; void cz_getcp(int *x, int *y) -- read the CP back (clears ARD)
+;
+_cz_getcp:
+        CALL    CZGCP           ;HL = X, DE = Y
+        POP     B               ;the return address
+        XTHL                    ;HL = y, (SP) = X
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        POP     D               ;DE = X
+        POP     H               ;HL = x
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        PUSH    B
+        RET
+;
+; int cz_rdot(int x, int y) -- the pixel's color, or -1 off the screen
+;
+_cz_rdot:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        CALL    CZRDOT
+        MOV     L,A
+        MVI     H,0
+        RNC
+        LXI     H,-1
+        RET
+;

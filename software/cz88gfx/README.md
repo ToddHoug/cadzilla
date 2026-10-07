@@ -1,7 +1,9 @@
 # cz88gfx — CADzilla graphics library for z88dk
 
-cz88gfx is CADzilla's graphics primitive library for programs built with
-**z88dk's z80asm** on the host (`tools/z88dk/z88build.sh`). It is a port of
+cz88gfx is CADzilla's graphics primitive library for programs built on the
+host with **z88dk**: assembly with z80asm (`tools/z88dk/z88build.sh`), and,
+from release 1.1, **C** with zcc (`tools/z88dk/zccbuild.sh`; see
+[Using it from C](#using-it-from-c)). It is a port of
 czgfx (`software/czgfx/`): the same board setup, drawing primitives, text and
 overlay code, with the same routine names and register conventions. It is
 built with modern host tools instead of M80/L80 inside CP/M.
@@ -10,16 +12,20 @@ The two libraries are independent and share no files. czgfx stays the
 all-period-tools example (M80, LIB80, L80 and a CP/M library disk), and
 cz88gfx serves the z88dk flow. A change to one doesn't reach the other.
 
-cz88gfx comes in two parts:
+cz88gfx comes in three parts:
 
-- **`CZ88GFX.INC`**, the header a program `INCLUDE`s: board equates, an
-  `EXTERN` for every library symbol, and the `G...` macros.
-- **`CZ88GFX.LIB`**, a z80asm library of fourteen modules (`CZCORE`,
-  `CZINIT`, `CZPAL`, `CZDRAW`, `CZPOLY`, `CZMODE`, `CZPAT`, `CZCURV`,
-  `CZFILL`, `CZOVL`, `CZTXT`, `CZTXL`, `CZFNT8`, `CZFN11`). The linker
-  takes only the modules a program references. A program that only sets
-  up the screen and draws a line is 953 bytes in all (CZCORE, CZINIT,
-  CZPAL and CZDRAW), with no curve, text or font code.
+- **`CZ88GFX.INC`**, the header an assembly program `INCLUDE`s: board
+  equates, an `EXTERN` for every library symbol, and the `G...` macros.
+- **`cz88gfx.h`**, the header a C program `#include`s (1.1 on): a
+  prototype for every C entry point, and the constants.
+- **`CZ88GFX.LIB`**, a z80asm library of the fourteen graphics modules
+  (`CZCORE`, `CZINIT`, `CZPAL`, `CZDRAW`, `CZPOLY`, `CZMODE`, `CZPAT`,
+  `CZCURV`, `CZFILL`, `CZOVL`, `CZTXT`, `CZTXL`, `CZFNT8`, `CZFN11`), plus,
+  from 1.1, the C bindings' modules (`CZC*`). The linker takes only the
+  modules a program references, so an assembly program never carries the
+  C bindings. A program that only sets up the screen and draws a line is
+  953 bytes in all (CZCORE, CZINIT, CZPAL and CZDRAW), with no curve, text
+  or font code.
 
 The library is **8080 code** in Intel mnemonics, assembled `-m8080`. z80asm
 links it unchanged into an 8080, 8085 or Z80 program, so one library serves
@@ -30,43 +36,52 @@ listings when the port was made.
 `software/z88demo/` is the worked example: gfxdemo's ten screens ported line
 for line, built for the Z80. Each screen's frame, palette and overlay are
 identical, pixel for pixel, to gfxdemo's (czgfx on the 8080).
+`software/cgfxdemo/` is the same ten screens in C, again identical pixel for
+pixel, on the Z80 and the 8080.
 
 ## How it's delivered: versioned releases
 
 | Where | What |
 |---|---|
-| `software/cz88gfx/src/` | sources: `CZ88GFX.INC`, `CZ*.Z88` (one per module), `CZ88CHK.Z88` (the build check) |
+| `software/cz88gfx/src/` | sources: `CZ88GFX.INC`, `CZ*.Z88` (one per module), `CZ88CHK.Z88` (the build check); the C bindings: `cz88gfx.h`, `CZC*.Z88`, `czcchk.c` (their build check) |
 | `software/cz88gfx/tools/` | `build.sh`, `release.sh`, `mkfont.py` |
-| `software/cz88gfx/build/` | **the dev build**: `CZ88GFX.LIB`, module `.O`/`.LIS`, the check's `.COM`/`.MAP` (gitignored) |
-| `software/cz88gfx/releases/<major>.<minor>/` | **the releases**: `CZ88GFX.LIB` and `CZ88GFX.INC`, tracked, read-only, never changed |
+| `software/cz88gfx/build/` | **the dev build**: `CZ88GFX.LIB`, module `.O`/`.LIS`, the checks' `.COM`/`.MAP` (gitignored) |
+| `software/cz88gfx/releases/<major>.<minor>/` | **the releases**: `CZ88GFX.LIB`, `CZ88GFX.INC` and (1.1 on) `cz88gfx.h`, tracked, read-only, never changed |
 
 A program that uses cz88gfx pins a release in its tracked
-`software/<project>/cz88gfx.version`, a single line such as `1.0`. From that
-pin, `z88build.sh` puts the release directory on the include path and links
-its `CZ88GFX.LIB`. Nothing needs to be mounted or copied, because the library
-is linked on the host. `new_project.sh --toolchain z88dk` pins the newest
-release for you.
+`software/<project>/cz88gfx.version`, a single line such as `1.1`. From that
+pin, `z88build.sh` (or `zccbuild.sh`, for C) puts the release directory on
+the include path and links its `CZ88GFX.LIB`. Nothing needs to be mounted or
+copied, because the library is linked on the host. `new_project.sh
+--toolchain z88dk` (or `zcc`) pins the newest release for you. A C program
+needs 1.1 or later; `zccbuild.sh` refuses an older pin.
 
 A pin of `dev` builds against the library's own `src/` and `build/` instead.
 That is for trying an unreleased library in a program. `z88build.sh` warns if
-the dev build is older than its sources.
+the dev build is older than its sources (`zccbuild.sh` too).
 
 To move a program to another release, edit its `cz88gfx.version` and rebuild
 it.
 
 ### Versions and releases
 
-`CZ88GFX.INC` carries the version: `CZ88VER EQU 0100H`, with the major number
-in the high byte and the minor in the low one. To release:
-1. raise `CZ88VER`;
+`CZ88GFX.INC` carries the version: `CZ88VER EQU 0101H`, with the major number
+in the high byte and the minor in the low one. `cz88gfx.h` carries it again as
+`CZ88GFX_VERSION 0x0101`. To release:
+1. raise `CZ88VER` and `CZ88GFX_VERSION` together;
 2. rebuild the library (below);
 3. run `software/cz88gfx/tools/release.sh`;
 4. `git add` the new release directory.
 
-`release.sh` copies `build/CZ88GFX.LIB` and `src/CZ88GFX.INC` into
-`releases/<major>.<minor>/` and makes them read-only. It refuses to
-overwrite an existing release, or to release a library older than its
-sources.
+`release.sh` copies `build/CZ88GFX.LIB`, `src/CZ88GFX.INC` and
+`src/cz88gfx.h` into `releases/<major>.<minor>/` and makes them read-only. It
+refuses to overwrite an existing release, to release a library older than its
+sources, or to release when the two version numbers disagree.
+
+| Release | What changed |
+|---|---|
+| 1.0 | czgfx 1.0 ported to z80asm |
+| 1.1 | the C bindings (`cz88gfx.h`, the `CZC*` modules); the graphics modules are byte-for-byte 1.0's |
 
 ### Building the library
 
@@ -76,20 +91,24 @@ Everything runs on the host:
 software/cz88gfx/tools/build.sh
 ```
 
-It does three things:
+It does four things:
 1. assembles every module in `src/` (except the check program) into
    `build/CZ88GFX.LIB`, with listings;
 2. runs the repo's JP/CP lint over the sources (`tools/z88dk/z88common.sh`);
 3. links **`CZ88CHK.Z88`** against the new library for the 8080, 8085 and
-   Z80.
+   Z80;
+4. compiles **`czcchk.c`** with zcc for each CPU's C library and links it
+   against the new library.
 
 `CZ88CHK` expands every macro in the header, references every entry point,
-and makes every register-form `CALL`. A broken macro or a missing `PUBLIC`
-therefore fails the library build rather than the first program that uses
-it, as czgfx's `LIB80 /U` and `CZCHK` link do. The build is good when it
-ends with three `check: ... links` lines and the library size.
+and makes every register-form `CALL`. `czcchk.c` calls every C entry point
+in `cz88gfx.h` and names every constant. A broken macro, a wrong prototype
+or a missing `PUBLIC` therefore fails the library build rather than the
+first program that uses it, as czgfx's `LIB80 /U` and `CZCHK` link do. The
+build is good when it ends with six `check: ... links` lines (three
+assembly, three C) and the library size.
 
-## Using it from a program
+## Using it from assembly
 
 ```
         INCLUDE "CZ88GFX.INC"   ;equates, EXTERNs and macros
@@ -104,7 +123,7 @@ START:  ...
 ```
 
 ```
-echo 1.0 > software/<project>/cz88gfx.version     # once
+echo 1.1 > software/<project>/cz88gfx.version     # once
 tools/z88dk/z88build.sh software/<project>
 ```
 
@@ -449,12 +468,175 @@ fonts to an image.
 ### Not in cz88gfx yet
 
 - The ACRTC commands czgfx also lacks: CPY, SCPY, DRD, DWT, DMOD, WT, MOD,
-  and most read-backs. Send them yourself with `CZCMD` or `CZPUTW`.
-- **C bindings.** The library links only into `.Z88` assembly programs
-  (`z88build.sh`). A C program (`zccbuild.sh`) can't use it yet: that needs
-  `_`-prefixed sccz80 wrappers and the zcc section layout.
+  and most read-backs. Send them yourself with `CZCMD` or `CZPUTW` (from C,
+  `cz_cmd` or `cz_putw`).
 - **Z80-specific fast paths.** It is 8080 code everywhere. A Z80 program
   runs the same code an 8080 one does.
+- **sdcc.** The C bindings are for sccz80, zccbuild.sh's compiler.
+  `-compiler=sdcc` (Z80 only) is untested with them.
+
+## Using it from C
+
+From release 1.1, a C program built with zcc (`tools/z88dk/zccbuild.sh`)
+draws with cz88gfx through `cz88gfx.h`:
+
+```c
+#include <cz88gfx.h>
+
+int main(void)
+{
+    cz_init(CZ_M1K);                /* 1024x768, default palette, cleared */
+    cz_color(CZ_WHITE + CZ_BRIGHT);
+    cz_box(0, 0, 1023, 767);
+    cz_fbox(448, 320, 576, 448, CZ_BLUE + CZ_BRIGHT);
+    if (cz_wait() & CZ_SR_CER)      /* a command error */
+        cz_abort();
+    return 0;
+}
+```
+
+```
+echo 1.1 > software/<project>/cz88gfx.version     # once
+tools/z88dk/zccbuild.sh software/<project>
+```
+
+`zccbuild.sh` puts the pinned release on the include path (`cz88gfx.h`, and
+`CZ88GFX.INC` for the project's own `.Z88` modules) and links its
+`CZ88GFX.LIB`. Running the program is as for any zcc project (skill
+`cadzilla-build-zcc`). `software/cgfxdemo/src/cgfxdemo.c` is the worked
+example: z88demo's ten screens, call for call.
+
+### How the bindings work
+
+- **Each C function is a stub over the assembly routine.**
+  - It is a few instructions in a `CZC*.Z88` module that take the arguments
+    off the stack and jump into the routine an assembly program calls.
+  - So a C program draws exactly what the `.Z88` one does, at the same
+    speed. cgfxdemo's screens match z88demo's pixel for pixel (frame,
+    palette and overlay), built for the Z80 and for the 8080.
+  - The graphics modules themselves are unchanged from 1.0.
+- **Why not plain C over `<cadzilla.h>`?** It would be bigger and slower.
+  sccz80 widens every port test to 16 bits: a FIFO poll costs 9
+  instructions and two library calls per pass against the library's 3
+  (`tools/z88dk/README.md`, "Port I/O"). `<cadzilla.h>` stays the tool for a
+  one-off port access, such as the MODE register; `cz88gfx.h` includes it.
+- **Calling conventions (sccz80):**
+  - a one-argument function is `__z88dk_fastcall` (the argument in HL);
+  - a function with more is `__smallc __z88dk_callee`: the arguments are
+    pushed left to right and the stub pops them, so a call site has no
+    clean-up code.
+
+  These are declared in the header, so a program just calls the functions.
+  Nothing uses the Z80's IX or IY.
+- **Zero-cost names.** A function with no arguments, or whose one argument
+  the routine already takes in HL, is the routine itself under a C name
+  (`DEFC`): `cz_init`, `cz_font`, `cz_polygon`, `cz_polyline`,
+  `cz_circle_cp`, `cz_ovon`, `cz_ovl`, `cz_tnl`, and the like.
+- **Stubs.**
+  - A stub whose arguments fit the registers (two to four of them) pops
+    them straight in: 7-11 bytes.
+  - Longer calls (`cz_arc`, `cz_copy`, `cz_pscan`, `cz_seg`, ...) go
+    through `CZCPOP` (module `CZCARG`). It moves the arguments into a
+    static block, `CZCAV`, in their declared order, which is often the very
+    parameter table the routine takes.
+  - Like the library's own state, that block makes the library
+    non-reentrant: don't draw from an interrupt handler.
+- **Selective linking survives.** The wrapper modules mirror the library's,
+  so naming `CZ_F8` links that font alone. A program of `cz_init`,
+  `cz_color`, `cz_seg` and `cz_wait` links `CZINIT`, `CZPAL`, `CZCORE` and
+  `CZDRAW`, as in assembly, plus the stubs `CZCINIT`, `CZCCORE`, `CZCDRAW`
+  and `CZCARG`: no curves, fills or text. `build/<NAME>.MAP` shows what
+  went in.
+- **Sizes (Z80; the 8080 is within 100 bytes):**
+
+  | Program | Size |
+  |---|---|
+  | an empty zcc program (the C runtime alone) | 5,222 bytes |
+  | `cz_init`, `cz_color`, `cz_seg` and `cz_wait` | +1,183 bytes: the same 953 an assembly program carries, plus the stubs |
+  | cgfxdemo | 16,978 bytes |
+  | z88demo (the same screens in assembly) | 10,614 bytes |
+
+### Conventions in C
+
+- **The conventions above still hold:**
+  - the origin is the bottom-left pixel and Y runs up;
+  - the default palette is hue + level;
+  - everything but the moves draws in the current drawing mode;
+  - the ACRTC draws while the program goes on, so `cz_wait()` before
+    reading results back.
+- **Types.** Coordinates are `int` (relative moves can be negative).
+  Colors, modes and other byte values are `unsigned char`. Sizes and radii
+  are `unsigned int`.
+- **Constants carry `CZ_`:**
+  - the hues: `CZ_BLUE`, ..., `CZ_BRIGHT`;
+  - the drawing mode: `OMEOR` is `CZ_OM_EOR`, `CMCL1` is `CZ_CM_CL1`,
+    `AMCLIP` is `CZ_AM_CLIP`;
+  - the copy transforms: `CPR90` is `CZ_CP_R90`;
+  - `DIRCW` is `CZ_DIR_CW`;
+  - `PTSLNT`, `TXOPAQ`, `OVSET` and `OVCLR` are `CZ_PTSLNT`,
+    `CZ_TXOPAQ`, `CZ_OVSET` and `CZ_OVCLR`;
+  - the descriptors are `CZ_M640`, `CZ_M800` and `CZ_M1K`;
+  - the fonts are `CZ_F8` and `CZ_F11`;
+  - the status bits are `<cadzilla.h>`'s `CZ_SR_CER`, `CZ_SR_ARD`, ...
+- **Tables are C arrays in the library's layout.**
+  - A point table is `int t[] = { n, x0,y0, x1,y1, ... }` (for
+    `cz_polygon` and `cz_polyline`).
+  - A pattern table is `unsigned int t[] = { n, w0, ... }` (for
+    `cz_ldpat`).
+  - A `CZ_CM_PRAM` tile is a pattern table of `CZ_TILE(c)` words.
+- **Data:** `cz_xmax` and `cz_ymax` are the mode's size. Treat them as
+  read-only.
+- **Strings:**
+  - `cz_text` draws a string up to its NUL, 255 characters at most;
+  - `cz_tstr(s, n)` draws n characters;
+  - characters outside 20H-7EH draw as a blank.
+- **`cz_earc` and `cz_rearc` are macros.** They square their `rx`, `ry` for
+  the `_sq` functions (at compile time for constants), so those two
+  arguments are evaluated twice.
+- **The library is assembled for the board at I/O base 70H.**
+  `-DCZ_BASE=...` in `zcc.flags` moves only `<cadzilla.h>`'s ports, not the
+  library's.
+- **Names:** every C name is `cz_` or `CZ_` plus the rest, so don't define
+  your own `cz_...` names. (The assembly-side `CZ...` names are not
+  visible from C.)
+
+### The C functions
+
+| Macro / routine | C |
+|---|---|
+| `GINIT m`, `CZINIT` | `cz_init(CZ_M1K)` (or a descriptor of your own) |
+| `GCLS c` | `cz_cls(c)` |
+| `GPAL i,r,g,b` / `CZPALD` | `cz_pal(i, r, g, b)` / `cz_paldef()` |
+| `GCOLOR c` | `cz_color(c)` |
+| `GMOVE` `GLINE` `GRECT` `GFRECT` `GDOT x,y` | `cz_move` `cz_line` `cz_rect` `cz_frect` `cz_dot(x, y)` |
+| `GRMOVE` `GRLINE` `GRRECT` `GRFRCT dx,dy` | `cz_rmove` `cz_rline` `cz_rrect` `cz_rfrect(dx, dy)` |
+| `GSEG` / `GBOX x1,y1,x2,y2` | `cz_seg` / `cz_box(x1, y1, x2, y2)` |
+| `GFBOX x1,y1,x2,y2,c` | `cz_fbox(x1, y1, x2, y2, c)` |
+| `GPLT t` / `GPLG t` (and `GPLINE`, `GPOLY`) | `cz_polyline(t)` / `cz_polygon(t)` |
+| `GWAIT` | `cz_wait()`: the status register |
+| `GABORT` | `cz_abort()` |
+| `GCIRC x,y,r` / `CZCRCL` at the CP | `cz_circle(x, y, r)` / `cz_circle_cp(r)` |
+| `GELLIP x,y,rx,ry` / `CZELPS` at the CP | `cz_ellipse(x, y, rx, ry)` / `cz_ellipse_cp(rx, ry)` |
+| `GARC` / `GRARC xc,yc,xe,ye,dir` | `cz_arc` / `cz_rarc(xc, yc, xe, ye, dir)` |
+| `GEARC` / `GREARC rx,ry,xc,yc,xe,ye,dir` | `cz_earc` / `cz_rearc(rx, ry, xc, yc, xe, ye, dir)` |
+| `GPAINT x,y,e` / `GFLOOD x,y,c` | `cz_paint(x, y, e)` / `cz_flood(x, y, c)`; at the CP: `cz_paint_cp(e)` / `cz_flood_cp(c)` |
+| `GCOPY x1,y1,x2,y2,xd,yd,t` | `cz_copy(x1, y1, x2, y2, xd, yd, t)` |
+| `GMODE m` | `cz_setmode(m)` |
+| `GOPM` `GCMODE` `GAMODE m` | `cz_opm` `cz_cmode` `cz_amode(m)` |
+| `GBCOL c` / `GCCMP c` | `cz_bcol(c)` / `cz_ccmp(c)` |
+| `GAREA x1,y1,x2,y2` / `GAFULL` | `cz_area(x1, y1, x2, y2)` / `cz_afull()` |
+| `GGETCP` | `cz_getcp(&x, &y)` |
+| `GRDOT x,y` | `cz_rdot(x, y)`: the color, or -1 off the screen |
+| `GLDPAT t,pra` | `cz_ldpat(t, pra)` |
+| `GPSCAN x0,y0,x1,y1,zx,zy` / `GPPTR x,y` / `GPDEF` | `cz_pscan(x0, y0, x1, y1, zx, zy)` / `cz_pptr(x, y)` / `cz_pdef()` |
+| `GLSTYL pat,zoom` | `cz_lstyle(pat, zoom)` |
+| `GPTN x,y,w,h,dir` / `CZPTN` at the CP | `cz_ptn(x, y, w, h, dir)` / `cz_ptn_cp(w, h, dir)` |
+| `GOVON` `GOVOFF` `GOVL` `GFRAME` `GOVCLS` | `cz_ovon()` `cz_ovoff()` `cz_ovl()` `cz_frame()` `cz_ovcls()` |
+| `GOVPAL r,g,b` | `cz_ovpal(r, g, b)` |
+| `GFONT f` | `cz_font(CZ_F8)` / `cz_font(CZ_F11)` |
+| `GTPOS x,y` / `GTATTR s,d,f` | `cz_tpos(x, y)` / `cz_tattr(s, d, f)` |
+| `GTEXT "text"` / `GTSTR` / `GTCHR c` / `GTNL` | `cz_text("text")` / `cz_tstr(s, n)` / `cz_tchr(c)` / `cz_tnl()` |
+| `CZPUTW` `CZCMD` `CZWPR` `CZWREG` | `cz_putw(w)` `cz_cmd(op)` `cz_wpr(r, v)` `cz_wreg(r, v)` |
 
 ## Changing the library
 
@@ -462,11 +644,16 @@ fonts to an image.
   - make it `PUBLIC` in the module;
   - add it to the `EXTERN` block in `CZ88GFX.INC`, and a macro if it
     helps;
-  - exercise it in `CZ88CHK.Z88`.
+  - exercise it in `CZ88CHK.Z88`;
+  - for C: a stub (or a `DEFC`) in the matching `CZC*.Z88` module, its
+    prototype in `cz88gfx.h`, a call in `czcchk.c`, and a row in the
+    table above.
 - **New module:**
   - create `src/CZxxxx.Z88`: `INCLUDE "CZ88GFX.INC"`, `SECTION code_user`,
     and its `PUBLIC`s;
-  - add its names to the header's `EXTERN` block.
+  - add its names to the header's `EXTERN` block;
+  - give it C bindings in a new `src/CZCxxxx.Z88` of its own, so a C
+    program that doesn't use it doesn't link it.
 
   `build.sh` picks up every `.Z88` in `src/` except the check program.
   Unlike LIB80, z80asm has no module order to keep.
@@ -474,5 +661,5 @@ fonts to an image.
   z88demo) if you like.
 - Programs are not affected until they move: each builds against the
   release it pins.
-- When the change is ready, raise `CZ88VER`, release it, then move the
+- When the change is ready, raise `CZ88VER` and `CZ88GFX_VERSION`, release it, then move the
   programs that want it to the new release.

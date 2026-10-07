@@ -18,10 +18,11 @@ There are four toolchains. The project is built for one of them:
 | `asm` (default) | one self-contained `<NAME>.ASM`; DRI `ASM.COM` + `LOAD.COM`; no INCLUDE, no macros, no linker | `cadzilla-build-asm` | `software/hello` |
 | `m80` | relocatable `<NAME>.MAC`; Microsoft `M80` + `L80`; `INCLUDE B:CZGFX.INC`, the czgfx graphics macros and library, linked with `SUBMIT B:CZLINK` | `cadzilla-build-m80` | `software/gfxdemo` |
 | `z88dk` | `<NAME>.Z88` (plus any other `.Z88` modules); z88dk's `z80asm`, run **on the host** by `tools/z88dk/z88build.sh`; Intel and/or Zilog mnemonics; targets the 8080, 8085 or Z80 (`--cpu`); draws with **cz88gfx** (czgfx ported to z80asm), pinned in `cz88gfx.version` | `cadzilla-build-z88dk` | `software/zhello`, `software/z88demo` (draws) |
-| `zcc` | **C**: lowercase `<name>.c` (plus any other `.c` and `.Z88` modules); z88dk's `zcc`, run **on the host** by `tools/z88dk/zccbuild.sh`; targets the 8080, 8085 or Z80 (`--cpu`); no czgfx | `cadzilla-build-zcc` | `software/chello` |
+| `zcc` | **C**: lowercase `<name>.c` (plus any other `.c` and `.Z88` modules); z88dk's `zcc`, run **on the host** by `tools/z88dk/zccbuild.sh`; targets the 8080, 8085 or Z80 (`--cpu`); draws with **cz88gfx**'s C bindings (`#include <cz88gfx.h>`), pinned in `cz88gfx.version` | `cadzilla-build-zcc` | `software/chello`, `software/cgfxdemo` (draws) |
 
 **For anything that draws on the CADzilla board, use a toolchain with a
-graphics library: `m80` (czgfx) or `z88dk` (cz88gfx).** Both libraries
+graphics library: `m80` (czgfx), `z88dk` (cz88gfx) or `zcc` (cz88gfx from
+C).** Both libraries
 already do the board setup and the drawing primitives, which an `asm`
 project would have to copy in whole (as `firstdraw` and `drawdemo` did).
 They have the same routines and macros. `m80` builds with the period tools
@@ -29,7 +30,8 @@ inside CP/M; `z88dk` builds on the host and can target the 8085 or Z80.
 `asm` is fine for small console-only programs. **Use `z88dk` when the
 target is an 8085 or a Z80, when the user wants Zilog mnemonics or Z80
 instructions, or when they ask for host-side cross-assembly.** **Use `zcc`
-when the user wants to write C**; no graphics library links with C yet. If
+when the user wants to write C**; it draws with cz88gfx through
+`cz88gfx.h` (release 1.1 or later). If
 the user hasn't said which toolchain and it isn't obvious from what the
 program does, ask.
 
@@ -65,8 +67,9 @@ code and the machine always agree. An
 existing `machine.toml`'s `cpu0` wins over `--cpu`. A z88dk project also
 gets the newest cz88gfx release pinned in its tracked `cz88gfx.version`
 (an existing pin is kept; with no release yet, no pin), so it can
-`INCLUDE "CZ88GFX.INC"` and draw. The library links only what a program
-uses, so a program that draws nothing carries none of it. The z88dk starter
+`INCLUDE "CZ88GFX.INC"` and draw. A zcc project gets the same pin, so it can
+`#include <cz88gfx.h>` and draw from C. The library links only what a
+program uses, so a program that draws nothing carries none of it. The z88dk starter
 `src/<NAME>.Z88` (LF line endings, which z80asm accepts) prints the message
 and then `Built for <X>, running on <Y>`. `<Y>` comes from detecting the CPU
 at run time, so the line proves the build target and the emulated CPU match.

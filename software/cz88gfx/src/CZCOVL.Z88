@@ -1,0 +1,25 @@
+;
+; CZCOVL.Z88 -- cz88gfx C bindings for CZOVL: the 1 bpp overlay
+; (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_ovon,_cz_ovoff,_cz_ovl,_cz_frame,_cz_ovpal
+;
+        SECTION code_user
+;
+        DEFC    _cz_ovon = CZOVON       ;void cz_ovon(void)
+        DEFC    _cz_ovoff = CZOVOF      ;void cz_ovoff(void)
+        DEFC    _cz_ovl = CZOVL         ;void cz_ovl(void)
+        DEFC    _cz_frame = CZFRM       ;void cz_frame(void)
+;
+; void cz_ovpal(unsigned char r, unsigned char g, unsigned char b)
+;
+_cz_ovpal:
+        POP     H               ;the return address
+        POP     D               ;E = b
+        POP     B               ;C = g
+        XTHL                    ;HL = r, the return address back
+        MOV     B,L
+        JMP     CZOPAL
+;

@@ -1,0 +1,39 @@
+;
+; CZCTXT.Z88 -- cz88gfx C bindings for CZTXT: the font and strings
+; (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_font,_cz_text,_cz_tstr
+;
+        SECTION code_user
+;
+        DEFC    _cz_font = CZTFNT       ;void cz_font(const void *f) fastcall
+;
+; void cz_text(const char *s) fastcall -- the string up to its NUL, 255
+; characters at most
+;
+_cz_text:
+        MOV     D,H
+        MOV     E,L
+        MVI     B,0
+TXLP:   LDAX    D
+        ORA     A
+        JZ      CZTSTR
+        INX     D
+        INR     B
+        MOV     A,B
+        CPI     255
+        JNZ     TXLP
+        JMP     CZTSTR
+;
+; void cz_tstr(const char *s, unsigned char n) -- the n characters at s
+;
+_cz_tstr:
+        POP     D
+        POP     B
+        POP     H
+        PUSH    D
+        MOV     B,C
+        JMP     CZTSTR
+;

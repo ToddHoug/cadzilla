@@ -1,0 +1,13 @@
+;
+; CZCPOLY.Z88 -- cz88gfx C bindings for CZPOLY: polylines and polygons
+; from a point table, int {n, x0,y0, x1,y1, ...} (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_polyline,_cz_polygon
+;
+        SECTION code_user
+;
+        DEFC    _cz_polyline = CZPLL    ;void cz_polyline(const int *t) fastcall
+        DEFC    _cz_polygon = CZPLG     ;void cz_polygon(const int *t) fastcall
+;

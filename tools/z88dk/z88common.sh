@@ -19,6 +19,30 @@ find_z80asm() {
   fi
 }
 
+# find_zcc: set ZCC, z88dk's C compiler driver, the snap's name first, then a
+# native install's.
+find_zcc() {
+  if command -v z88dk.zcc >/dev/null 2>&1; then
+    ZCC=z88dk.zcc
+  elif command -v zcc >/dev/null 2>&1; then
+    ZCC=zcc
+  else
+    echo "error: z88dk's zcc not found (snap: z88dk.zcc, native: zcc)" >&2
+    exit 1
+  fi
+}
+
+# zcc_clib: set CLIB, zcc's CP/M C library for $CPU (lib/config/cpm.cfg). It
+# also sets the compiler's and assembler's -m flag and defines __8080 /
+# __8085 / __Z80.
+zcc_clib() {
+  case "$CPU" in
+    8080) CLIB=8080 ;;
+    8085) CLIB=8085 ;;
+    z80)  CLIB=default ;;
+  esac
+}
+
 # check_snap_path <dir>: the snap is confined to non-hidden paths under $HOME.
 # Anywhere else (/tmp included) it reports "file not found" for files that
 # plainly exist. A no-op unless SNAP=1.
@@ -66,11 +90,14 @@ read_cpu() {
 # read_cz88gfx <project>: the cz88gfx graphics library, if the project pins it
 # in cz88gfx.version: a release ("1.0" -> software/cz88gfx/releases/1.0/) or
 # "dev" (software/cz88gfx's own src/ and build/, warning if that build is older
-# than its sources). Sets CZ88GFX to the pin and CZ88FLAGS to the z80asm flags
-# that put CZ88GFX.INC on the include path and link CZ88GFX.LIB; both empty
-# without a pin. Exits on a pin that names no release.
+# than its sources). Sets CZ88GFX to the pin, CZ88INC to the directory holding
+# CZ88GFX.INC (and, from 1.1, cz88gfx.h), CZ88LIB to the library, and CZ88FLAGS
+# to the z80asm flags that put CZ88INC on the include path and link CZ88LIB;
+# all empty without a pin. Exits on a pin that names no release.
 read_cz88gfx() {
   CZ88GFX=""
+  CZ88INC=""
+  CZ88LIB=""
   CZ88FLAGS=()
   local pin="$1/cz88gfx.version"
   [ -f "$pin" ] || return 0
@@ -95,6 +122,8 @@ read_cz88gfx() {
       exit 1
     fi
   fi
+  CZ88INC="$inc"
+  CZ88LIB="$lib"
   CZ88FLAGS=(-I"$inc" -l="$lib")
 }
 

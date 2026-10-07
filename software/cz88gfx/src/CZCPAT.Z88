@@ -1,0 +1,101 @@
+;
+; CZCPAT.Z88 -- cz88gfx C bindings for CZPAT: the pattern RAM, line
+; styles and PTN (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_ldpat,_cz_lstyle,_cz_pscan,_cz_pptr,_cz_ptn,_cz_ptn_cp
+        EXTERN  CZCPOP,CZCAV,CZCMV
+;
+        SECTION code_user
+;
+; void cz_ldpat(const unsigned *t, unsigned char pra) -- t = {n, w0, ...}
+;
+_cz_ldpat:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        MOV     A,E
+        JMP     CZLPAT
+;
+; void cz_lstyle(unsigned pat, unsigned char zoom)
+;
+_cz_lstyle:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        MOV     A,E
+        JMP     CZLSTY
+;
+; void cz_pscan(unsigned char x0, unsigned char y0, unsigned char x1,
+;               unsigned char y1, unsigned char zx, unsigned char zy)
+; The six words packed into the six bytes CZPSCN takes.
+;
+_cz_pscan:
+        MVI     C,6
+        CALL    CZCPOP
+        LXI     H,CZCAV
+        MOV     D,H
+        MOV     E,L
+        MVI     B,6
+PSCLP:  MOV     A,M
+        STAX    D
+        INX     H
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     PSCLP
+        LXI     H,CZCAV
+        JMP     CZPSCN
+;
+; void cz_pptr(unsigned char x, unsigned char y) -- Pr05 = y*1000H + x*10H
+;
+_cz_pptr:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        MOV     A,E
+        CALL    NIBHI
+        MOV     H,A
+        MOV     A,L
+        CALL    NIBHI
+        MOV     L,A
+        MVI     A,05H
+        JMP     CZWPR
+NIBHI:  ANI     0FH
+        RLC
+        RLC
+        RLC
+        RLC
+        RET
+;
+; void cz_ptn(int x, int y, unsigned w, unsigned h, unsigned char dir)
+; void cz_ptn_cp(unsigned w, unsigned h, unsigned char dir) -- at the CP
+;
+_cz_ptn:
+        MVI     C,5
+        CALL    CZCPOP
+        CALL    CZCMV
+        LXI     H,CZCAV+4
+        JMP     PTNGO
+_cz_ptn_cp:
+        MVI     C,3
+        CALL    CZCPOP
+        LXI     H,CZCAV
+PTNGO:  MOV     A,M             ;HL -> w, h, dir: L = w-1, H = h-1
+        DCR     A
+        MOV     E,A
+        INX     H
+        INX     H
+        MOV     A,M
+        DCR     A
+        MOV     D,A
+        INX     H
+        INX     H
+        MOV     A,M
+        XCHG
+        JMP     CZPTN
+;

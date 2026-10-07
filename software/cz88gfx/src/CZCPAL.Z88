@@ -1,0 +1,25 @@
+;
+; CZCPAL.Z88 -- cz88gfx C bindings for CZPAL: the palette (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_pal,_cz_paldef
+;
+        SECTION code_user
+;
+        DEFC    _cz_paldef = CZPALD     ;void cz_paldef(void)
+;
+; void cz_pal(unsigned char i, unsigned char r, unsigned char g,
+;             unsigned char b)
+;
+_cz_pal:
+        POP     H               ;the return address
+        POP     D               ;E = b
+        POP     B               ;C = g
+        XTHL                    ;HL = r, the return address back
+        MOV     B,L
+        POP     H
+        XTHL                    ;HL = i, the return address back
+        MOV     A,L
+        JMP     CZPALS
+;

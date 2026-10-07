@@ -1,6 +1,6 @@
 ---
 name: cadzilla-build-zcc
-description: Builds, runs and debugs a CADzilla software project written in C with the z88dk zcc toolchain -- lowercase src/*.c sources (plus optional .Z88 assembly modules), compiled on the HOST by z88dk's zcc (sccz80 + the classic CP/M C library) via tools/z88dk/zccbuild.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, all through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .c file (software/chello, anything scaffolded with --toolchain zcc), retarget a C program to another CPU, call assembly from C, or asks about writing C for the 8080, 8085, Z80 or CP/M in this repo. For .Z88-only projects use cadzilla-build-z88dk; for .ASM use cadzilla-build-asm; for .MAC use cadzilla-build-m80.
+description: Builds, runs and debugs a CADzilla software project written in C with the z88dk zcc toolchain -- lowercase src/*.c sources (plus optional .Z88 assembly modules), compiled on the HOST by z88dk's zcc (sccz80 + the classic CP/M C library) via tools/z88dk/zccbuild.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, all through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .c file (software/chello, software/cgfxdemo, anything scaffolded with --toolchain zcc), draw on the board from C with cz88gfx's C bindings (#include <cz88gfx.h>, cz_ functions), retarget a C program to another CPU, call assembly from C, or asks about writing C for the 8080, 8085, Z80 or CP/M in this repo. To change the C bindings themselves (software/cz88gfx), use cadzilla-build-z88dk. For .Z88-only projects use cadzilla-build-z88dk; for .ASM use cadzilla-build-asm; for .MAC use cadzilla-build-m80.
 ---
 
 # Build a CADzilla C project with z88dk (zcc)
@@ -178,8 +178,24 @@ unless asked.
     call a shared self-modifying RAM stub, which is slow and not
     interrupt-safe. `zccbuild.sh` fails such a build (the `iotmp` error), and
     `inp()` doesn't even link there (`undefined symbol: inp_fastcall`).
-- No graphics library links with C yet: czgfx is M80 `.REL` code, and
-  cz88gfx (the z80asm port, for `.Z88` programs) has no sccz80 entry points.
+- **Graphics: cz88gfx's C bindings** (release 1.1 and later).
+  `software/cgfxdemo` is the worked example.
+  - **Setup:** pin a release in `cz88gfx.version` (`echo 1.1 > ...`), then
+    `#include <cz88gfx.h>`. `zccbuild.sh` adds the include path and links
+    `CZ88GFX.LIB`; its first line names the pin, and a 1.0 pin is an error.
+  - **Calls:** `cz_init(CZ_M1K)`, `cz_color(c)`, `cz_move/line/box/fbox`,
+    `cz_circle`, `cz_arc`, `cz_paint`, `cz_copy`, `cz_text`,
+    `cz_ovl()`/`cz_frame()`, `cz_wait()`, and the rest. Each is the
+    `G...` macro's verb with a `cz_` prefix. Constants are `CZ_` (`CZ_RED +
+    CZ_BRIGHT`, `CZ_OM_EOR`, `CZ_AM_CLIP`).
+  - **Tables** are C arrays in the library's layout: `{n, x0,y0, ...}`.
+  - **Under the hood:** each function is a few instructions of assembly
+    jumping into the library routine. Draw with these, not with C loops
+    over `<cadzilla.h>` ports, which are bigger and slower.
+  - **Reference:** `software/cz88gfx/README.md`, "Using it from C", has the
+    API table.
+  - **To verify a drawing,** snapshot the machine and decode it with
+    `tools/altairsim/scripts/cadzilla_png.py`.
 
 ## Timing
 

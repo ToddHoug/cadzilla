@@ -1,0 +1,55 @@
+;
+; CZCARG.Z88 -- cz88gfx C bindings: the shared argument helpers
+;
+; The C entry points (the CZC*.Z88 modules, cz88gfx.h) are sccz80
+; __smallc __z88dk_callee functions: the C caller pushes the arguments
+; left to right, 2 bytes each, and the entry itself takes them off the
+; stack. One or two arguments are popped straight into registers. An
+; entry with more calls CZCPOP first, which moves them into CZCAV in
+; the order they were declared -- often exactly the parameter table the
+; library routine wants.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  CZCPOP,CZCAV,CZCMV
+;
+        SECTION code_user
+;
+; CZCPOP -- take C = 1-7 argument words off the stack into CZCAV, the
+; first argument at CZCAV+0. Call it from the entry point, with the
+; stack as the C call left it: CZCPOP's own return address, the C
+; caller's, then the arguments, the last one on top. Returns with only
+; the C caller's return address left. Clobbers all registers.
+;
+CZCPOP: POP     H               ;the entry point's return address
+        SHLD    CPRET
+        POP     H               ;the C caller's
+        SHLD    CPCRET
+        MVI     B,0
+        LXI     H,CZCAV         ;HL = just past the last argument's place
+        DAD     B
+        DAD     B
+CPLP:   POP     D               ;the last argument first
+        DCX     H
+        MOV     M,D
+        DCX     H
+        MOV     M,E
+        DCR     C
+        JNZ     CPLP
+        LHLD    CPCRET
+        PUSH    H
+        LHLD    CPRET
+        PCHL
+;
+; CZCMV -- move the CP to the first two arguments: X = CZCAV+0,
+; Y = CZCAV+2
+;
+CZCMV:  LHLD    CZCAV+2
+        XCHG
+        LHLD    CZCAV
+        JMP     CZMOVE
+;
+CZCAV:  DS      14              ;up to 7 arguments
+CPRET:  DW      0
+CPCRET: DW      0
+;

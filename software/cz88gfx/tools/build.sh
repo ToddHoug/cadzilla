@@ -6,8 +6,10 @@
 # then check it the way czgfx's CZBUILD.SUB does (LIB80 /U and the CZCHK
 # link): src/CZ88CHK.Z88, which expands every macro in CZ88GFX.INC and
 # references every entry point, is linked against the new library for the
-# 8080, 8085 and Z80. A broken macro or a missing PUBLIC fails here, not in
-# the first project that uses it.
+# 8080, 8085 and Z80. So is src/czcchk.c, which calls every C entry point in
+# src/cz88gfx.h (the CZC*.Z88 modules), compiled by zcc. A broken macro, a
+# wrong prototype or a missing PUBLIC fails here, not in the first project
+# that uses it.
 #
 # The library is 8080 code (Intel mnemonics, assembled -m8080), which
 # z80asm links unchanged into an 8080, 8085 or Z80 program.
@@ -16,6 +18,7 @@
 #   CZ88GFX.LIB              the library (what a release snapshots)
 #   CZ*.O, CZ*.LIS           per-module objects and listings
 #   CHK8080.COM/.MAP, CHK8085..., CHKZ80...   the link check, per CPU
+#   CCHK8080.COM/.MAP, CCHK8085..., CCHKZ80...  the C check, per CPU
 #
 # A project pinned to "dev" (cz88gfx.version) links this build directly;
 # tools/release.sh snapshots it as a numbered release.
@@ -96,6 +99,28 @@ for CPU in 8080 8085 z80; do
   echo "  check: build/$chk.COM links ($(stat -c %s "$BUILD/$chk.COM") bytes)"
 done
 shopt -u nullglob
+
+# The C bindings' check, likewise: src/czcchk.c calls every entry point in
+# cz88gfx.h, compiled by zcc for each CPU's C library and linked against the
+# new library.
+find_zcc
+ZINC="$REPO_ROOT/tools/z88dk/include"
+for CPU in 8080 8085 z80; do
+  zcc_clib
+  chk="CCHK${CPU^^}"
+  OUT="$(
+    cd "$SRC"
+    "$ZCC" +cpm -clib="$CLIB" -I"$SRC" -I"$ZINC" -m -o "$BUILD/$chk.COM" \
+      czcchk.c -l"$BUILD/CZ88GFX.LIB" 2>&1
+  )" || RC=$?
+  [ -n "$OUT" ] && printf '%s\n' "$OUT" >&2
+  [ -f "$BUILD/$chk.map" ] && mv -f "$BUILD/$chk.map" "$BUILD/$chk.MAP"
+  if [ "$RC" -ne 0 ] || [ ! -f "$BUILD/$chk.COM" ]; then
+    echo "error: the C bindings' check (czcchk.c) failed for the $CPU" >&2
+    exit "$(( RC ? RC : 1 ))"
+  fi
+  echo "  check: build/$chk.COM links (C, $(stat -c %s "$BUILD/$chk.COM") bytes)"
+done
 
 SIZE="$(stat -c %s "$BUILD/CZ88GFX.LIB")"
 echo "  build/CZ88GFX.LIB  $SIZE bytes; build/CZ*.LIS listings"

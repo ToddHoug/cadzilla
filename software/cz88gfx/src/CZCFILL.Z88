@@ -1,0 +1,73 @@
+;
+; CZCFILL.Z88 -- cz88gfx C bindings for CZFILL: PAINT and graphic copy
+; (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_paint,_cz_flood,_cz_paint_cp,_cz_flood_cp,_cz_copy
+        EXTERN  CZCPOP,CZCAV,CZCMV
+;
+        SECTION code_user
+;
+; void cz_paint(int x, int y, unsigned char edge)
+; void cz_flood(int x, int y, unsigned char c)
+;
+_cz_paint:
+        MVI     C,3
+        CALL    CZCPOP
+        CALL    CZCMV
+        LDA     CZCAV+4
+        JMP     CZPANT
+_cz_flood:
+        MVI     C,3
+        CALL    CZCPOP
+        CALL    CZCMV
+        LDA     CZCAV+4
+        JMP     CZFLOD
+;
+; void cz_paint_cp(unsigned char edge) fastcall -- from the CP
+; void cz_flood_cp(unsigned char c) fastcall
+;
+_cz_paint_cp:
+        MOV     A,L
+        JMP     CZPANT
+_cz_flood_cp:
+        MOV     A,L
+        JMP     CZFLOD
+;
+; void cz_copy(int x1, int y1, int x2, int y2, int xd, int yd,
+;              unsigned char t)
+; The first four arguments become the table CZGCPY takes, Xs,Ys,DX,DY:
+; x2 and y2 turned into the extents x2-x1, y2-y1.
+;
+_cz_copy:
+        MVI     C,7
+        CALL    CZCPOP
+        LHLD    CZCAV           ;DX = x2 - x1
+        XCHG
+        LHLD    CZCAV+4
+        CALL    SUBDE
+        SHLD    CZCAV+4
+        LHLD    CZCAV+2         ;DY = y2 - y1
+        XCHG
+        LHLD    CZCAV+6
+        CALL    SUBDE
+        SHLD    CZCAV+6
+        LHLD    CZCAV+10        ;CP = xd,yd
+        XCHG
+        LHLD    CZCAV+8
+        CALL    CZMOVE
+        LDA     CZCAV+12
+        LXI     H,CZCAV
+        JMP     CZGCPY
+;
+; SUBDE -- HL = HL - DE
+;
+SUBDE:  MOV     A,L
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        RET
+;

@@ -1,0 +1,77 @@
+;
+; CZCCURV.Z88 -- cz88gfx C bindings for CZCURV: circles, ellipses and
+; arcs (cz88gfx.h)
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  _cz_circle,_cz_circle_cp,_cz_ellipse,_cz_ellipse_cp
+        PUBLIC  _cz_arc,_cz_rarc,_cz_earc_sq,_cz_rearc_sq
+        EXTERN  CZCPOP,CZCAV,CZCMV
+;
+        SECTION code_user
+;
+        DEFC    _cz_circle_cp = CZCRCL  ;void cz_circle_cp(unsigned r) fastcall
+;
+; void cz_circle(int x, int y, unsigned r)
+;
+_cz_circle:
+        MVI     C,3
+        CALL    CZCPOP
+        CALL    CZCMV
+        LHLD    CZCAV+4
+        JMP     CZCRCL
+;
+; void cz_ellipse(int x, int y, unsigned rx, unsigned ry)
+; void cz_ellipse_cp(unsigned rx, unsigned ry) -- round the CP
+;
+_cz_ellipse:
+        MVI     C,4
+        CALL    CZCPOP
+        CALL    CZCMV
+        LHLD    CZCAV+6
+        XCHG
+        LHLD    CZCAV+4
+        JMP     CZELPS
+_cz_ellipse_cp:
+        POP     B
+        POP     D
+        POP     H
+        PUSH    B
+        JMP     CZELPS
+;
+; void cz_arc(int xc, int yc, int xe, int ye, unsigned char dir)
+; void cz_rarc(...) -- the same, relative to the CP
+; The arguments land in CZCAV as the table CZARC takes: Xc,Yc,Xe,Ye.
+;
+_cz_arc:
+        MVI     C,5
+        CALL    CZCPOP
+        LDA     CZCAV+8
+        ADI     OPAARC
+        JMP     ARCGO
+_cz_rarc:
+        MVI     C,5
+        CALL    CZCPOP
+        LDA     CZCAV+8
+        ADI     OPRARC
+        JMP     ARCGO
+;
+; void cz_earc_sq(unsigned a, unsigned b, int xc, int yc, int xe, int ye,
+;                 unsigned char dir) -- a : b = rx^2 : ry^2 (cz_earc)
+; void cz_rearc_sq(...) -- the same, relative to the CP
+; The table: a,b,Xc,Yc,Xe,Ye.
+;
+_cz_earc_sq:
+        MVI     C,7
+        CALL    CZCPOP
+        LDA     CZCAV+12
+        ADI     OPAEAR
+        JMP     ARCGO
+_cz_rearc_sq:
+        MVI     C,7
+        CALL    CZCPOP
+        LDA     CZCAV+12
+        ADI     OPREAR
+ARCGO:  LXI     H,CZCAV
+        JMP     CZARC
+;
