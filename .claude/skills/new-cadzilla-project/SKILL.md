@@ -1,6 +1,6 @@
 ---
 name: new-cadzilla-project
-description: Scaffolds a new 8080/8085/Z80 CP/M software project in the CADzilla repo under software/<name>/, with a CP/M-uppercased starter assembly source file (CR/LF-terminated where CP/M assembles it) for any of the three toolchains -- the original DRI ASM.COM (single .ASM), Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:), or the z88dk host cross-assembler for the 8080, 8085 or Z80 with Intel and/or Zilog mnemonics (.Z88, --cpu) -- then drives the altairsim MCP server through a first build and run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080/8085/Z80 assembly source file for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
+description: Scaffolds a new 8080/8085/Z80 CP/M software project in the CADzilla repo under software/<name>/, with a starter source file for any of the four toolchains -- the original DRI ASM.COM (single .ASM), Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:), the z88dk host cross-assembler for the 8080, 8085 or Z80 with Intel and/or Zilog mnemonics (.Z88, --cpu), or the z88dk zcc C compiler for the 8080, 8085 or Z80 (lowercase .c plus a .Z88 module, --cpu) -- then drives the altairsim MCP server through a first build and run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080/8085/Z80 assembly or C program for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
 ---
 
 # New CADzilla project
@@ -11,13 +11,14 @@ server. `tools/altairsim/README.md` documents the full workflow and the
 gotchas found while building it; this skill exists so those gotchas don't
 have to be rediscovered every time a new project starts.
 
-There are three toolchains. The project is built for one of them:
+There are four toolchains. The project is built for one of them:
 
 | `--toolchain` | Source | Build skill | Reference project |
 |---|---|---|---|
 | `asm` (default) | one self-contained `<NAME>.ASM`; DRI `ASM.COM` + `LOAD.COM`; no INCLUDE, no macros, no linker | `cadzilla-build-asm` | `software/hello` |
 | `m80` | relocatable `<NAME>.MAC`; Microsoft `M80` + `L80`; `INCLUDE B:CZGFX.INC`, the czgfx graphics macros and library, linked with `SUBMIT B:CZLINK` | `cadzilla-build-m80` | `software/gfxdemo` |
 | `z88dk` | `<NAME>.Z88` (plus any other `.Z88` modules); z88dk's `z80asm`, run **on the host** by `tools/z88dk/z88build.sh`; Intel and/or Zilog mnemonics; targets the 8080, 8085 or Z80 (`--cpu`); no czgfx | `cadzilla-build-z88dk` | `software/zhello` |
+| `zcc` | **C**: lowercase `<name>.c` (plus any other `.c` and `.Z88` modules); z88dk's `zcc`, run **on the host** by `tools/z88dk/zccbuild.sh`; targets the 8080, 8085 or Z80 (`--cpu`); no czgfx | `cadzilla-build-zcc` | `software/chello` |
 
 **Recommend `m80` for anything that draws on the CADzilla board.** The
 czgfx library already does the board setup and the drawing primitives,
@@ -25,7 +26,8 @@ which an `asm` project would have to copy in whole (as `firstdraw` and
 `drawdemo` did). `asm` is fine for small console-only programs. **Use
 `z88dk` when the target is an 8085 or a Z80, when the user wants Zilog
 mnemonics or Z80 instructions, or when they ask for host-side
-cross-assembly.** It has no graphics library yet (czgfx is M80-only). If the
+cross-assembly.** **Use `zcc` when the user wants to write C.** Neither
+z88dk toolchain has a graphics library yet (czgfx is M80-only). If the
 user hasn't said which toolchain and it isn't obvious from what the program
 does, ask.
 
@@ -53,16 +55,28 @@ which `ASM.COM` accepts silently and then assembles into nothing):
 .claude/skills/new-cadzilla-project/scripts/new_project.sh <name> [--toolchain asm|m80|z88dk] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] ["<welcome message>"]
 ```
 
-`--cpu` (z88dk only, default `8080`) is the target CPU. The script writes it
-to `machine.toml` as a `cpu0` `[[board]]` block (`type = "z80"` etc.). That
-block both replaces the emulated CPU card in `work/cadzilla.toml` and gives
-`z88build.sh` its `-m` flag, so the code and the machine always agree. An
+`--cpu` (z88dk and zcc only, default `8080`) is the target CPU. The script
+writes it to `machine.toml` as a `cpu0` `[[board]]` block (`type = "z80"`
+etc.). That block both replaces the emulated CPU card in `work/cadzilla.toml`
+and gives `z88build.sh` its `-m` flag (`zccbuild.sh`: its C library), so the
+code and the machine always agree. An
 existing `machine.toml`'s `cpu0` wins over `--cpu`. The z88dk starter
 `src/<NAME>.Z88` (LF line endings, which z80asm accepts) prints the message
 and then `Built for <X>, running on <Y>`. `<Y>` comes from detecting the CPU
 at run time, so the line proves the build target and the emulated CPU match.
 It uses Intel mnemonics for the 8080/8085 and Zilog ones (with IX, which is
 Z80-only) for the Z80. Its welcome message can't contain `"` or `$`.
+
+With `--toolchain zcc`, the C source is **lowercase**: zcc only takes a
+lowercase `.c`, and the file never reaches CP/M. `--cpm-name` still sets the
+program name, and the file is that name lowercased. The script writes two
+files:
+- `src/<name>.c` prints the message and then `Built for <X>, running on <Y>`,
+  using `printf`.
+- `src/CPUID.Z88` is an assembly module the C code calls to find `<Y>`. It
+  shows the C-to-assembly calling convention.
+
+The message can't contain `"`, `\` or `%`.
 
 `--mode` is the display resolution: `1024x768` (default), `800x600` or
 `640x480`. The script writes it to the project's tracked
@@ -127,6 +141,10 @@ the steps below:** `tools/z88dk/z88build.sh software/<name>` on the host, then
 session. Its first-run check: the console shows the welcome message and
 `Built for <X>, running on <X>` with the same CPU twice, the one given to
 `--cpu`.
+
+**For a `zcc` project, follow the `cadzilla-build-zcc` skill** in the same
+way: `tools/z88dk/zccbuild.sh software/<name>`, then boot, `R`, run and
+close. The first-run check is the same `Built for <X>, running on <X>` line.
 
 **For an `m80` project, follow the `cadzilla-build-m80` skill instead of the
 steps below.** It covers:

@@ -26,6 +26,8 @@
 # z80asm predefines __CPU_8080__, __CPU_8085__ or __CPU_Z80__ (and
 # __CPU_INTEL__ / __CPU_ZILOG__) for IFDEF. See tools/z88dk/README.md.
 set -euo pipefail
+# shellcheck source=z88common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/z88common.sh"
 
 if [ $# -ne 1 ]; then
   echo "Usage: $0 software/<name>" >&2
@@ -38,54 +40,9 @@ BUILD="$PROJ/build"
 [ -d "$SRC" ] || { echo "error: $SRC does not exist" >&2; exit 1; }
 mkdir -p "$BUILD"
 
-# z80asm: the snap's name first, then a native install's.
-if command -v z88dk.z88dk-z80asm >/dev/null 2>&1; then
-  Z80ASM=z88dk.z88dk-z80asm
-  SNAP=1
-elif command -v z88dk-z80asm >/dev/null 2>&1; then
-  Z80ASM=z88dk-z80asm
-  SNAP=0
-else
-  echo "error: z88dk's z80asm not found (snap: z88dk.z88dk-z80asm, native: z88dk-z80asm)" >&2
-  exit 1
-fi
-
-# The snap is confined to non-hidden paths under $HOME. Anywhere else (/tmp
-# included) it reports "file not found" for files that plainly exist.
-if [ "$SNAP" = 1 ]; then
-  HOME_REAL="$(cd "$HOME" && pwd -P)"
-  case "$PROJ/" in
-    "$HOME_REAL"/*) ;;
-    *)
-      echo "error: $PROJ is outside \$HOME -- the z88dk snap can't see it" >&2
-      exit 1
-      ;;
-  esac
-  if [[ "${PROJ#"$HOME_REAL"/}" == .* || "${PROJ#"$HOME_REAL"/}" == */.* ]]; then
-    echo "error: $PROJ is under a hidden directory -- the z88dk snap can't see it" >&2
-    exit 1
-  fi
-fi
-
-# The CPU: the cpu0 [[board]] block in machine.toml, else pristine's 8080.
-CPU="8080"
-if [ -f "$PROJ/machine.toml" ]; then
-  FOUND="$(awk '
-    /^[[:space:]]*\[\[board\]\]/ { if (id == "cpu0" && type != "") cpu = type; id = ""; type = ""; next }
-    /^[[:space:]]*\[/            { if (id == "cpu0" && type != "") cpu = type; id = ""; type = ""; next }
-    /^[[:space:]]*id[[:space:]]*=/   { s = $0; sub(/#.*/, "", s); gsub(/.*=[[:space:]]*"|".*/, "", s); id = s }
-    /^[[:space:]]*type[[:space:]]*=/ { s = $0; sub(/#.*/, "", s); gsub(/.*=[[:space:]]*"|".*/, "", s); type = s }
-    END { if (id == "cpu0" && type != "") cpu = type; print cpu }
-  ' "$PROJ/machine.toml")"
-  [ -n "$FOUND" ] && CPU="$FOUND"
-fi
-case "$CPU" in
-  8080|8085|z80) ;;
-  *)
-    echo "error: machine.toml's cpu0 type is '$CPU' -- this toolchain targets 8080, 8085 or z80" >&2
-    exit 1
-    ;;
-esac
+find_z80asm
+check_snap_path "$PROJ"
+read_cpu "$PROJ"
 
 # The modules: the main one has the ORG, the rest follow it.
 shopt -s nullglob
@@ -116,53 +73,10 @@ if [[ ! "$NAME" =~ ^[A-Z][A-Z0-9]{0,7}$ ]]; then
 fi
 
 # Extra flags, one line or several, '#' comments allowed.
-FLAGS=()
-if [ -f "$PROJ/z88dk.flags" ]; then
-  read -r -a FLAGS <<< "$(sed 's/#.*//' "$PROJ/z88dk.flags" | tr '\n' ' ')"
-fi
+read_flags "$PROJ/z88dk.flags"
 
-# Lint: z80asm reads JP and CP with their Zilog meanings (jump, compare). In a
-# file written with Intel mnemonics, `JP x` / `CP x` was probably meant as
-# Intel's jump-if-plus / call-if-plus, which z80asm spells JP P,x / CALL P,x.
-# A warning, not an error: a file may mix the two styles on purpose.
-lint() {
-  awk -v file="$1" '
-    function strip(s,    out, i, c, q) {
-      out = ""; q = ""
-      for (i = 1; i <= length(s); i++) {
-        c = substr(s, i, 1)
-        if (q != "") { if (c == q) q = ""; continue }
-        if (c == "\"" || c == "\x27") { q = c; continue }
-        if (c == ";") break
-        out = out c
-      }
-      return out
-    }
-    {
-      line[NR] = strip($0)
-      if (toupper(line[NR]) ~ /(^|[[:space:]:])(MOV|MVI|LXI|LDA|STA|LHLD|SHLD|LDAX|STAX|XCHG|INR|DCR|INX|DCX|DAD|ADI|SUI|ANI|XRI|ORI|ANA|XRA|ORA|CMP|JMP|HLT|PCHL|SPHL|XTHL)[[:space:]]/)
-        intel = 1
-    }
-    END {
-      if (!intel) exit
-      for (n = 1; n <= NR; n++) {
-        s = toupper(line[n])
-        if (match(s, /(^|[[:space:]:])(JP|CP)[[:space:]]+[^[:space:]]/)) {
-          op = substr(s, RSTART, RLENGTH); sub(/^[[:space:]:]*/, "", op); sub(/[[:space:]].*/, "", op)
-          arg = substr(s, RSTART + RLENGTH - 1); sub(/[[:space:]]+$/, "", arg)
-          if (arg ~ /,/) continue                                   # JP cc,x
-          if (op == "JP" && arg ~ /^\((HL|IX|IY)\)$/) continue      # JP (HL)
-          if (op == "CP" && arg ~ /^(A|B|C|D|E|H|L|IXH|IXL|IYH|IYL|\((HL|IX|IY).*\))$/) continue   # CP r
-          if (op == "JP")
-            printf "%s:%d: warning: JP %s is z80asm'"'"'s unconditional jump; Intel jump-if-plus is JP P,%s (or write JMP %s)\n", file, n, arg, arg, arg
-          else
-            printf "%s:%d: warning: CP %s is z80asm'"'"'s compare; Intel call-if-plus is CALL P,%s (or write CPI %s)\n", file, n, arg, arg, arg
-        }
-      }
-    }
-  ' "$SRC/$1" >&2
-}
-for f in "${ALL[@]}"; do lint "$f"; done
+# Lint: JP x / CP x in a file written with Intel mnemonics (z88common.sh).
+for f in "${ALL[@]}"; do lint_jp_cp "$SRC/$f"; done
 
 # Start clean of this program's outputs, so a failed build can't leave an old
 # .COM behind looking current.
@@ -190,22 +104,12 @@ if [ -f "$BUILD/$NAME.map" ]; then mv -f "$BUILD/$NAME.map" "$BUILD/$NAME.MAP"; 
 
 [ "$RC" -eq 0 ] || exit "$RC"
 
-# One z80asm warning is really a wrong-code error. For the 8080/8085 it
-# assembles `ld sp,(nn)` -- a Z80 load of SP from memory -- as `ld sp,nn`,
-# loading SP with the ADDRESS, and only warns. Fail the build instead.
-if grep -q 'interpreting indirect value as immediate' <<< "$OUT"; then
-  rm -f "$BUILD/$NAME.COM"
-  echo "error: z80asm turned an indirect operand into an immediate one (above) -- on the $CPU that is different code; rewrite it with $CPU instructions" >&2
-  exit 1
-fi
+# `ld sp,(nn)` assembled as `ld sp,nn` for the 8080/8085 -- an error here.
+check_indirect_immediate "$OUT" "$BUILD/$NAME.COM"
 
-# The DR .SYM file altairsim's SYMBOLS LOAD reads: "XXXX NAME" per line, the
-# program labels only (z80asm's own __head/__tail/... left out too).
+# The DR .SYM file for altairsim's SYMBOLS LOAD: the program labels only.
 if [ -f "$BUILD/$NAME.MAP" ]; then
-  awk '$2 == "=" && $4 == ";" && $5 == "addr," && $1 !~ /^__/ {
-         v = toupper($3); sub(/^\$/, "", v); while (length(v) < 4) v = "0" v
-         print v, toupper($1)
-       }' "$BUILD/$NAME.MAP" > "$BUILD/$NAME.SYM"
+  write_sym "$BUILD/$NAME.MAP" "$BUILD/$NAME.SYM"
 fi
 
 SIZE="$(stat -c %s "$BUILD/$NAME.COM")"

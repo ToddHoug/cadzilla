@@ -3,7 +3,7 @@
 # plus a minimal starter assembly source file, correctly CR/LF-terminated and
 # uppercased for CP/M.
 #
-# Usage: new_project.sh <project-name> [--toolchain asm|m80|z88dk] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] [welcome-message]
+# Usage: new_project.sh <project-name> [--toolchain asm|m80|z88dk|zcc] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] [welcome-message]
 #
 # --mode is the display resolution: 640x480, 800x600 or 1024x768 (default,
 # the pristine machine's). It is written to the project's tracked
@@ -23,11 +23,16 @@
 #        <NAME>.Z88 in Intel and/or Zilog mnemonics, built straight to
 #        build/<NAME>.COM, which altairsim then only R's onto the disk and runs
 #        (cadzilla-build-z88dk skill). No czgfx.
+#   zcc  z88dk's zcc, C compiled on the HOST (tools/z88dk/zccbuild.sh): a
+#        lowercase src/<name>.c plus an assembly module src/CPUID.Z88, built
+#        straight to build/<NAME>.COM, which altairsim then only R's onto the
+#        disk and runs (cadzilla-build-zcc skill). No czgfx.
 #
-# --cpu (z88dk only; default 8080) is the target CPU: 8080, 8085 or z80. It is
-# written to machine.toml as a cpu0 [[board]] block, which both puts that CPU in
-# the emulator and gives z80asm its -m flag. An existing machine.toml's cpu0
-# wins over --cpu, as its mode wins over --mode.
+# --cpu (z88dk and zcc only; default 8080) is the target CPU: 8080, 8085 or
+# z80. It is written to machine.toml as a cpu0 [[board]] block, which both puts
+# that CPU in the emulator and gives the build its -m flag (zcc: its C
+# library). An existing machine.toml's cpu0 wins over --cpu, as its mode wins
+# over --mode.
 #
 # --cpm-name is for when <project-name> itself doesn't fit CP/M's 8.3 limit
 # (8 characters before the extension) -- e.g. `new_project.sh firstdraw
@@ -62,7 +67,7 @@ while [ $# -gt 0 ]; do
       ;;
     --toolchain)
       if [ $# -lt 2 ]; then
-        echo "error: --toolchain needs a value (asm, m80 or z88dk)" >&2
+        echo "error: --toolchain needs a value (asm, m80, z88dk or zcc)" >&2
         exit 1
       fi
       TOOLCHAIN="$2"
@@ -91,7 +96,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$NAME" ]; then
-  echo "Usage: $0 <project-name> [--toolchain asm|m80|z88dk] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] [welcome-message]" >&2
+  echo "Usage: $0 <project-name> [--toolchain asm|m80|z88dk|zcc] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] [welcome-message]" >&2
   exit 1
 fi
 
@@ -115,14 +120,15 @@ case "$TOOLCHAIN" in
   asm) EXT="ASM" ;;
   m80) EXT="MAC" ;;
   z88dk) EXT="Z88" ;;
+  zcc) EXT="c" ;;
   *)
-    echo "error: --toolchain must be asm, m80 or z88dk, not '$TOOLCHAIN'" >&2
+    echo "error: --toolchain must be asm, m80, z88dk or zcc, not '$TOOLCHAIN'" >&2
     exit 1
     ;;
 esac
 
-# The target CPU: only the z88dk toolchain assembles for anything but the 8080.
-if [ "$TOOLCHAIN" = "z88dk" ]; then
+# The target CPU: only the z88dk toolchains build for anything but the 8080.
+if [ "$TOOLCHAIN" = "z88dk" ] || [ "$TOOLCHAIN" = "zcc" ]; then
   CPU="${CPU:-8080}"
   case "$CPU" in
     8080|8085|z80) ;;
@@ -132,13 +138,18 @@ if [ "$TOOLCHAIN" = "z88dk" ]; then
       ;;
   esac
 elif [ -n "$CPU" ]; then
-  echo "error: --cpu is for --toolchain z88dk only (ASM.COM and M80 assemble 8080 code)" >&2
+  echo "error: --cpu is for --toolchain z88dk or zcc only (ASM.COM and M80 assemble 8080 code)" >&2
   exit 1
 fi
 
 MESSAGE="${MESSAGE:-Welcome to CADzilla: ${NAME}!}"
 
-if [ "$TOOLCHAIN" = "z88dk" ]; then
+if [ "$TOOLCHAIN" = "zcc" ]; then
+  if [[ "$MESSAGE" == *['"\\%']* ]]; then
+    echo "error: welcome message can't contain a double quote, backslash or % -- it goes inside a printf(\"...\") string in the source" >&2
+    exit 1
+  fi
+elif [ "$TOOLCHAIN" = "z88dk" ]; then
   if [[ "$MESSAGE" == *'"'* ]]; then
     echo "error: welcome message can't contain a double quote -- it goes inside a DB \"...\" string in the source and would break the assembly" >&2
     exit 1
@@ -147,7 +158,7 @@ elif [[ "$MESSAGE" == *"'"* ]]; then
   echo "error: welcome message can't contain a single quote -- it goes inside a DB '...' string in the source and would break the assembly" >&2
   exit 1
 fi
-if [[ "$MESSAGE" == *'$'* ]]; then
+if [ "$TOOLCHAIN" != "zcc" ] && [[ "$MESSAGE" == *'$'* ]]; then
   echo "error: welcome message can't contain a \$ -- BDOS function 9 stops printing at the first one" >&2
   exit 1
 fi
@@ -196,7 +207,23 @@ esac
 # ahead of time (software/firstdraw's src/include/build with only .gitkeep in
 # them). That's fine to fill in. What's NOT fine is clobbering a source file
 # that's already there with real content in it.
-ASM_PATH="$PROJECT_DIR/src/$CPM_NAME.$EXT"
+# A zcc project's C source is lowercase (zcc only takes a lowercase .c; it
+# never reaches CP/M), and comes with an assembly module, CPUID.Z88.
+if [ "$TOOLCHAIN" = "zcc" ]; then
+  C_NAME="$(printf '%s' "$CPM_NAME" | tr '[:upper:]' '[:lower:]')"
+  ASM_PATH="$PROJECT_DIR/src/$C_NAME.c"
+  CPUID_PATH="$PROJECT_DIR/src/CPUID.Z88"
+  if [ "$CPM_NAME" = "CPUID" ]; then
+    echo "error: 'CPUID' is the starter's assembly module name -- pick another" >&2
+    exit 1
+  fi
+  if [ -e "$CPUID_PATH" ]; then
+    echo "error: $CPUID_PATH already exists -- not overwriting it" >&2
+    exit 1
+  fi
+else
+  ASM_PATH="$PROJECT_DIR/src/$CPM_NAME.$EXT"
+fi
 if [ -e "$ASM_PATH" ]; then
   echo "error: $ASM_PATH already exists -- not overwriting it" >&2
   exit 1
@@ -214,8 +241,8 @@ if [ -e "$OVERLAY" ]; then
   if [ -n "$EXISTING" ]; then
     set_mode "$EXISTING"
   fi
-  if [ "$TOOLCHAIN" = "z88dk" ]; then
-    # Its cpu0 block, read as tools/z88dk/z88build.sh reads it.
+  if [ "$TOOLCHAIN" = "z88dk" ] || [ "$TOOLCHAIN" = "zcc" ]; then
+    # Its cpu0 block, read as tools/z88dk/z88common.sh reads it.
     EXISTING_CPU="$(awk '
       /^[[:space:]]*\[/ { if (id == "cpu0" && type != "") cpu = type; id = ""; type = ""; next }
       /^[[:space:]]*id[[:space:]]*=/   { s = $0; sub(/#.*/, "", s); gsub(/.*=[[:space:]]*"|".*/, "", s); id = s }
@@ -251,11 +278,16 @@ id   = "cad0"
 mode = "$MODE"
 EOF
   if [ "$TOOLCHAIN" = "z88dk" ]; then
+    CPU_USE="tools/z88dk/z88build.sh reads this same block for z80asm's -m flag"
+  else
+    CPU_USE="tools/z88dk/zccbuild.sh reads this same block for zcc's C library"
+  fi
+  if [ "$TOOLCHAIN" = "z88dk" ] || [ "$TOOLCHAIN" = "zcc" ]; then
     cat >> "$OVERLAY" <<EOF
 
 # The CPU: 8080, 8085 or z80. A \`type\` replaces pristine's cpu0 outright, so
 # clock_hz is restated (flat out; cadzilla-real.toml still sets 2 MHz on top).
-# tools/z88dk/z88build.sh reads this same block for z80asm's -m flag, so the
+# $CPU_USE, so the
 # code and the emulated CPU always agree.
 [[board]]
 type     = "$CPU"
@@ -496,6 +528,89 @@ C8085:  DB      "8085",CR,LF,"\$"
 C8080:  DB      "8080",CR,LF,"\$"
 EOF
 fi
+elif [ "$TOOLCHAIN" = "zcc" ]; then
+# A zcc starter: the C counterpart of the z88dk one -- the message, then the
+# CPU it was compiled for (from zcc's predefined macros) and the CPU it finds
+# itself running on (from an assembly module, which also shows how C and
+# z80asm code link together).
+cat > "$ASM_PATH" <<EOF
+/*
+ * $C_NAME.c -- CADzilla program, zcc (z88dk C) toolchain
+ *
+ * Compiled on the host by z88dk's zcc, then copied onto the CP/M disk and run
+ * (cadzilla-build-zcc skill):
+ *   tools/z88dk/zccbuild.sh software/$NAME      -> build/$CPM_NAME.COM
+ *   A0>R $CPM_NAME.COM                          (hb0 HOSTDIR = build/)
+ *   A0>$CPM_NAME
+ *
+ * The target CPU ($CPU) is machine.toml's cpu0 block: it is both the emulated
+ * CPU and the C library zcc links (-clib=8080, 8085 or default for the Z80).
+ * CPUID.Z88 is an assembly module, linked in beside this file.
+ *
+ * The program prints the CPU it was built for and the one it is running on;
+ * the two should always match.
+ */
+#include <stdio.h>
+
+/* zcc defines one of these, from the C library it was given */
+#if defined(__Z80)
+#define BUILT "Z80"
+#elif defined(__8085)
+#define BUILT "8085"
+#else
+#define BUILT "8080"
+#endif
+
+extern int cpuid(void);         /* CPUID.Z88: 0 = 8080, 1 = 8085, 2 = Z80 */
+
+static char *cpus[] = { "8080", "8085", "Z80" };
+
+int main(void)
+{
+    printf("$MESSAGE\n");
+    printf("Built for %s, running on %s\n", BUILT, cpus[cpuid()]);
+    return 0;
+}
+EOF
+cat > "$CPUID_PATH" <<'EOF'
+; CPUID.Z88 -- which CPU is this program running on? An assembly module of a
+; CADzilla zcc (C) project: z80asm assembles it for the project's CPU and the
+; C code links with it (tools/z88dk/zccbuild.sh). Zilog mnemonics, but only
+; instructions the 8080 has, so it builds for all three CPUs.
+;
+; Calling assembly from C (sccz80, the compiler zcc uses here):
+;   - the C name gets a leading underscore: cpuid() is _cpuid, made PUBLIC
+;   - arguments are pushed left to right, 2 bytes each (a char too), and the
+;     caller pops them: on entry the LAST argument is at SP+2
+;   - the result goes back in HL (a char in L, a long in DEHL)
+;   - AF, BC, DE and HL are free to change; on a Z80, keep IX and IY
+; SECTION code_user places the code with the C program's. Without a SECTION it
+; lands wherever the linker puts the unnamed section.
+;
+; int cpuid(void): 0 = 8080, 1 = 8085, 2 = Z80.
+;
+        SECTION code_user
+        PUBLIC  _cpuid
+;
+; 7FH+1 overflows: the Z80 sets P/V for that, the 8080 and 8085 set P for
+; parity, and 80H has odd parity, so P is clear.
+_cpuid: ld      a,7fh
+        inc     a
+        ld      hl,2
+        ret     pe
+; The 8085's ANA always sets AC; the 8080's sets it from bit 3 of the operands,
+; which are 0 here. AC is bit 4 of the flags byte PUSH PSW saves.
+        xor     a
+        and     a
+        push    af
+        pop     hl
+        ld      a,l
+        and     10h
+        ld      hl,1
+        ret     nz
+        dec     hl
+        ret
+EOF
 else
 # A minimal, self-contained starter: BDOS function 9 prints a '$'-terminated
 # string. No INCLUDE (ASM.COM doesn't support it) and no underscores in any
@@ -522,7 +637,7 @@ fi
 # CP/M's assemblers require CR/LF line endings -- an LF-only file silently
 # assembles to nothing at all, with no error (ASM.COM: just an empty "000H
 # USE FACTOR").
-if [ "$TOOLCHAIN" != "z88dk" ]; then
+if [ "$TOOLCHAIN" != "z88dk" ] && [ "$TOOLCHAIN" != "zcc" ]; then
   "$REPO_ROOT/tools/altairsim/scripts/crlf.sh" "$ASM_PATH"
 fi
 
@@ -531,12 +646,15 @@ if [ "$TOOLCHAIN" = "m80" ]; then
   echo "  src/$CPM_NAME.MAC   (CR/LF line endings, ready for M80.COM; uses czgfx from B:)"
 elif [ "$TOOLCHAIN" = "z88dk" ]; then
   echo "  src/$CPM_NAME.Z88   (for z80asm on the host: tools/z88dk/z88build.sh software/$NAME)"
+elif [ "$TOOLCHAIN" = "zcc" ]; then
+  printf '  %-19s %s\n' "src/$C_NAME.c" "(for zcc on the host: tools/z88dk/zccbuild.sh software/$NAME)"
+  echo "  src/CPUID.Z88       (an assembly module the C code calls)"
 else
   echo "  src/$CPM_NAME.ASM   (CR/LF line endings, ready for ASM.COM)"
 fi
 echo "  include/.gitkeep"
 echo "  build/.gitkeep"
-if [ "$TOOLCHAIN" = "z88dk" ]; then
+if [ "$TOOLCHAIN" = "z88dk" ] || [ "$TOOLCHAIN" = "zcc" ]; then
   echo "  machine.toml        (tracked: cad0 mode = $MODE, cpu0 = $CPU)"
 else
   echo "  machine.toml        (tracked: cad0 mode = $(grep -E '^mode' "$OVERLAY" | sed 's/.*"\(.*\)".*/\1/'))"

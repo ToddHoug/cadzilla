@@ -1,0 +1,37 @@
+; CPUID.Z88 -- which CPU is this program running on? An assembly module of a
+; CADzilla zcc (C) project: z80asm assembles it for the project's CPU and the
+; C code links with it (tools/z88dk/zccbuild.sh). Zilog mnemonics, but only
+; instructions the 8080 has, so it builds for all three CPUs.
+;
+; Calling assembly from C (sccz80, the compiler zcc uses here):
+;   - the C name gets a leading underscore: cpuid() is _cpuid, made PUBLIC
+;   - arguments are pushed left to right, 2 bytes each (a char too), and the
+;     caller pops them: on entry the LAST argument is at SP+2
+;   - the result goes back in HL (a char in L, a long in DEHL)
+;   - AF, BC, DE and HL are free to change; on a Z80, keep IX and IY
+; SECTION code_user places the code with the C program's. Without a SECTION it
+; lands wherever the linker puts the unnamed section.
+;
+; int cpuid(void): 0 = 8080, 1 = 8085, 2 = Z80.
+;
+        SECTION code_user
+        PUBLIC  _cpuid
+;
+; 7FH+1 overflows: the Z80 sets P/V for that, the 8080 and 8085 set P for
+; parity, and 80H has odd parity, so P is clear.
+_cpuid: ld      a,7fh
+        inc     a
+        ld      hl,2
+        ret     pe
+; The 8085's ANA always sets AC; the 8080's sets it from bit 3 of the operands,
+; which are 0 here. AC is bit 4 of the flags byte PUSH PSW saves.
+        xor     a
+        and     a
+        push    af
+        pop     hl
+        ld      a,l
+        and     10h
+        ld      hl,1
+        ret     nz
+        dec     hl
+        ret

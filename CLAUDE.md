@@ -18,7 +18,7 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   project that draws also has a tracked `machine.toml` overlay pinning its
   display resolution (cad0 `mode`: 640x480, 800x600 or 1024x768, default
   1024x768); the code's timing (`GINIT CZM...` or its own register table)
-  must match it. A z88dk project's `machine.toml` also pins its CPU (a
+  must match it. A z88dk or zcc project's `machine.toml` also pins its CPU (a
   `cpu0` block: 8080, 8085 or z80), which the build and the emulator both
   follow
 - `software/czgfx/` — the shared czgfx graphics-primitive library (M80
@@ -61,6 +61,12 @@ sidesteps: CP/M uppercases everything typed at its console anyway, so a
 mixed-case CP/M-side name could never be created from the command line in
 the first place.
 
+The one exception to *that*: a zcc project's C sources (`src/*.c`,
+`include/*.h`) are lowercase. They never reach a CP/M disk, and zcc only
+recognises a lowercase `.c`. The main module's name, uppercased, is still the
+CP/M program name (`chello.c` → `CHELLO.COM`). Its `.Z88` modules and every
+build output stay uppercase.
+
 Software toolchains (the first two run inside CP/M 2.2 on altairsim, driven
 over its MCP server; `tools/altairsim/README.md`):
 - **DRI `ASM.COM` + `LOAD.COM`** — the original flow: one self-contained
@@ -77,8 +83,22 @@ over its MCP server; `tools/altairsim/README.md`):
   project's `machine.toml`, which sets both z80asm's `-m` and the emulated
   CPU. No czgfx yet (`zhello`; skill `cadzilla-build-z88dk`;
   `tools/z88dk/README.md`).
-- New projects: skill `new-cadzilla-project` (`--toolchain asm|m80|z88dk`,
-  `--cpu 8080|8085|z80` for z88dk, `--mode WxH`).
+- **z88dk `zcc`** (snap) — **C** for the 8080, 8085 or Z80, compiled on the
+  host by `tools/z88dk/zccbuild.sh`:
+  - lowercase `src/*.c`, plus any `.Z88` assembly modules, become
+    `build/<NAME>.COM`;
+  - the compiler is sccz80, and the program links the classic CP/M C library;
+  - the CPU comes from the same `cpu0` block, which picks zcc's C library;
+  - `#include <cadzilla.h>` gives the board's ports as inline `IN`/`OUT`
+    `__sfr`s. It lives in `tools/z88dk/include/` and is independent of
+    czgfx;
+  - no czgfx yet.
+
+  Project `chello`, skill `cadzilla-build-zcc`; see "C with zcc" in
+  `tools/z88dk/README.md`.
+- New projects: skill `new-cadzilla-project`
+  (`--toolchain asm|m80|z88dk|zcc`, `--cpu 8080|8085|z80` for z88dk and zcc,
+  `--mode WxH`).
 
 _TBD — fill in as tooling is chosen: KiCAD version, GAL assembler
 (e.g. WinCUPL/GALasm), default git branch, commit attribution._
