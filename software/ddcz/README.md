@@ -86,9 +86,28 @@ roughly 12 KB, and its larger overlays (`GRAPHC.OVL`) failed with a 12.4 KB
 build of this driver. Check DR Graph again after any change that grows the
 driver.
 
-**DR Draw needs CP/M Plus.** Its `README.TXT` says so, and `DRAW.COM` starts
-with a single `RET`, the CP/M 3 program-file header that returns at once
-on CP/M 2.2. It can't run on this system until the machine runs CP/M 3.
+**DR Draw doesn't run yet.** It was tried on 2026-10-09 on a CP/M 3 for this
+machine (`cpm3-fdcplus-8mb`, a non-banked CP/M 3 for the FDC+ 8MB drives,
+47K TPA). It needs three things:
+- **CP/M Plus.** Its `README.TXT` says so. On CP/M 2.2 its GSX loader returns
+  through the `RET` at 0103H at once.
+- **A Z80.** It uses Z80 instructions (`LDIR` at 464EH). On the 8080, `ED`
+  acts as a `CALL`, and DR Draw jumps into the BDOS and exits.
+- **About 61K of TPA.** Its variables are at fixed addresses up to B8A2H,
+  with its heap growing up from there and its stack growing down from the
+  top of the TPA. GDOS loads GSX-80 and the driver below the BDOS, so the TPA
+  ends at 8D00H on that system. It doesn't detect running out: its variables
+  overwrite the driver, a pointer goes to 0000, and it dumps memory to the
+  console. Even with no driver, a non-banked CP/M 3 here leaves too little.
+
+So DR Draw needs a banked CP/M 3 with a TPA near 61K. Even then there are
+only about 0.7K to spare with this 11.2K driver. DR Draw was built for a
+driver of about 7K, like its own `DDXTEK`. To run it, this driver would also
+have to shrink to about 7K, or keep most of its code in another bank behind a
+small resident stub.
+
+DR Draw's own runtime is GSX-80 1.1 (1 Oct 83). Its GSX loader is 1.1's, so
+use the `GSX.SYS` from `upstream/DRDRAW/`, not GSX-80 1.0 from `upstream/GSX/`.
 
 ## What the driver does
 
@@ -195,8 +214,9 @@ Driving it:
 - **Text:** rotation is in 45-degree steps.
 - **Pie slices:** filled as 10-degree polygons.
 - **Polygons:** at most 48 vertices are filled.
-- **Input:** keyboard only, with no mouse or tablet. DR Draw also needs
-  CP/M Plus (above).
+- **Input:** keyboard only, with no mouse or tablet.
+- **DR Draw** needs a banked CP/M Plus, a Z80, and a driver of about 7K
+  (above).
 - **Alpha text** goes to the console. The overlay plane could carry a text
   screen instead (a later phase).
 - **z88dk on the 8080:** `gios_1pm`, `gios_1px` and `gios_2px` (and the

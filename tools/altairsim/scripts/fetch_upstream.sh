@@ -34,8 +34,10 @@
 #   upstream/DRGRAPH/            DR Graph's program, overlays, menu and table,
 #                                and its sample charts (no file type: SAMPLE1 ...)
 #   upstream/drdraw.tgz, DRDRAW.DSK, DRDRAW/
-#                                the same for DRI's DR Draw -- which needs CP/M
-#                                Plus (software/ddcz/README.md): kept for then
+#                                the same for DRI's DR Draw, plus its own GSX.SYS
+#                                (GSX-80 1.1). It needs CP/M Plus, a Z80 and about
+#                                61K of TPA, so it doesn't run here yet
+#                                (software/ddcz/README.md)
 #
 # Extracting from the GSX disk image needs cpmtools (cpmcp).
 #
@@ -168,12 +170,14 @@ for t in "${gsxtest[@]}"; do
 done
 
 # DR Graph and DR Draw (GSX-80 applications, to try the driver with):
-# everything on their disks but their own GSX runtime and drivers, which the
-# driver work replaces. The disk images are pinned; the files come off them
-# as they are.
-# app <NAME> <url> <sha> <member> <dsk sha>
+# everything on their disks but their own drivers and ASSIGN.SYS, which the
+# driver work replaces, and their GSX.SYS unless <keep> is "gsx". DR Graph is
+# run with GSX-80 1.0 from GSX/; DR Draw's GSX loader is 1.1's and wants its
+# own GSX.SYS (1.1). The disk images are pinned; the files come off them as
+# they are.
+# app <NAME> <url> <sha> <member> <dsk sha> [<keep>]
 app() {
-  local name="$1" url="$2" want="$3" member="$4" dwant="$5" tgz dsk f n=0 cpm
+  local name="$1" url="$2" want="$3" member="$4" dwant="$5" keep="${6:-}" tgz dsk f n=0 cpm
   tgz="$UP/$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]').tgz"
   dsk="$UP/$name.DSK"
   mkdir -p "$UP/$name"
@@ -182,7 +186,8 @@ app() {
   check "$dsk" "$dwant" "$member in $(basename "$tgz")"
   echo "  ok      $name.DSK"
   for f in $(cpmls -f ibm-3740 "$dsk" | grep -v '^[0-9]*:$'); do
-    case "$f" in assign.sys|gsx.sys|*.prl) continue ;; esac
+    case "$f" in assign.sys|*.prl) continue ;; esac
+    if [ "$f" = gsx.sys ] && [ "$keep" != gsx ]; then continue; fi
     cpm="$(printf '%s' "$f" | tr '[:lower:]' '[:upper:]')"
     rm -f "$UP/$name/$cpm"
     cpmcp -f ibm-3740 "$dsk" "0:$f" "$UP/$name/$cpm"
@@ -191,4 +196,4 @@ app() {
   echo "  ok      $name/ ($n files)"
 }
 app DRGRAPH "$DRG_URL" "$DRG_SHA" "$DRG_DSK_MEMBER" "$DRG_DSK_SHA"
-app DRDRAW "$DRD_URL" "$DRD_SHA" "$DRD_DSK_MEMBER" "$DRD_DSK_SHA"
+app DRDRAW "$DRD_URL" "$DRD_SHA" "$DRD_DSK_MEMBER" "$DRD_DSK_SHA" gsx
