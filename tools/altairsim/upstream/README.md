@@ -57,6 +57,46 @@ unpatched release. The YAZE copy, the one used here, differs in 38 bytes:
 serial field). It is not taken from here, because the pristine disk
 already has its own `MAC.COM`.
 
+## GSX-80 runtime and GSXTEST, for software/ddcz (local only)
+
+These files are for developing the CADzilla GSX driver. Unlike the DRI
+tools above, **none of them goes onto the pristine disk.** They are `R`'d
+onto the driver project's own `work/` disk only.
+
+| File | From | SHA-256 |
+|---|---|---|
+| `gsx80-1.0.tgz` | <https://www.icl1900.co.uk/unix4fun/z80pack/ftp/gsx80-1.0.tgz>, Udo Munk's z80pack: GSX-80 1.0 on a CP/M 2.2 disk, with his xterm Tektronix driver | `4d928ff9873d9f3d79209fcfded321fc7dc80de0a0c0ab4b8fd9453b057f4e3d` |
+| `GSX80-1.0.DSK` | the disk image in that archive (`disks/library/gsx80-1.0.dsk`), an 8" IBM 3740 image | (extracted) |
+| `gsxtest.zip` | <https://seasip.info/Cpm/software/GSXTEST.ZIP>: John Elliott's GSXTEST 2, a GSX driver test program, built with RMAC + LINK-80 | `012c9f154a62c30d6e7e65c6c6c3c6ab716f9fa3564110a0e574ed586e4e9760` |
+
+Both were retrieved on 2026-10-08. John Elliott updates GSXTEST from time to
+time. A new upload fails its pin; check what changed, then move the pins
+in `fetch_upstream.sh`.
+
+Extracted into `GSX/`:
+- **From the GSX disk:**
+  - `GSX.SYS`: "GSX-80 1.0 15 Nov 82", the GDOS;
+  - `GENGRAF.COM`, which attaches the GSX loader to a program;
+  - `DEMOGRAF.COM`, a GENGRAF'd CBASIC demo;
+  - `DDXTEK.FOR` and `XTEK.MAC`, Munk's driver source: a FORTRAN-80 body
+    and an RMAC entry module. It is the reference for the CP/M-80 driver
+    entry convention.
+- **From gsxtest.zip:**
+  - `GSXTEST.COM`, already GENGRAF'd;
+  - its RMAC source `GSXTEST.ASM` and `SINES.ASM`;
+  - its documentation `GSXTEST.TXT` (what each test screen should look
+    like);
+  - its licence, `GSXTEST.LIC`.
+
+**Licences.**
+- **GSX-80** (`GSX.SYS`, `GENGRAF.COM`) carries DRI's 1982 copyright. It is
+  not part of the CP/M 3 distribution, and whether DRDOS, Inc.'s 2022 grant
+  for "CP/M and its derivatives" covers it hasn't been settled. Keep it to
+  this local cache and the driver project's `work/` disk.
+- **DEMOGRAF** is from the same disk and gets the same treatment.
+- **Munk's driver source** says "All Rights Granted".
+- **GSXTEST** is under the zlib licence (`GSXTEST.LIC`).
+
 ## Licence
 
 RMAC, LINK, LIB and XREF were shipped as part of the CP/M 3 (CP/M Plus)

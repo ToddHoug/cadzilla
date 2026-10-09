@@ -19,6 +19,19 @@
 #   upstream/DRI/RMAC.COM LINK.COM LIB.COM XREF.COM
 #                                extracted from yazecpm3.zip, uppercased
 #
+# and, for the GSX driver work (software/ddcz) -- never tracked, never put on
+# pristine, since GSX-80's licence status is unsettled (upstream/README.md):
+#
+#   upstream/gsx80-1.0.tgz       z80pack's GSX-80 1.0 disk, as downloaded
+#   upstream/GSX80-1.0.DSK       the disk image out of it (cpmls -f ibm-3740)
+#   upstream/gsxtest.zip         John Elliott's GSXTEST 2 (zlib licence)
+#   upstream/GSX/                the files R'd onto a work disk: GSX.SYS,
+#                                GENGRAF.COM, DEMOGRAF.COM, GSXTEST.COM, plus
+#                                reference sources (DDXTEK.FOR, XTEK.MAC,
+#                                GSXTEST.ASM, SINES.ASM, GSXTEST.TXT)
+#
+# Extracting from the GSX disk image needs cpmtools (cpmcp).
+#
 # Usage: fetch_upstream.sh
 set -euo pipefail
 
@@ -44,7 +57,43 @@ tools=(
   "XREF.COM yaze-cpm3/xref.com 75bb1b8cb9aa6474583b02befe6d31fb476c11109ee034a34f8eb737e13ced7a"
 )
 
+GSX_URL="https://www.icl1900.co.uk/unix4fun/z80pack/ftp/gsx80-1.0.tgz"
+GSX_SHA="4d928ff9873d9f3d79209fcfded321fc7dc80de0a0c0ab4b8fd9453b057f4e3d"
+GSX_DSK_MEMBER="disks/library/gsx80-1.0.dsk"
+# John Elliott updates GSXTEST now and then; a new upload fails this pin --
+# check what changed, then move the pin (and the GSXTEST lines below).
+GSXTEST_URL="https://seasip.info/Cpm/software/GSXTEST.ZIP"
+GSXTEST_SHA="012c9f154a62c30d6e7e65c6c6c3c6ab716f9fa3564110a0e574ed586e4e9760"
+
+# Files for upstream/GSX/: CP/M name, name on the GSX disk, SHA-256
+gsxdisk=(
+  "GSX.SYS      gsx.sys      efffe2b551cc80e520cc2b939976a695e600658ae1cc366791d16e1ac6f896a4"
+  "GENGRAF.COM  gengraf.com  211b52540ec06d792f9b930e018634e4d2e1cb78c11f355df695e29335ece6af"
+  "DEMOGRAF.COM demograf.com 64d3eeec4066c5dbf972f0a25ee70abd5454c83080eee42e8dcbf700bbfbe327"
+  "DDXTEK.FOR   ddxtek.for   43404aae2dca5523167a67e7f2fdccbecea665d70236ea978f81455b75dd4ea7"
+  "XTEK.MAC     xtek.mac     9858c8c5474f30fdb0423e24a9e23622a457fce4d982b298d515b6b5ae531590"
+)
+# ... and from gsxtest.zip: CP/M name, name in the zip, SHA-256
+gsxtest=(
+  "GSXTEST.COM gsxtest.com 8b8a27753d4a0df5791a5abecb309eccf5516a56e2a2a95021e482e416b704b9"
+  "GSXTEST.ASM gsxtest.asm 5026ffa63eb0d737cccdbc91b10a418e67c5cd86fe0a86449efa3a6134dca97f"
+  "SINES.ASM   sines.asm   a844a49877ac0450e4fcfb0a72fc1056425e233ba51c0aac53df09a8dd18ddb8"
+  "GSXTEST.TXT gsxtest.txt d1be58b47f1d9718526f9b34d884799aa8632744a7d425bbdab73fa78b6c936f"
+  "GSXTEST.LIC COPYING     2744c3723a324431a306621ee323b94dce746b07d273cb9c1f3ca97b0e7c0de6"
+)
+
 sha() { sha256sum "$1" | cut -d' ' -f1; }
+
+# check <file> <sha256> <what>: move <file>.part into place if it's right
+check() {
+  local dest="$1" want="$2" what="$3"
+  if [ "$(sha "$dest.part")" != "$want" ]; then
+    echo "error: $what: SHA-256 $(sha "$dest.part"), expected $want" >&2
+    rm -f "$dest.part"
+    exit 1
+  fi
+  mv -f "$dest.part" "$dest"
+}
 
 # fetch <url> <dest> <sha256>: download unless dest is already there and right
 fetch() {
@@ -72,11 +121,32 @@ for t in "${tools[@]}"; do
   read -r name member want <<<"$t"
   dest="$UP/DRI/$name"
   unzip -p "$UP/yazecpm3.zip" "$member" > "$dest.part"
-  if [ "$(sha "$dest.part")" != "$want" ]; then
-    echo "error: $member in yazecpm3.zip: SHA-256 $(sha "$dest.part"), expected $want" >&2
-    rm -f "$dest.part"
-    exit 1
-  fi
-  mv -f "$dest.part" "$dest"
+  check "$dest" "$want" "$member in yazecpm3.zip"
   echo "  ok      DRI/$name"
+done
+
+# GSX-80 1.0 and GSXTEST, for software/ddcz
+if ! command -v cpmcp >/dev/null; then
+  echo "error: cpmcp not found -- install cpmtools (it reads the GSX-80 disk image)" >&2
+  exit 1
+fi
+mkdir -p "$UP/GSX"
+fetch "$GSX_URL" "$UP/gsx80-1.0.tgz" "$GSX_SHA"
+fetch "$GSXTEST_URL" "$UP/gsxtest.zip" "$GSXTEST_SHA"
+tar -xzOf "$UP/gsx80-1.0.tgz" "$GSX_DSK_MEMBER" > "$UP/GSX80-1.0.DSK"
+echo "  ok      GSX80-1.0.DSK"
+for t in "${gsxdisk[@]}"; do
+  read -r name member want <<<"$t"
+  dest="$UP/GSX/$name"
+  rm -f "$dest.part"
+  cpmcp -f ibm-3740 "$UP/GSX80-1.0.DSK" "0:$member" "$dest.part"
+  check "$dest" "$want" "$member on GSX80-1.0.DSK"
+  echo "  ok      GSX/$name"
+done
+for t in "${gsxtest[@]}"; do
+  read -r name member want <<<"$t"
+  dest="$UP/GSX/$name"
+  unzip -p "$UP/gsxtest.zip" "$member" > "$dest.part"
+  check "$dest" "$want" "$member in gsxtest.zip"
+  echo "  ok      GSX/$name"
 done
