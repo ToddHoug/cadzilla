@@ -87,7 +87,7 @@ recognises a lowercase `.c`. The main module's name, uppercased, is still the
 CP/M program name (`chello.c` → `CHELLO.COM`). Its `.Z88` modules and every
 build output stay uppercase.
 
-Software toolchains (the first two run inside CP/M 2.2 on altairsim, driven
+Software toolchains (the first three run inside CP/M 2.2 on altairsim, driven
 over its MCP server; `tools/altairsim/README.md`):
 - **DRI `ASM.COM` + `LOAD.COM`** — the original flow: one self-contained
   `.ASM` per program, no INCLUDE/macros/linker (`hello`, `firstdraw`,
@@ -96,6 +96,12 @@ over its MCP server; `tools/altairsim/README.md`):
   relocatable `.MAC` sources, macros, and the shared czgfx library linked
   from the project's pinned czgfx release on `B:` (`czgfx`, `gfxdemo`,
   `czbasic`; skill `cadzilla-build-m80`).
+- **DRI `RMAC` + `LINK` 1.31** (plus `LIB`, `XREF`) — relocatable `.ASM`
+  modules (`CSEG`/`DSEG`, `EXTRN`/`PUBLIC`, no `ORG`), built by the
+  project's tracked `src/<NAME>.SUB` (`SUBMIT <NAME>`). `LINK [OP]` writes
+  the `.PRL` files a GSX-80 driver needs, which L80 can't (`rhello`; skill
+  `cadzilla-build-rmac`; "The DRI RMAC/LINK toolchain" in
+  `tools/altairsim/README.md`).
 - **z88dk `z80asm`** (snap) — a host cross-assembler for the 8080, 8085 or
   Z80, taking Intel and/or Zilog mnemonics: `src/*.Z88` built on the host by
   `tools/z88dk/z88build.sh` into `build/<NAME>.COM`, which altairsim only
@@ -118,7 +124,7 @@ over its MCP server; `tools/altairsim/README.md`):
   Projects `chello` and `cgfxdemo` (draws). Skill `cadzilla-build-zcc`; see
   "C with zcc" in `tools/z88dk/README.md`.
 - New projects: skill `new-cadzilla-project`
-  (`--toolchain asm|m80|z88dk|zcc`, `--cpu 8080|8085|z80` for z88dk and zcc,
+  (`--toolchain asm|m80|z88dk|zcc|rmac`, `--cpu 8080|8085|z80` for z88dk and zcc,
   `--mode WxH`).
 
 _TBD — fill in as tooling is chosen: KiCAD version, GAL assembler

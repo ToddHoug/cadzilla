@@ -3,7 +3,7 @@
 # plus a minimal starter assembly source file, correctly CR/LF-terminated and
 # uppercased for CP/M.
 #
-# Usage: new_project.sh <project-name> [--toolchain asm|m80|z88dk|zcc] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] [welcome-message]
+# Usage: new_project.sh <project-name> [--toolchain asm|m80|z88dk|zcc|rmac] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] [welcome-message]
 #
 # --mode is the display resolution: 640x480, 800x600 or 1024x768 (default,
 # the pristine machine's). It is written to the project's tracked
@@ -32,6 +32,11 @@
 #        disk and runs (cadzilla-build-zcc skill). Like z88dk, it pins the
 #        newest cz88gfx release in software/<name>/cz88gfx.version, so it can
 #        #include <cz88gfx.h> and draw (C bindings: release 1.1 and later).
+#   rmac DRI RMAC + LINK-80, inside CP/M: relocatable <NAME>.ASM (CSEG/DSEG,
+#        EXTRN) plus a second module, PRINT.ASM, and the build script
+#        <NAME>.SUB that assembles both and links them into <NAME>.COM
+#        (cadzilla-build-rmac skill). LINK's [OP] option makes a .PRL instead,
+#        the format of a GSX-80 device driver.
 #
 # --cpu (z88dk and zcc only; default 8080) is the target CPU: 8080, 8085 or
 # z80. It is written to machine.toml as a cpu0 [[board]] block, which both puts
@@ -72,7 +77,7 @@ while [ $# -gt 0 ]; do
       ;;
     --toolchain)
       if [ $# -lt 2 ]; then
-        echo "error: --toolchain needs a value (asm, m80, z88dk or zcc)" >&2
+        echo "error: --toolchain needs a value (asm, m80, z88dk, zcc or rmac)" >&2
         exit 1
       fi
       TOOLCHAIN="$2"
@@ -101,7 +106,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$NAME" ]; then
-  echo "Usage: $0 <project-name> [--toolchain asm|m80|z88dk|zcc] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] [welcome-message]" >&2
+  echo "Usage: $0 <project-name> [--toolchain asm|m80|z88dk|zcc|rmac] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] [welcome-message]" >&2
   exit 1
 fi
 
@@ -126,8 +131,9 @@ case "$TOOLCHAIN" in
   m80) EXT="MAC" ;;
   z88dk) EXT="Z88" ;;
   zcc) EXT="c" ;;
+  rmac) EXT="ASM" ;;
   *)
-    echo "error: --toolchain must be asm, m80, z88dk or zcc, not '$TOOLCHAIN'" >&2
+    echo "error: --toolchain must be asm, m80, z88dk, zcc or rmac, not '$TOOLCHAIN'" >&2
     exit 1
     ;;
 esac
@@ -143,7 +149,7 @@ if [ "$TOOLCHAIN" = "z88dk" ] || [ "$TOOLCHAIN" = "zcc" ]; then
       ;;
   esac
 elif [ -n "$CPU" ]; then
-  echo "error: --cpu is for --toolchain z88dk or zcc only (ASM.COM and M80 assemble 8080 code)" >&2
+  echo "error: --cpu is for --toolchain z88dk or zcc only (ASM.COM, M80 and RMAC assemble 8080 code)" >&2
   exit 1
 fi
 
@@ -228,6 +234,22 @@ if [ "$TOOLCHAIN" = "zcc" ]; then
   fi
 else
   ASM_PATH="$PROJECT_DIR/src/$CPM_NAME.$EXT"
+fi
+# An rmac project has a second module, PRINT.ASM, and the build script
+# <NAME>.SUB that assembles both and links them.
+if [ "$TOOLCHAIN" = "rmac" ]; then
+  PRINT_PATH="$PROJECT_DIR/src/PRINT.ASM"
+  SUB_PATH="$PROJECT_DIR/src/$CPM_NAME.SUB"
+  if [ "$CPM_NAME" = "PRINT" ]; then
+    echo "error: 'PRINT' is the starter's second module name -- pick another" >&2
+    exit 1
+  fi
+  for f in "$PRINT_PATH" "$SUB_PATH"; do
+    if [ -e "$f" ]; then
+      echo "error: $f already exists -- not overwriting it" >&2
+      exit 1
+    fi
+  done
 fi
 if [ -e "$ASM_PATH" ]; then
   echo "error: $ASM_PATH already exists -- not overwriting it" >&2
@@ -551,6 +573,63 @@ C8085:  DB      "8085",CR,LF,"\$"
 C8080:  DB      "8080",CR,LF,"\$"
 EOF
 fi
+elif [ "$TOOLCHAIN" = "rmac" ]; then
+# An RMAC starter: two relocatable modules linked by DRI LINK. The main one
+# calls PRINT, which the second one defines -- the smallest program that shows
+# CSEG/DSEG, EXTRN/PUBLIC and the link. No ORG: LINK puts CSEG at 0100H and
+# DSEG after it. Global names are kept to 6 characters, the most a .REL holds.
+cat > "$ASM_PATH" <<EOF
+;
+; $CPM_NAME.ASM -- CADzilla program, DRI RMAC + LINK-80 toolchain
+;
+; Build (cadzilla-build-rmac skill), from the files R'd onto A: from src/:
+;   A0>SUBMIT $CPM_NAME
+; which runs $CPM_NAME.SUB, RMAC on each module and then LINK:
+;   RMAC PRINT -- PRINT.REL, PRINT.PRN, PRINT.SYM
+;   RMAC $CPM_NAME -- $CPM_NAME.REL, $CPM_NAME.PRN, $CPM_NAME.SYM
+;   LINK $CPM_NAME,PRINT -- $CPM_NAME.COM, $CPM_NAME.SYM
+; LINK $CPM_NAME,PRINT[OP] would write $CPM_NAME.PRL, a page-relocatable file
+; (the format of a GSX-80 device driver), instead of the .COM.
+;
+        EXTRN   PRINT           ;in PRINT.ASM
+;
+CR      EQU     0DH
+LF      EQU     0AH
+;
+        CSEG                    ;code: LINK places it at 0100H
+START:  LXI     D,MSG
+        CALL    PRINT
+        LXI     D,LINKED
+        CALL    PRINT
+        RET                     ;back to the CCP
+;
+        DSEG                    ;data: LINK places it after the code
+MSG:    DB      '$MESSAGE',CR,LF,'\$'
+LINKED: DB      'Linked by DRI LINK from two RMAC modules',CR,LF,'\$'
+;
+        END     START
+EOF
+cat > "$PRINT_PATH" <<'EOF'
+;
+; PRINT.ASM -- a second module of a CADzilla RMAC project: print the
+; '$'-terminated string at DE with BDOS function 9.
+;
+        PUBLIC  PRINT
+;
+BDOS    EQU     0005H
+PSTRING EQU     9
+;
+        CSEG
+PRINT:  MVI     C,PSTRING
+        JMP     BDOS            ;BDOS returns to our caller
+;
+        END
+EOF
+cat > "$SUB_PATH" <<EOF
+RMAC PRINT
+RMAC $CPM_NAME
+LINK $CPM_NAME,PRINT
+EOF
 elif [ "$TOOLCHAIN" = "zcc" ]; then
 # A zcc starter: the C counterpart of the z88dk one -- the message, then the
 # CPU it was compiled for (from zcc's predefined macros) and the CPU it finds
@@ -660,7 +739,9 @@ fi
 # CP/M's assemblers require CR/LF line endings -- an LF-only file silently
 # assembles to nothing at all, with no error (ASM.COM: just an empty "000H
 # USE FACTOR").
-if [ "$TOOLCHAIN" != "z88dk" ] && [ "$TOOLCHAIN" != "zcc" ]; then
+if [ "$TOOLCHAIN" = "rmac" ]; then
+  "$REPO_ROOT/tools/altairsim/scripts/crlf.sh" "$ASM_PATH" "$PRINT_PATH" "$SUB_PATH"
+elif [ "$TOOLCHAIN" != "z88dk" ] && [ "$TOOLCHAIN" != "zcc" ]; then
   "$REPO_ROOT/tools/altairsim/scripts/crlf.sh" "$ASM_PATH"
 fi
 
@@ -672,6 +753,10 @@ elif [ "$TOOLCHAIN" = "z88dk" ]; then
 elif [ "$TOOLCHAIN" = "zcc" ]; then
   printf '  %-19s %s\n' "src/$C_NAME.c" "(for zcc on the host: tools/z88dk/zccbuild.sh software/$NAME)"
   echo "  src/CPUID.Z88       (an assembly module the C code calls)"
+elif [ "$TOOLCHAIN" = "rmac" ]; then
+  printf '  %-19s %s\n' "src/$CPM_NAME.ASM" "(CR/LF, relocatable, for RMAC.COM)"
+  printf '  %-19s %s\n' "src/PRINT.ASM" "(CR/LF, the second module it links with)"
+  printf '  %-19s %s\n' "src/$CPM_NAME.SUB" "(CR/LF, the build: SUBMIT $CPM_NAME)"
 else
   echo "  src/$CPM_NAME.ASM   (CR/LF line endings, ready for ASM.COM)"
 fi

@@ -1,6 +1,6 @@
 ---
 name: new-cadzilla-project
-description: Scaffolds a new 8080/8085/Z80 CP/M software project in the CADzilla repo under software/<name>/, with a starter source file for any of the four toolchains -- the original DRI ASM.COM (single .ASM), Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:), the z88dk host cross-assembler for the 8080, 8085 or Z80 with Intel and/or Zilog mnemonics (.Z88, --cpu; pins the cz88gfx graphics library, czgfx ported to z80asm), or the z88dk zcc C compiler for the 8080, 8085 or Z80 (lowercase .c plus a .Z88 module, --cpu) -- then drives the altairsim MCP server through a first build and run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080/8085/Z80 assembly or C program for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
+description: Scaffolds a new 8080/8085/Z80 CP/M software project in the CADzilla repo under software/<name>/, with a starter source file for any of the five toolchains -- the original DRI ASM.COM (single .ASM), DRI RMAC + LINK-80 (relocatable .ASM modules plus a <NAME>.SUB build script; LINK can also write .PRL, e.g. GSX drivers), Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:), the z88dk host cross-assembler for the 8080, 8085 or Z80 with Intel and/or Zilog mnemonics (.Z88, --cpu; pins the cz88gfx graphics library, czgfx ported to z80asm), or the z88dk zcc C compiler for the 8080, 8085 or Z80 (lowercase .c plus a .Z88 module, --cpu) -- then drives the altairsim MCP server through a first build and run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080/8085/Z80 assembly or C program for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
 ---
 
 # New CADzilla project
@@ -11,11 +11,12 @@ server. `tools/altairsim/README.md` documents the full workflow and the
 gotchas found while building it; this skill exists so those gotchas don't
 have to be rediscovered every time a new project starts.
 
-There are four toolchains. The project is built for one of them:
+There are five toolchains. The project is built for one of them:
 
 | `--toolchain` | Source | Build skill | Reference project |
 |---|---|---|---|
 | `asm` (default) | one self-contained `<NAME>.ASM`; DRI `ASM.COM` + `LOAD.COM`; no INCLUDE, no macros, no linker | `cadzilla-build-asm` | `software/hello` |
+| `rmac` | relocatable `<NAME>.ASM` + a second module `PRINT.ASM` (`CSEG`/`DSEG`, `EXTRN`/`PUBLIC`, no `ORG`); DRI `RMAC` + `LINK` 1.31, run by the tracked `<NAME>.SUB` (`SUBMIT <NAME>`); `LINK ...[OP]` writes a `.PRL` (the GSX-80 driver format) | `cadzilla-build-rmac` | `software/rhello` |
 | `m80` | relocatable `<NAME>.MAC`; Microsoft `M80` + `L80`; `INCLUDE B:CZGFX.INC`, the czgfx graphics macros and library, linked with `SUBMIT B:CZLINK` | `cadzilla-build-m80` | `software/gfxdemo` |
 | `z88dk` | `<NAME>.Z88` (plus any other `.Z88` modules); z88dk's `z80asm`, run **on the host** by `tools/z88dk/z88build.sh`; Intel and/or Zilog mnemonics; targets the 8080, 8085 or Z80 (`--cpu`); draws with **cz88gfx** (czgfx ported to z80asm), pinned in `cz88gfx.version` | `cadzilla-build-z88dk` | `software/zhello`, `software/z88demo` (draws) |
 | `zcc` | **C**: lowercase `<name>.c` (plus any other `.c` and `.Z88` modules); z88dk's `zcc`, run **on the host** by `tools/z88dk/zccbuild.sh`; targets the 8080, 8085 or Z80 (`--cpu`); draws with **cz88gfx**'s C bindings (`#include <cz88gfx.h>`), pinned in `cz88gfx.version` | `cadzilla-build-zcc` | `software/chello`, `software/cgfxdemo` (draws) |
@@ -27,7 +28,7 @@ already do the board setup and the drawing primitives, which an `asm`
 project would have to copy in whole (as `firstdraw` and `drawdemo` did).
 They have the same routines and macros. `m80` builds with the period tools
 inside CP/M; `z88dk` builds on the host and can target the 8085 or Z80.
-`asm` is fine for small console-only programs. **Use `z88dk` when the
+`asm` is fine for small console-only programs. **Use `rmac` when the user wants a linker or separately assembled modules with DRI's tools, or a `.PRL` (a GSX-80 device driver, an MP/M program).** It has no graphics library. **Use `z88dk` when the
 target is an 8085 or a Z80, when the user wants Zilog mnemonics or Z80
 instructions, or when they ask for host-side cross-assembly.** **Use `zcc`
 when the user wants to write C**; it draws with cz88gfx through
@@ -56,7 +57,7 @@ requirement correctly, which are easy to get wrong by hand (writing the
 which `ASM.COM` accepts silently and then assembles into nothing):
 
 ```bash
-.claude/skills/new-cadzilla-project/scripts/new_project.sh <name> [--toolchain asm|m80|z88dk] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] ["<welcome message>"]
+.claude/skills/new-cadzilla-project/scripts/new_project.sh <name> [--toolchain asm|m80|z88dk|zcc|rmac] [--cpu 8080|8085|z80] [--mode WxH] [--cpm-name NAME] ["<welcome message>"]
 ```
 
 `--cpu` (z88dk and zcc only, default `8080`) is the target CPU. The script
@@ -94,6 +95,17 @@ The message can't contain `"`, `\` or `%`.
 the user mentions a resolution or it matters for what they're building;
 otherwise take the default. If the project already has a `machine.toml`,
 it's kept and its mode wins over `--mode`.
+
+With `--toolchain rmac`, the script writes three CR/LF files instead of one
+`.ASM`:
+- `src/<NAME>.ASM`, the main module. It has `EXTRN PRINT`, code in `CSEG`
+  and its two messages in `DSEG`, and prints them through `PRINT`.
+- `src/PRINT.ASM`, the second module: `PUBLIC PRINT`, BDOS function 9.
+  `PRINT` is therefore a reserved program name.
+- `src/<NAME>.SUB`, the build: `RMAC PRINT`, `RMAC <NAME>`,
+  `LINK <NAME>,PRINT`.
+
+The message can't contain `'` or `$`, as for `asm`.
 
 With `--toolchain m80`, the script also pins the newest czgfx release
 (from `software/czgfx/releases/`) in the project's tracked
@@ -150,6 +162,14 @@ the steps below:** `tools/z88dk/z88build.sh software/<name>` on the host, then
 session. Its first-run check: the console shows the welcome message and
 `Built for <X>, running on <X>` with the same CPU twice, the one given to
 `--cpu`.
+
+**For an `rmac` project, follow the `cadzilla-build-rmac` skill:**
+`CONFIG LOAD` and boot, `R *.*` from `src/`, then `SUBMIT <NAME>` (no
+`until`, so the run stops when idle), run it, `W` the `.COM` back, and
+close the session. Its first-run check: both modules' assemblies end in
+`END OF ASSEMBLY` with no flagged lines, `LINK` reports `CODE SIZE` and
+`DATA SIZE` with no `UNDEFINED SYMBOLS:`, and the program prints the
+welcome message and then `Linked by DRI LINK from two RMAC modules`.
 
 **For a `zcc` project, follow the `cadzilla-build-zcc` skill** in the same
 way: `tools/z88dk/zccbuild.sh software/<name>`, then boot, `R`, run and

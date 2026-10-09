@@ -18,6 +18,12 @@ software/*/work/
 # the czgfx library disk -- a build product of software/czgfx/src, rebuilt from it
 software/*/libdisk/
 
+# upstream archives/disk images that pristine's third-party tools came from --
+# a local cache rebuilt by tools/altairsim/scripts/fetch_upstream.sh; only the
+# provenance README is tracked
+tools/altairsim/upstream/*
+!tools/altairsim/upstream/README.md
+
 # altairsim's own command-history file -- can leak into pristine/ if it's ever booted
 # directly (which it never should be); ignored everywhere as a safety net
 .altairsim_history

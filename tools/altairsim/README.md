@@ -51,7 +51,9 @@ could never be created from the command line in the first place.
   than inherited from the base (see "Display resolution"). See the comments
   in the file itself for the full reasoning. `CPM22SYS.DSK` (drive 0) is an 8MB virtual hard disk
   carrying CP/M 2.2 for 56K of RAM (0000-DFFF) and its tools (`ASM.COM`,
-  `LOAD.COM`, `DDT.COM`, Microsoft's `M80`/`L80`/`LIB80`/`CREF80.COM`, the
+  `LOAD.COM`, `DDT.COM`, Microsoft's `M80`/`L80`/`LIB80`/`CREF80.COM`,
+  DRI's `RMAC`/`LINK`/`LIB`/`XREF.COM` (see "The DRI RMAC/LINK
+  toolchain"), the
   host-bridge `R`/`W`/`HDIR.COM`, and more disk tools than the old 8"
   floppy image had room for); `EMPTY.DSK` is an empty 8MB volume, the
   template for a project's scratch disk and czgfx's build disk. `cadzilla-real.toml` is the
@@ -82,6 +84,14 @@ could never be created from the command line in the first place.
   `pristine/EMPTY.DSK` if needed. See "The M80/L80 toolchain" below. Re-run
   it after
   `sync_pristine.sh --machine-only`, which puts the pristine drive 1 back.
+- `upstream/` — a local, gitignored cache of the upstream archives and disk
+  images that third-party tools on the pristine disk were taken from. Only
+  its `README.md` (provenance, SHA-256s, licence) is tracked.
+  `scripts/fetch_upstream.sh` (re)creates it:
+  - it downloads `yazecpm3.zip` and z80pack's `Z80PACK-CPM3-2.DSK`;
+  - it checks every download against a pinned SHA-256;
+  - it extracts the DRI tools, uppercased, into `upstream/DRI/`, ready for
+    `R`.
 - `scripts/check_dsk.py <image.DSK>...` — checks every sector of a CP/M
   disk image for a valid stop byte and checksum; exit status 1 on any bad
   sector. Run it on a project's disks after a session. A bad sector means
@@ -523,6 +533,69 @@ M80/L80 gotchas (the `cadzilla-build-m80` skill has more):
   0100H.
 - `SUBMIT` here is SuperSUB; it echoes each line at an `A0>` prompt, so
   don't use `until: "A0>"` on a `SUBMIT` — let the `run` stop when idle.
+
+## The DRI RMAC/LINK toolchain
+
+The pristine CP/M disk also carries Digital Research's relocating
+assembler package, from the CP/M 3 distribution:
+- **RMAC.COM** (RMAC 1.1), the relocating macro assembler
+- **LINK.COM** (LINK-80 1.31), the linker
+- **LIB.COM** (LIB 1.1), the librarian
+- **XREF.COM** (XREF 1.3), the cross-reference lister
+
+They are here for one thing L80 can't do. `LINK [OP]` writes a **`.PRL`**
+(page-relocatable) file, which is the format of a GSX-80 device driver
+(`DD*.PRL`). A project builds with them through its tracked
+`src/<NAME>.SUB`. `software/rhello` is the example, the
+`cadzilla-build-rmac` skill has the procedure, and `new-cadzilla-project
+--toolchain rmac` scaffolds a new one.
+
+They were added on 2026-10-08 from `yazecpm3.zip`, after being validated on
+separate test disks:
+- the image was staged on a copy and never mounted in place;
+- 408 sectors changed: 2 directory sectors plus the tools' 406 records,
+  all well-formed.
+
+Where they came from, the licence, and how the two upstream copies of RMAC
+differ are covered in `upstream/README.md`. `scripts/fetch_upstream.sh`
+re-downloads them into the local, gitignored `upstream/`.
+
+| File | SHA-256 |
+|---|---|
+| `RMAC.COM` | `d3132c8e356d0c8e71b53757445e7ef89e55dfda9dbda11c48cf7ede6c2c40f3` |
+| `LINK.COM` | `714115910168df0900a41698551d518c921fe8329dae78378756f2445a4dc175` |
+| `LIB.COM` | `2a7d7214b675396abaabc42b653d14bb07be409d9639a2e890ed08b9ad3edac5` |
+| `XREF.COM` | `75bb1b8cb9aa6474583b02befe6d31fb476c11109ee034a34f8eb737e13ced7a` |
+
+Work disks copied before that date don't have the tools. To add them
+without losing what's built on a disk:
+1. run `scripts/fetch_upstream.sh`;
+2. on that project's booted machine,
+   `SET hb0 HOSTDIR=<repo-root>/tools/altairsim/upstream/DRI`;
+3. `R` each of the four tools.
+
+They run unchanged on this CP/M 2.2. Verified on the 8080 machine:
+- RMAC's source extension is `.ASM`. `RMAC X` writes `X.REL`, `X.PRN` and
+  `X.SYM`.
+- **`LINK X,Y`** links `X.REL` and `Y.REL` into `X.COM` (plus `X.SYM`).
+  Name the output with `LINK OUT=X,Y`. Use `CSEG`/`DSEG`, `PUBLIC`/`EXTRN`
+  and no `ORG`. LINK places code at 0100H and data right after it, and
+  prints the globals and the segment sizes.
+- **`LINK OUT=X,Y[OP]`** writes `OUT.PRL`:
+  - a 256-byte header whose bytes 1–2 hold the image length;
+  - the image itself, linked for **0100H** and byte-identical to the
+    `.COM`;
+  - a relocation bitmap, one bit per byte, MSB first. A set bit marks the
+    high byte of a relocatable address. The loader adds (load page − 1)
+    to each such byte, so absolute addresses such as `JMP 5` are left
+    alone.
+- **`LIB L=X,Y`** builds `L.REL`. `LINK MAIN,L[S]` searches it and loads
+  only the modules that are needed.
+- **`XREF X`** reads RMAC's `X.PRN` and `X.SYM` and writes `X.XRF`.
+- **The REL files are compatible with Microsoft's tools.** L80 links
+  RMAC's `.REL` files, and DRI LINK links M80's, including a mixed
+  RMAC+M80 link. That's the path for a GSX driver whose code comes from
+  F80 (Microsoft FORTRAN-80) or M80.
 
 ## Adding a new program
 

@@ -1,6 +1,6 @@
 ---
 name: cadzilla-build-asm
-description: Builds, runs and pulls back an existing CADzilla software project that uses the original CP/M toolchain -- Digital Research ASM.COM + LOAD.COM, a single self-contained <NAME>.ASM -- by driving the altairsim MCP server on that project's own work/ disk. Use this whenever the user wants to assemble, rebuild, run, test or debug a CADzilla program whose source is a .ASM file (software/hello, software/firstdraw, software/drawdemo, or any project scaffolded with --toolchain asm), even if they just say "build hello", "rerun firstdraw", or "try my change to DRAWDEMO". For projects with a .MAC source that use the czgfx library, use cadzilla-build-m80 instead; for .Z88 sources (z88dk, 8080/8085/Z80, assembled on the host) use cadzilla-build-z88dk; for C (.c) sources use cadzilla-build-zcc.
+description: Builds, runs and pulls back an existing CADzilla software project that uses the original CP/M toolchain -- Digital Research ASM.COM + LOAD.COM, a single self-contained <NAME>.ASM -- by driving the altairsim MCP server on that project's own work/ disk. Use this whenever the user wants to assemble, rebuild, run, test or debug a CADzilla program whose source is a single self-contained .ASM file with ORG 0100H (software/hello, software/firstdraw, software/drawdemo, or any project scaffolded with --toolchain asm), even if they just say "build hello", "rerun firstdraw", or "try my change to DRAWDEMO". For projects with a .MAC source that use the czgfx library, use cadzilla-build-m80 instead; for .Z88 sources (z88dk, 8080/8085/Z80, assembled on the host) use cadzilla-build-z88dk; for C (.c) sources use cadzilla-build-zcc; for relocatable .ASM modules linked by DRI RMAC + LINK (a <NAME>.SUB in src/, e.g. software/rhello, --toolchain rmac) use cadzilla-build-rmac.
 ---
 
 # Build a CADzilla project with ASM.COM (the original CP/M toolchain)
@@ -8,7 +8,9 @@ description: Builds, runs and pulls back an existing CADzilla software project t
 These projects are one self-contained `software/<name>/src/<NAME>.ASM`,
 assembled by DRI `ASM.COM` into a `.HEX` + `.PRN` and turned into a `.COM`
 by `LOAD.COM`, all inside CP/M 2.2 on altairsim. They have no INCLUDE, no
-macros and no linker. For shared code, see `cadzilla-build-m80`. Reference
+macros and no linker. For shared code, see `cadzilla-build-m80`. For
+relocatable `.ASM` modules linked by DRI LINK, see `cadzilla-build-rmac`.
+Such projects have a `<NAME>.SUB` in `src/` and no `ORG`. Reference
 examples: `software/hello` (minimal), `software/firstdraw` and
 `software/drawdemo` (graphics). `tools/altairsim/README.md` has the
 full background.
