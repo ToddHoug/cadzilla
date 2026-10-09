@@ -33,6 +33,9 @@
 #   upstream/DRGRAPH.DSK         the disk image out of it
 #   upstream/DRGRAPH/            DR Graph's program, overlays, menu and table,
 #                                and its sample charts (no file type: SAMPLE1 ...)
+#   upstream/drdraw.tgz, DRDRAW.DSK, DRDRAW/
+#                                the same for DRI's DR Draw -- which needs CP/M
+#                                Plus (software/ddcz/README.md): kept for then
 #
 # Extracting from the GSX disk image needs cpmtools (cpmcp).
 #
@@ -73,6 +76,10 @@ DRG_URL="https://www.icl1900.co.uk/unix4fun/z80pack/ftp/drgraph.tgz"
 DRG_SHA="17c84b5b5c38d20f95ee2b2e8cbc1d54d09cc8aecf7b2f39635d2a9014c43627"
 DRG_DSK_MEMBER="disks/library/drgraph.dsk"
 DRG_DSK_SHA="be6b6056b4f39b81566a0f828790b11f6713583ac4832a63ef71f17b5b989595"
+DRD_URL="https://www.icl1900.co.uk/unix4fun/z80pack/ftp/drdraw.tgz"
+DRD_SHA="68f7960e43343437c7be27dfd9ffa459b019cba3e260a616648e630542a2f345"
+DRD_DSK_MEMBER="disks/library/drdraw.dsk"
+DRD_DSK_SHA="5a0553599c8ec2e04d92837a01e73988acb4cbe06725518f9f38d97234d250de"
 
 # Files for upstream/GSX/: CP/M name, name on the GSX disk, SHA-256
 gsxdisk=(
@@ -160,20 +167,28 @@ for t in "${gsxtest[@]}"; do
   echo "  ok      GSX/$name"
 done
 
-# DR Graph (a GSX-80 application, to try the driver with): everything on its
-# disk but its own GSX runtime and drivers, which the driver work replaces.
-# The disk image is pinned; the files come off it as they are.
-mkdir -p "$UP/DRGRAPH"
-fetch "$DRG_URL" "$UP/drgraph.tgz" "$DRG_SHA"
-tar -xzOf "$UP/drgraph.tgz" "$DRG_DSK_MEMBER" > "$UP/DRGRAPH.DSK.part"
-check "$UP/DRGRAPH.DSK" "$DRG_DSK_SHA" "$DRG_DSK_MEMBER in drgraph.tgz"
-echo "  ok      DRGRAPH.DSK"
-n=0
-for f in $(cpmls -f ibm-3740 "$UP/DRGRAPH.DSK" | grep -v '^[0-9]*:$'); do
-  case "$f" in assign.sys|gsx.sys|*.prl) continue ;; esac
-  name="$(printf '%s' "$f" | tr '[:lower:]' '[:upper:]')"
-  rm -f "$UP/DRGRAPH/$name"
-  cpmcp -f ibm-3740 "$UP/DRGRAPH.DSK" "0:$f" "$UP/DRGRAPH/$name"
-  n=$((n + 1))
-done
-echo "  ok      DRGRAPH/ ($n files)"
+# DR Graph and DR Draw (GSX-80 applications, to try the driver with):
+# everything on their disks but their own GSX runtime and drivers, which the
+# driver work replaces. The disk images are pinned; the files come off them
+# as they are.
+# app <NAME> <url> <sha> <member> <dsk sha>
+app() {
+  local name="$1" url="$2" want="$3" member="$4" dwant="$5" tgz dsk f n=0 cpm
+  tgz="$UP/$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]').tgz"
+  dsk="$UP/$name.DSK"
+  mkdir -p "$UP/$name"
+  fetch "$url" "$tgz" "$want"
+  tar -xzOf "$tgz" "$member" > "$dsk.part"
+  check "$dsk" "$dwant" "$member in $(basename "$tgz")"
+  echo "  ok      $name.DSK"
+  for f in $(cpmls -f ibm-3740 "$dsk" | grep -v '^[0-9]*:$'); do
+    case "$f" in assign.sys|gsx.sys|*.prl) continue ;; esac
+    cpm="$(printf '%s' "$f" | tr '[:lower:]' '[:upper:]')"
+    rm -f "$UP/$name/$cpm"
+    cpmcp -f ibm-3740 "$dsk" "0:$f" "$UP/$name/$cpm"
+    n=$((n + 1))
+  done
+  echo "  ok      $name/ ($n files)"
+}
+app DRGRAPH "$DRG_URL" "$DRG_SHA" "$DRG_DSK_MEMBER" "$DRG_DSK_SHA"
+app DRDRAW "$DRD_URL" "$DRD_SHA" "$DRD_DSK_MEMBER" "$DRD_DSK_SHA"

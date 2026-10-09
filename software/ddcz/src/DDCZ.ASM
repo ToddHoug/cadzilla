@@ -7,10 +7,11 @@
 ; says which display mode this copy drives (DDCZ.SUB, cadzilla-build-rmac):
 ;   DDCZ    entry, dispatch, opcodes 1-4 and 32, shared state and helpers
 ;   DDATTR  attribute setters (12, 13, 15-25, 33) and the pattern RAM
-;   DDPRIM  polyline, polymarker, text, cell array, GDPs (6-8, 10, 11, 27)
+;   DDPRIM  polyline, polymarker, text, cell array, GDPs (6-8, 10, 11)
 ;   DDFILL  filled area (9): the polygon scan fill, spans, filled circles
 ;   DDCOL   the color table (14, 26)
 ;   DDESC   escape (5): alpha text on the CP/M console, graphic cursor
+;   DDINP   input (28-31, 33): locator, valuator, choice, string, by keyboard
 ;   DDMATH  multiply, divide, sine
 ;
 ; GDOS calls the driver's first byte -- DDCZ, so this module links first --
@@ -33,13 +34,14 @@
         EXTRN   DMDESC          ;mode module: DW the czgfx mode descriptor
         EXTRN   CZINIT,CZCLS,CZCOL,CZWAIT,CZXMAX,CZYMAX,CZDM
         EXTRN   CZOCLS,CZOVON,CZOPAL
-        EXTRN   PLINE,PMARK,TEXT,CELLA,GDP,QCELL        ;DDPRIM
+        EXTRN   PLINE,PMARK,TEXT,CELLA,GDP              ;DDPRIM
         EXTRN   FAREA                                   ;DDFILL
         EXTRN   SCHH,SCUP,SLTYP,SLWID,SLCOL,SMTYP       ;DDATTR
         EXTRN   SMHGT,SMCOL,STFNT,STCOL,SFINT,SFSTY
-        EXTRN   SFCOL,SINMD,ATRINI
+        EXTRN   SFCOL,ATRINI
         EXTRN   SCOLR,QCOLR,PALINI                      ;DDCOL
         EXTRN   ESCAPE,ESCINI,GCOFF                     ;DDESC
+        EXTRN   LOCAT,VALUAT,CHOICE,STRING,SINMD,INPINI ;DDINP
 ;
 NOPS    EQU     33              ;GSX opcodes 1-33
 ;
@@ -104,8 +106,8 @@ OPTAB:  DW      OPEN,CLOSE,CLEAR,UPDATE,ESCAPE          ;1-5
         DW      GDP,SCHH,SCUP,SCOLR,SLTYP               ;11-15
         DW      SLWID,SLCOL,SMTYP,SMHGT,SMCOL           ;16-20
         DW      STFNT,STCOL,SFINT,SFSTY,SFCOL           ;21-25
-        DW      QCOLR,QCELL,NOOP,NOOP,NOOP              ;26-30 (no input)
-        DW      NOOP,SWRMOD,SINMD                       ;31-33
+        DW      QCOLR,NOOP,LOCAT,VALUAT,CHOICE          ;26-30 (27: no read-back)
+        DW      STRING,SWRMOD,SINMD                     ;31-33
 ;
 NOOP:   RET
 ;
@@ -122,6 +124,7 @@ OPEN:   LHLD    DMDESC          ;this driver's mode
         CALL    CZOCLS
         CALL    CZOVON
         CALL    ESCINI          ;alpha cursor, no graphic cursor
+        CALL    INPINI          ;input: request mode, locator mid-screen
         XRA     A
         STA     PSTATE          ;the pattern RAM: unknown
         LXI     H,ONE           ;writing mode 1, replace, clipped
@@ -351,10 +354,10 @@ OWTAB:  DW      0,0             ;1-2 largest X, Y (filled in from czgfx)
         DW      1               ;36 color
         DW      1               ;37 text rotation
         DW      1               ;38 fill area
-        DW      1               ;39 cell array read-back
+        DW      0               ;39 no cell array read-back
         DW      0               ;40 colors available: 0 = over 32767
-        DW      0,0,0,0         ;41-44 no locator, valuator, choice, string
-        DW      0               ;45 output only
+        DW      1,1,1,1         ;41-44 locator, valuator, choice, string: keys
+        DW      2               ;45 input and output
 ;
 OWPTS:  DW      0,7             ;min character height (CZF8 x1)
         DW      0,128           ;max character height (CZF11 x16)

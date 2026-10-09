@@ -72,7 +72,11 @@ onto the driver project's own `work/` disk only.
 | `drgraph.tgz` | <https://www.icl1900.co.uk/unix4fun/z80pack/ftp/drgraph.tgz>, z80pack: DRI's DR Graph 1.0 (19 May 83), a GSX chart program, on a CP/M disk | `17c84b5b5c38d20f95ee2b2e8cbc1d54d09cc8aecf7b2f39635d2a9014c43627` |
 | `DRGRAPH.DSK` | the disk image in that archive (`disks/library/drgraph.dsk`), an 8" IBM 3740 image | `be6b6056b4f39b81566a0f828790b11f6713583ac4832a63ef71f17b5b989595` |
 
-All four were retrieved on 2026-10-08. `DRGRAPH/` holds DR Graph's files,
+| `drdraw.tgz` | <https://www.icl1900.co.uk/unix4fun/z80pack/ftp/drdraw.tgz>, z80pack: DRI's DR Draw, a GSX drawing program, on a CP/M disk. It **needs CP/M Plus** and won't run on this repo's CP/M 2.2 | `68f7960e43343437c7be27dfd9ffa459b019cba3e260a616648e630542a2f345` |
+| `DRDRAW.DSK` | the disk image in that archive (`disks/library/drdraw.dsk`) | `5a0553599c8ec2e04d92837a01e73988acb4cbe06725518f9f38d97234d250de` |
+
+All six were retrieved on 2026-10-08. `DRDRAW/` holds DR Draw's files,
+uppercased, just like `DRGRAPH/`. `DRGRAPH/` holds DR Graph's files,
 uppercased: `GRAPH.COM`, its overlays, `GRAPHY.MNU`, `GRAPHZ.TBL` and the
 sample charts (`SAMPLE1`, ...: no file type, so `R` them one by one). Its own
 `GSX.SYS`, `ASSIGN.SYS` and drivers are left out. DR Graph is DRI's and is

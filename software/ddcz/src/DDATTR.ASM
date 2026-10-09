@@ -17,7 +17,7 @@
 ;   0        unknown
 ;
         PUBLIC  SCHH,SCUP,SLTYP,SLWID,SLCOL,SMTYP,SMHGT,SMCOL
-        PUBLIC  STFNT,STCOL,SFINT,SFSTY,SFCOL,SINMD,ATRINI
+        PUBLIC  STFNT,STCOL,SFINT,SFSTY,SFCOL,ATRINI
         PUBLIC  USEPAT,FPAT,FMET
 ;
         EXTRN   INTIN,LCOL,LTYPE,MCOL,MTYPE,MHGT
@@ -60,7 +60,11 @@ UPF1:   DAD     D
         INX     H
         MOV     H,M
         MOV     L,A
-        XRA     A               ;from pattern word 0
+        PUSH    H               ;8 rows, twice: rows 0-7, then 8-15
+        XRA     A
+        CALL    CZLPAT
+        POP     H
+        MVI     A,8
         JMP     CZLPAT
 UPSOL:  MVI     M,PSSOL
         JMP     CZPDEF
@@ -215,20 +219,6 @@ SFSTY:  LXI     B,0106H
         MVI     E,1
         CALL    SELA
         STA     FINDX
-        JMP     RET1A
-;
-; 33: input mode -- there are no input devices; say request (1) unless
-; sample (2) was asked for
-SINMD:  MVI     A,2
-        CALL    INW
-        MOV     A,H
-        ORA     A
-        MVI     A,1
-        JNZ     RET1A
-        MOV     A,L
-        CPI     2
-        JZ      RET1A
-        MVI     A,1
         JMP     RET1A
 ;
 ; 12: character height, ptsin(2): the font's 'W' height times a scale
@@ -430,46 +420,35 @@ LTMASK: DW      0FFFFH,0007FH,00707H,01C7FH,00FFFH
 HTPTR:  DW      HT1,HT2,HT3,HT4,HT5,HT6
 HAPTR:  DW      HA1,HA2,HA3,HA4,HA5,HA6
 ;
-; halftone 1-6, lightest to darkest: a 4x4 ordered dither, repeated.
+; halftone 1-6, lightest to darkest: a 4x4 ordered dither, repeated. Each
+; pattern repeats every 8 rows, so 8 are stored and loaded twice.
 ; Pattern row 0 is the bottom (the driver aligns it to Y AND 15), bit 0
 ; the left.
-HT1:    DW      16
+HT1:    DW      8
         DW      01111H,00000H,04444H,00000H,01111H,00000H,04444H,00000H
-        DW      01111H,00000H,04444H,00000H,01111H,00000H,04444H,00000H
-HT2:    DW      16
+HT2:    DW      8
         DW      05555H,00000H,05555H,00000H,05555H,00000H,05555H,00000H
-        DW      05555H,00000H,05555H,00000H,05555H,00000H,05555H,00000H
-HT3:    DW      16
+HT3:    DW      8
         DW      05555H,02222H,05555H,08888H,05555H,02222H,05555H,08888H
-        DW      05555H,02222H,05555H,08888H,05555H,02222H,05555H,08888H
-HT4:    DW      16
+HT4:    DW      8
         DW      05555H,0AAAAH,05555H,0AAAAH,05555H,0AAAAH,05555H,0AAAAH
-        DW      05555H,0AAAAH,05555H,0AAAAH,05555H,0AAAAH,05555H,0AAAAH
-HT5:    DW      16
+HT5:    DW      8
         DW      0FFFFH,0AAAAH,0DDDDH,0AAAAH,0FFFFH,0AAAAH,0DDDDH,0AAAAH
-        DW      0FFFFH,0AAAAH,0DDDDH,0AAAAH,0FFFFH,0AAAAH,0DDDDH,0AAAAH
-HT6:    DW      16
-        DW      0FFFFH,0BBBBH,0FFFFH,0EEEEH,0FFFFH,0BBBBH,0FFFFH,0EEEEH
+HT6:    DW      8
         DW      0FFFFH,0BBBBH,0FFFFH,0EEEEH,0FFFFH,0BBBBH,0FFFFH,0EEEEH
 ;
 ; hatch 1-6: vertical, horizontal, +45, -45, cross, X; 8 pixels apart
-HA1:    DW      16
+HA1:    DW      8
         DW      00101H,00101H,00101H,00101H,00101H,00101H,00101H,00101H
-        DW      00101H,00101H,00101H,00101H,00101H,00101H,00101H,00101H
-HA2:    DW      16
+HA2:    DW      8
         DW      0FFFFH,00000H,00000H,00000H,00000H,00000H,00000H,00000H
-        DW      0FFFFH,00000H,00000H,00000H,00000H,00000H,00000H,00000H
-HA3:    DW      16
+HA3:    DW      8
         DW      00101H,00202H,00404H,00808H,01010H,02020H,04040H,08080H
-        DW      00101H,00202H,00404H,00808H,01010H,02020H,04040H,08080H
-HA4:    DW      16
+HA4:    DW      8
         DW      08080H,04040H,02020H,01010H,00808H,00404H,00202H,00101H
-        DW      08080H,04040H,02020H,01010H,00808H,00404H,00202H,00101H
-HA5:    DW      16
+HA5:    DW      8
         DW      0FFFFH,00101H,00101H,00101H,00101H,00101H,00101H,00101H
-        DW      0FFFFH,00101H,00101H,00101H,00101H,00101H,00101H,00101H
-HA6:    DW      16
-        DW      08181H,04242H,02424H,01818H,01818H,02424H,04242H,08181H
+HA6:    DW      8
         DW      08181H,04242H,02424H,01818H,01818H,02424H,04242H,08181H
 ;
         DSEG

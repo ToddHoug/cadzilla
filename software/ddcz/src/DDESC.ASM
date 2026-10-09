@@ -12,7 +12,7 @@
 ; The graphic cursor, 18 and 19, is a crosshair XORed onto the overlay
 ; plane, so it never touches the picture.
 ;
-        PUBLIC  ESCAPE,ESCINI,GCOFF
+        PUBLIC  ESCAPE,ESCINI,GCOFF,GCAT,COUT
 ;
         EXTRN   CONTRL,INTIN
         EXTRN   CTLW,INW,PTW,OUTW,SETC5,USEPAT
@@ -251,12 +251,19 @@ CALLHL: PCHL
 ; ==== The graphic cursor ====================================================
 ;
 ; 18: place it at ptsin(1), ptsin(2) (moving it if it is up already)
-EGCUR:  CALL    GCOFF
+EGCUR:  MVI     A,2
+        CALL    PTW
+        XCHG
         MVI     A,1
         CALL    PTW
+;
+; GCAT -- the graphic cursor at X = HL, Y = DE (moved if it is up already)
+GCAT:   PUSH    D
+        PUSH    H
+        CALL    GCOFF
+        POP     H
         SHLD    GCX
-        MVI     A,2
-        CALL    PTW
+        POP     H
         SHLD    GCY
         MVI     A,1
         STA     GCON

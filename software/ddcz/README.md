@@ -28,7 +28,7 @@ The machine's cad0 `mode` strap must match the driver that opens. The
 board doesn't refuse a mismatch; the picture just lands in the wrong
 place. GSX programs normally open workstation 1, so list the driver
 matching the strap first in `ASSIGN.SYS`. GDOS reserves room for the
-first driver listed, but all three are the same size (11.5 KB, 2D1FH).
+first driver listed, but all three are the same size (11.2 KB, 2BC4H).
 
 ## Building
 
@@ -39,11 +39,11 @@ A0>R *.*
 A0>SUBMIT DDCZ          (RMAC each module, then LINK the three drivers)
 ```
 
-`DDCZ.SUB` assembles the seven modules and three mode modules, then links
+`DDCZ.SUB` assembles the eight modules and three mode modules, then links
 each driver:
 
 ```
-LINK DDCZ1K=DDCZ,DM1K,DDATTR,DDPRIM,DDFILL,DDCOL,DDESC,DDMATH,B:CZGFX[S,OP]
+LINK DDCZ1K=DDCZ,DM1K,DDATTR,DDPRIM,DDFILL,DDCOL,DDESC,DDINP,DDMATH,B:CZGFX[S,OP]
 ```
 
 - `DDCZ` must come first, because its first byte is the driver's entry.
@@ -78,13 +78,21 @@ time.
 On the old 56K CP/M that cost too much: DR Graph needs the driver to be
 6.2 KB or less there, and DEMOGRAF about 8 KB. So the pristine system disk
 became a 62K CP/M on 2026-10-08 (`tools/altairsim/README.md`, "Disk
-images"). With 62K, both run with this 11.5 KB driver. A `work/` disk
-synced before then is still 56K, so re-sync it.
+images"). With 62K, both run with this driver. A `work/` disk synced
+before then is still 56K, so re-sync it.
+
+DR Graph is the tightest fit. The 62K system gives it room for a driver of
+roughly 12 KB, and its larger overlays (`GRAPHC.OVL`) failed with a 12.4 KB
+build of this driver. Check DR Graph again after any change that grows the
+driver.
+
+**DR Draw needs CP/M Plus.** Its `README.TXT` says so, and `DRAW.COM` starts
+with a single `RET`, the CP/M 3 program-file header that returns at once
+on CP/M 2.2. It can't run on this system until the machine runs CP/M 3.
 
 ## What the driver does
 
-Every function GSX requires of a CRT is implemented, apart from the input
-functions.
+Every function GSX requires of a CRT is implemented, input included.
 
 | Opcode | Function | Notes |
 |---|---|---|
@@ -95,15 +103,18 @@ functions.
 | 6 | Polyline | 5 linetypes from GSX's masks; width 1 only; every vertex drawn once |
 | 7 | Polymarker | dot, plus, asterisk, circle, cross; heights 5-49 |
 | 8 | Text | font 1 = czgfx CZF8 (5x7), font 2 = CZF11 (7x10, descenders); scale 1-16; positioned by the baseline; up vector to the nearest 45 degrees; opaque cells in replace mode |
-| 9 | Filled area | a software scan-line fill (even-odd, up to 64 vertices); hollow, solid, halftone 1-6, hatch 1-6, the patterns lined up on a 16x16 screen grid; the perimeter drawn except in XOR mode |
+| 9 | Filled area | a software scan-line fill (even-odd, up to 48 vertices); hollow, solid, halftone 1-6, hatch 1-6, the patterns lined up on a 16x16 screen grid; the perimeter drawn except in XOR mode |
 | 10 | Cell array | each cell a filled rectangle, in the array's own writing mode |
 | 11 | GDP | bar, arc (the ACRTC's), pie slice (a polygon, 10 degree steps), circle; ruling characters: nothing |
 | 12, 13, 15-25 | attributes | each returns the value selected |
 | 14, 26 | color representation | all 256 indexes are Bt453 palette entries; "as set" and "as realized" both returned |
-| 27 | Inquire cell array | read back from the frame buffer (the pixel at each cell's centre) |
-| 28-31 | input | no input devices: nothing returned |
+| 27 | Inquire cell array | not available (intout(39) = 0), to keep the driver small; returns nothing |
+| 28 | Input locator | request: the graphic cursor (the overlay crosshair) from ptsin, moved by the keys until a terminator key, which is returned; sample: a move returns the new point, a key returns it |
+| 29 | Input valuator | from intin(2); up/down arrows change it by 10, `^E`/`^X` by 1 |
+| 30 | Input choice | the keys 1-9 |
+| 31 | Input string | up to intin(2) keys, to RETURN; echoed on the screen at ptsin in the text attributes if intin(3) (request mode) |
 | 32 | Writing mode | replace, transparent, XOR, erase (ACRTC OPM and color modes) |
-| 33 | Input mode | accepted |
+| 33 | Input mode | request or sample, for each of the four classes |
 
 **Writing modes.** All four follow GSX's definitions:
 - **Replace** draws a pattern's 0 bits in color 0.
@@ -120,8 +131,17 @@ functions.
 - 6 patterns and 6 hatches;
 - 256 colors shown at once, from more than 32767;
 - 4 GDPs;
-- color, text rotation, fill and cell-array read-back all available;
-- no input devices, so an output-only workstation.
+- color, text rotation and fill available, but no cell-array read-back;
+- one each of locator, valuator, choice and string devices, all on the
+  keyboard, so an input/output workstation.
+
+**Keys.** All input comes from the CP/M console through the BIOS:
+- **ANSI arrows** (`ESC [ A`-`D`) move the locator 8 pixels, or the
+  valuator by 10.
+- **`^E ^X ^S ^D`** (up, down, left, right) move it by 1.
+- **Any other key** ends a request and is returned as the terminator.
+- **ESC:** an ESC that isn't an arrow takes the next key with it, so press
+  ESC twice.
 
 ## Source
 
@@ -129,10 +149,11 @@ functions.
 |---|---|
 | `DDCZ.ASM` | entry (on its own 192-byte stack), dispatch, opcodes 1-4 and 32, the shared state and helpers |
 | `DDATTR.ASM` | the attribute setters; `USEPAT`, which keeps the ACRTC pattern RAM (shared by lines, fills and text) holding what each primitive needs |
-| `DDPRIM.ASM` | polyline, polymarker, text, cell array, GDPs, inquire cell array |
+| `DDPRIM.ASM` | polyline, polymarker, text (and the string echo), cell array, GDPs |
 | `DDFILL.ASM` | filled area: the edge table (16.16 fixed point), the spans, filled circles, outlines |
 | `DDCOL.ASM` | the color table: one byte a channel, what was asked for |
 | `DDESC.ASM` | escapes: the console (BIOS CONOUT) and the overlay crosshair |
+| `DDINP.ASM` | input: locator, valuator, choice, string (BIOS CONST/CONIN), input mode |
 | `DDMATH.ASM` | multiply, 32/16 divide, signed compare, a degree sine |
 | `DM1K/DM800/DM640.ASM` | the mode modules: `DMDESC`, the czgfx mode descriptor |
 
@@ -152,6 +173,15 @@ mode=1024x768` puts it back.
 The screen is checked from a `snapshot`, rendered with
 `tools/altairsim/scripts/cadzilla_png.py --size WxH`.
 
+GSXTEST has two input quirks:
+- **Its workstation-info screen shows intout(44) as the "workstation
+  type".** Its copy of intout has no slot for string devices, so a 1
+  there is our one string device.
+- **Its string-input test (I 7) never finishes.** Its copy loop ends
+  `DCX B / JNZ`, and on the 8080 `DCX` doesn't set the flags, so it copies
+  until it overwrites itself. The driver's side is fine: the string is
+  returned and echoed. Warm-boot out with `run {from: 0}`.
+
 Driving it:
 - **Wait for a menu to finish printing before typing.** GSXTEST prints
   with BDOS 9 and polls with BDOS 6, and drops a key typed in between.
@@ -161,11 +191,12 @@ Driving it:
 ## Known limits
 
 - **Line widths:** one only.
+- **Inquire cell array:** not available.
 - **Text:** rotation is in 45-degree steps.
 - **Pie slices:** filled as 10-degree polygons.
-- **Polygons:** at most 64 vertices are filled.
-- **Input:** none yet, so no locator, valuator, choice or string. DR Draw
-  needs a locator.
+- **Polygons:** at most 48 vertices are filled.
+- **Input:** keyboard only, with no mouse or tablet. DR Draw also needs
+  CP/M Plus (above).
 - **Alpha text** goes to the console. The overlay plane could carry a text
   screen instead (a later phase).
 - **z88dk on the 8080:** `gios_1pm`, `gios_1px` and `gios_2px` (and the

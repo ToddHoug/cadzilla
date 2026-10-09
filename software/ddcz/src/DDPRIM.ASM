@@ -1,9 +1,9 @@
 ;
 ; DDPRIM.ASM -- CADzilla GSX driver: the output primitives. Polyline (6),
 ; polymarker (7), text (8), cell array (10), the GDPs (11: bar, arc, pie
-; slice, circle) and inquire cell array (27).
+; slice, circle).
 ;
-        PUBLIC  PLINE,PMARK,TEXT,CELLA,GDP,QCELL
+        PUBLIC  PLINE,PMARK,TEXT,CELLA,GDP,TXECHO
 ;
         EXTRN   CONTRL,INTIN,PTSIN,INTOUT
         EXTRN   WMODE,LCOL,LTYPE,MCOL,MTYPE,MHGT
@@ -12,11 +12,12 @@
         EXTRN   USEPAT,FPAT,FMET
         EXTRN   FPOLY,FCIRC,OUTLN
         EXTRN   MULDIV,MUL,UDIV,NEGHL,CPSGN,ISIN,ICOS,SMULQ,SWRMOD
-        EXTRN   CZMOVE,CZLINE,CZRECT,CZFRCT,CZDOT,CZCRCL,CZARC
-        EXTRN   CZWPR,CZWAIT,CZRDOT,CZDM
-        EXTRN   CZTFNT,CZTSTR,CZTPOS,CZTATR,CZF8,CZF11
+        EXTRN   CZMOVE,CZLINE,CZRECT,CZFRCT,CZDOT
+        EXTRN   CZWPR,CZDM,CZCMD,CZPUTW,CZSEND
+        EXTRN   CZTFNT,CZTSTR,CZTST,CZF8,CZF11
 ;
 OPAARC  EQU     0B0H            ;AARC: absolute arc, counter-clockwise
+OPCRCL  EQU     0A8H            ;CRCL: circle round the CP
 TXOPAQ  EQU     1               ;CZTATR: the cell's 0 bits in CL0
 TXMAX   EQU     128             ;the longest string drawn
 MAXPIE  EQU     40              ;pie slice points
@@ -134,7 +135,7 @@ PMCIR:  LHLD    MY
         LHLD    MX
         CALL    CZMOVE
         LHLD    MARM
-        CALL    CZCRCL
+        CALL    CRCL
 PMNX:   LHLD    PLCNT
         DCX     H
         SHLD    PLCNT
@@ -214,6 +215,17 @@ TX1:    MOV     A,M
         INX     D
         DCR     B
         JNZ     TX1
+        MVI     A,1             ;from ptsin(1), (2)
+        CALL    PTW
+        SHLD    TXX
+        MVI     A,2
+        CALL    PTW
+        SHLD    TXY
+        POP     B
+;
+; TXDRAW -- draw the B characters at TXBUF with their baseline starting at
+; TXX, TXY, in the text attributes
+TXDRAW: PUSH    B
         LDA     TFONT           ;the font
         LXI     H,CZF8
         CPI     2
@@ -225,10 +237,12 @@ TX2:    CALL    CZTFNT
         MVI     C,0
         JNZ     TX3
         MVI     C,TXOPAQ
-TX3:    LDA     TDIR
-        MOV     B,A
-        LDA     TSCAL
-        CALL    CZTATR
+TX3:    LDA     TSCAL           ;czgfx's text state: scale, direction, flags
+        STA     CZTST+8
+        LDA     TDIR
+        STA     CZTST+9
+        MOV     A,C
+        STA     CZTST+10
         LDA     TCOL
         CALL    DRWCOL
         CALL    FMET            ;the pen: the baseline's rows below it,
@@ -258,29 +272,46 @@ TX5:    SHLD    SPLEN           ;the offset
         PUSH    H
         CMA
         INR     A
-        PUSH    PSW
-        MVI     A,1
-        CALL    PTW
-        POP     PSW
+        LHLD    TXX
         CALL    ADDSL
         SHLD    SPX
         POP     H
         MOV     A,M             ;-uy
         CMA
         INR     A
-        PUSH    PSW
-        MVI     A,2
-        CALL    PTW
-        POP     PSW
+        LHLD    TXY
         CALL    ADDSL
         XCHG
         LHLD    SPX
-        CALL    CZTPOS
+        SHLD    CZTST           ;czgfx's pen
+        XCHG
+        SHLD    CZTST+2
         POP     B
         LXI     H,TXBUF
         CALL    CZTSTR
         MVI     A,1             ;czgfx left the pattern RAM solid
         STA     PSTATE
+        RET
+;
+; TXECHO -- draw the character A with its baseline at X = HL, Y = DE (an
+; input string's echo); HL = the width of a cell, to move on by
+TXECHO: STA     TXBUF
+        SHLD    TXX
+        XCHG
+        SHLD    TXY
+        MVI     B,1
+        CALL    TXDRAW
+        CALL    FMET            ;the cell width, scaled
+        INX     H
+        INX     H
+        MOV     B,M
+        LDA     TSCAL
+        LXI     H,0
+        MOV     E,B
+        MVI     D,0
+TE1:    DAD     D
+        DCR     A
+        JNZ     TE1
         RET
 ;
 UPVEC:  DB      0,1, 0FFH,1, 0FFH,0, 0FFH,0FFH
@@ -428,9 +459,16 @@ ARC:    LDA     LTYPE
         MVI     A,6
         CALL    PTW
         CALL    STDEL
-        LXI     H,ARCT
+        LXI     H,ARCT          ;AARC, then Xc, Yc, Xe, Ye
         MVI     A,OPAARC
-        JMP     CZARC
+        CALL    CZCMD
+        LXI     B,4
+        JMP     CZSEND
+;
+; CRCL -- a circle of radius HL round the CP (the ACRTC's CRCL)
+CRCL:   MVI     A,OPCRCL
+        CALL    CZCMD
+        JMP     CZPUTW
 ;
 ; STDEL -- the word HL at DE; DE += 2
 STDEL:  XCHG
@@ -479,7 +517,7 @@ CIROUT: MVI     A,1
         LHLD    MX
         CALL    CZMOVE
         LHLD    SPLEN
-        JMP     CZCRCL
+        JMP     CRCL
 ;
 ; 3: pie slice, centre ptsin(1)-(2), radius ptsin(7), from intin(1) to
 ; intin(2) tenths of a degree, counter-clockwise, in the fill attributes:
@@ -795,115 +833,6 @@ MULW:   CALL    MUL
         XCHG
         RET
 ;
-; ==== 27: Inquire cell array =================================================
-;
-; Read the array back: contrl(6) cells across, (7) rows, over ptsin(1)-(4);
-; each cell's color is the pixel at its centre. intout gets them a row at
-; a time from the top; contrl(8), (9) the size used, (10) = 0, no errors.
-;
-QCELL:  CALL    CORNRS
-        MVI     A,6
-        CALL    CTLW
-        SHLD    CAX
-        MVI     A,7
-        CALL    CTLW
-        SHLD    CNR
-        CALL    CWH
-        CALL    CZWAIT          ;the ACRTC done drawing first
-        LHLD    INTOUT
-        SHLD    CPTR
-        LXI     H,0
-        SHLD    CNT
-        LHLD    CNR             ;none: nothing
-        MOV     A,H
-        ORA     L
-        JZ      QC4
-        LHLD    CAX
-        MOV     A,H
-        ORA     L
-        JZ      QC4
-        LXI     H,0
-        SHLD    CR
-QC1:    LHLD    CR              ;the row's centre: BY1 - (2r+1) * CH / 2CNR
-        DAD     H
-        INX     H
-        MOV     B,H
-        MOV     C,L
-        LHLD    CH
-        XCHG
-        LHLD    CNR
-        DAD     H
-        CALL    MULDIV
-        XCHG
-        LHLD    BY1
-        CALL    SUBDE
-        SHLD    CYT
-        LXI     H,0
-        SHLD    CCX
-QC2:    LHLD    CCX              ;the column's: BX0 + (2c+1) * CW / 2CNC
-        DAD     H
-        INX     H
-        MOV     B,H
-        MOV     C,L
-        LHLD    CW
-        XCHG
-        LHLD    CAX
-        DAD     H
-        CALL    MULDIV
-        XCHG
-        LHLD    BX0
-        DAD     D
-        XCHG                    ;DE = X
-        LHLD    CYT
-        XCHG                    ;HL = X, DE = Y
-        CALL    CZRDOT
-        MOV     L,A
-        MVI     H,0
-        JNC     QC3
-        LXI     H,0FFFFH        ;off the screen: -1
-QC3:    XCHG
-        LHLD    CPTR
-        MOV     M,E
-        INX     H
-        MOV     M,D
-        INX     H
-        SHLD    CPTR
-        LHLD    CNT
-        INX     H
-        SHLD    CNT
-        LHLD    CCX
-        INX     H
-        SHLD    CCX
-        XCHG
-        LHLD    CAX
-        MOV     A,E
-        SUB     L
-        MOV     A,D
-        SBB     H
-        JC      QC2
-        LHLD    CR
-        INX     H
-        SHLD    CR
-        XCHG
-        LHLD    CNR
-        MOV     A,E
-        SUB     L
-        MOV     A,D
-        SBB     H
-        JC      QC1
-QC4:    LHLD    CONTRL          ;contrl(8), (9), (10)
-        LXI     D,14
-        DAD     D
-        XCHG
-        LHLD    CAX
-        CALL    STDEL
-        LHLD    CNR
-        CALL    STDEL
-        LXI     H,0
-        CALL    STDEL
-        LHLD    CNT
-        JMP     SETC5
-;
         DSEG
 PLCNT:  DS      2
 LASTX:  DS      2
@@ -915,6 +844,8 @@ MY:     DS      2
 SPLEN:  DS      2
 SPX:    DS      2
 TXBUF:  DS      TXMAX
+TXX:    DS      2               ;the text's baseline start
+TXY:    DS      2
 BX0:    DS      2               ;bar and cell array corners (ORDER: the
 BY0:    DS      2               ;same order matters: X0, Y0, X1, Y1)
 BX1:    DS      2
