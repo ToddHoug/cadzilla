@@ -69,7 +69,14 @@ onto the driver project's own `work/` disk only.
 | `GSX80-1.0.DSK` | the disk image in that archive (`disks/library/gsx80-1.0.dsk`), an 8" IBM 3740 image | (extracted) |
 | `gsxtest.zip` | <https://seasip.info/Cpm/software/GSXTEST.ZIP>: John Elliott's GSXTEST 2, a GSX driver test program, built with RMAC + LINK-80 | `012c9f154a62c30d6e7e65c6c6c3c6ab716f9fa3564110a0e574ed586e4e9760` |
 
-Both were retrieved on 2026-10-08. John Elliott updates GSXTEST from time to
+| `drgraph.tgz` | <https://www.icl1900.co.uk/unix4fun/z80pack/ftp/drgraph.tgz>, z80pack: DRI's DR Graph 1.0 (19 May 83), a GSX chart program, on a CP/M disk | `17c84b5b5c38d20f95ee2b2e8cbc1d54d09cc8aecf7b2f39635d2a9014c43627` |
+| `DRGRAPH.DSK` | the disk image in that archive (`disks/library/drgraph.dsk`), an 8" IBM 3740 image | `be6b6056b4f39b81566a0f828790b11f6713583ac4832a63ef71f17b5b989595` |
+
+All four were retrieved on 2026-10-08. `DRGRAPH/` holds DR Graph's files,
+uppercased: `GRAPH.COM`, its overlays, `GRAPHY.MNU`, `GRAPHZ.TBL` and the
+sample charts (`SAMPLE1`, ...: no file type, so `R` them one by one). Its own
+`GSX.SYS`, `ASSIGN.SYS` and drivers are left out. DR Graph is DRI's and is
+treated like GSX-80: local only. John Elliott updates GSXTEST from time to
 time. A new upload fails its pin; check what changed, then move the pins
 in `fetch_upstream.sh`.
 

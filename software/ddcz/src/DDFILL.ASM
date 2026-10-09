@@ -23,7 +23,7 @@
         EXTRN   UDIV,NEG32,CPSGN,NEGHL
         EXTRN   CZMOVE,CZLINE,CZFRCT,CZDOT,CZWPR
 ;
-MAXE    EQU     96              ;the most polygon edges (vertices) filled
+MAXE    EQU     64              ;the most polygon edges (vertices) filled
 ;
         CSEG
 ;

@@ -29,6 +29,10 @@
 #                                GENGRAF.COM, DEMOGRAF.COM, GSXTEST.COM, plus
 #                                reference sources (DDXTEK.FOR, XTEK.MAC,
 #                                GSXTEST.ASM, SINES.ASM, GSXTEST.TXT)
+#   upstream/drgraph.tgz         z80pack's DR Graph disk, as downloaded
+#   upstream/DRGRAPH.DSK         the disk image out of it
+#   upstream/DRGRAPH/            DR Graph's program, overlays, menu and table,
+#                                and its sample charts (no file type: SAMPLE1 ...)
 #
 # Extracting from the GSX disk image needs cpmtools (cpmcp).
 #
@@ -64,6 +68,11 @@ GSX_DSK_MEMBER="disks/library/gsx80-1.0.dsk"
 # check what changed, then move the pin (and the GSXTEST lines below).
 GSXTEST_URL="https://seasip.info/Cpm/software/GSXTEST.ZIP"
 GSXTEST_SHA="012c9f154a62c30d6e7e65c6c6c3c6ab716f9fa3564110a0e574ed586e4e9760"
+
+DRG_URL="https://www.icl1900.co.uk/unix4fun/z80pack/ftp/drgraph.tgz"
+DRG_SHA="17c84b5b5c38d20f95ee2b2e8cbc1d54d09cc8aecf7b2f39635d2a9014c43627"
+DRG_DSK_MEMBER="disks/library/drgraph.dsk"
+DRG_DSK_SHA="be6b6056b4f39b81566a0f828790b11f6713583ac4832a63ef71f17b5b989595"
 
 # Files for upstream/GSX/: CP/M name, name on the GSX disk, SHA-256
 gsxdisk=(
@@ -150,3 +159,21 @@ for t in "${gsxtest[@]}"; do
   check "$dest" "$want" "$member in gsxtest.zip"
   echo "  ok      GSX/$name"
 done
+
+# DR Graph (a GSX-80 application, to try the driver with): everything on its
+# disk but its own GSX runtime and drivers, which the driver work replaces.
+# The disk image is pinned; the files come off it as they are.
+mkdir -p "$UP/DRGRAPH"
+fetch "$DRG_URL" "$UP/drgraph.tgz" "$DRG_SHA"
+tar -xzOf "$UP/drgraph.tgz" "$DRG_DSK_MEMBER" > "$UP/DRGRAPH.DSK.part"
+check "$UP/DRGRAPH.DSK" "$DRG_DSK_SHA" "$DRG_DSK_MEMBER in drgraph.tgz"
+echo "  ok      DRGRAPH.DSK"
+n=0
+for f in $(cpmls -f ibm-3740 "$UP/DRGRAPH.DSK" | grep -v '^[0-9]*:$'); do
+  case "$f" in assign.sys|gsx.sys|*.prl) continue ;; esac
+  name="$(printf '%s' "$f" | tr '[:lower:]' '[:upper:]')"
+  rm -f "$UP/DRGRAPH/$name"
+  cpmcp -f ibm-3740 "$UP/DRGRAPH.DSK" "0:$f" "$UP/DRGRAPH/$name"
+  n=$((n + 1))
+done
+echo "  ok      DRGRAPH/ ($n files)"

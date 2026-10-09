@@ -87,7 +87,7 @@ recognises a lowercase `.c`. The main module's name, uppercased, is still the
 CP/M program name (`chello.c` → `CHELLO.COM`). Its `.Z88` modules and every
 build output stay uppercase.
 
-Software toolchains (the first three run inside CP/M 2.2 on altairsim, driven
+Software toolchains (the first three run inside CP/M 2.2 (62K) on altairsim, driven
 over its MCP server; `tools/altairsim/README.md`):
 - **DRI `ASM.COM` + `LOAD.COM`** — the original flow: one self-contained
   `.ASM` per program, no INCLUDE/macros/linker (`hello`, `firstdraw`,
@@ -102,6 +102,10 @@ over its MCP server; `tools/altairsim/README.md`):
   the `.PRL` files a GSX-80 driver needs, which L80 can't (`rhello`; skill
   `cadzilla-build-rmac`; "The DRI RMAC/LINK toolchain" in
   `tools/altairsim/README.md`).
+  `software/ddcz` is the CADzilla GSX-80 screen driver built this way
+  (`DDCZ1K`/`DDCZ800`/`DDCZ640.PRL`, linked with czgfx); `software/cgsxdemo`
+  is a zcc GSX client. The GSX runtime is local-only
+  (`tools/altairsim/scripts/fetch_upstream.sh`); see `software/ddcz/README.md`.
 - **z88dk `z80asm`** (snap) — a host cross-assembler for the 8080, 8085 or
   Z80, taking Intel and/or Zilog mnemonics: `src/*.Z88` built on the host by
   `tools/z88dk/z88build.sh` into `build/<NAME>.COM`, which altairsim only

@@ -44,13 +44,13 @@ could never be created from the command line in the first place.
   should always be clean after a session. `cadzilla.toml` is a
   delta on altairsim's own `machines/cadzilla.toml` — the real board with
   its console, front panel, flat-out CPU, host bridge, an empty disk
-  controller and 56K of RAM — adding only what CP/M needs to boot: the
-  DBL boot PROM at FF00, this project's disks in drives 0 and 1, the
+  controller and 56K of RAM — adding what CP/M needs to boot: 62K of
+  RAM (0000-F7FF) and the DBL boot PROM at FF00, this project's disks in drives 0 and 1, the
   `RUN FF00` startup and the console's Backspace mapping — plus the
   monitor resolution (cad0 `mode = "1024x768"`), stated explicitly rather
   than inherited from the base (see "Display resolution"). See the comments
   in the file itself for the full reasoning. `CPM22SYS.DSK` (drive 0) is an 8MB virtual hard disk
-  carrying CP/M 2.2 for 56K of RAM (0000-DFFF) and its tools (`ASM.COM`,
+  carrying CP/M 2.2 for 62K of RAM (0000-F7FF; see "62K CP/M" below) and its tools (`ASM.COM`,
   `LOAD.COM`, `DDT.COM`, Microsoft's `M80`/`L80`/`LIB80`/`CREF80.COM`,
   DRI's `RMAC`/`LINK`/`LIB`/`XREF.COM` (see "The DRI RMAC/LINK
   toolchain"), the
@@ -121,7 +121,7 @@ other files that pass through CP/M are.
 
 | Image | Where | Holds | Mounted as |
 |---|---|---|---|
-| `CPM22SYS.DSK` | `pristine/` | the template: CP/M 2.2 (56K) and the dev tools | never — it is only copied |
+| `CPM22SYS.DSK` | `pristine/` | the template: CP/M 2.2 (62K) and the dev tools | never — it is only copied |
 | `EMPTY.DSK` | `pristine/` | the template: an empty 8MB volume | never — it is only copied |
 | `CPM22SYS.DSK` | `software/<project>/work/` | the project's own copy of the system disk: CP/M, the tools, and everything built there | drive 0, `A:` |
 | `SCRATCH.DSK` | `software/<project>/work/` | a copy of `EMPTY.DSK`, for scratch | drive 1, `B:`, in the DRI `ASM` projects |
@@ -134,6 +134,37 @@ other files that pass through CP/M are.
 swaps an M80 project's `SCRATCH.DSK` for its own copy of its pinned czgfx
 release. A `work/` is therefore self-contained: nothing it mounts lies
 outside it.
+
+### 62K CP/M
+
+The pristine system disk was a 56K CP/M until 2026-10-08. It is now a **62K
+CP/M 2.2**:
+- **Memory map:** CCP at C600H, BDOS at CE06H, BIOS from DC00H to F7FFH.
+  The TPA runs from 0100H to CDFFH, 6 KB more than before.
+- **The reason:** GSX graphics. GDOS loads its device driver below itself,
+  out of the program's TPA. With the CADzilla driver (`software/ddcz`, 11.5
+  KB) that left too little for DR Graph or DEMOGRAF.
+- **How it was built:** with the disk's own tools, on a copy, never in
+  place:
+  - `MOVCPM8M 62 *`, then `SYSGEN` (source: RETURN to skip, destination:
+    `A`);
+  - 60 sectors of the two system tracks changed, and nothing else;
+  - booted on a 62K machine, it passed ASM/LOAD, RMAC/LINK, a warm boot,
+    DEMOGRAF and DR Graph.
+- **The machine:** pristine `cadzilla.toml` now gives mem0 62K of RAM
+  (0000-F7FF), below the DBL boot PROM at FF00.
+
+What it means for each disk:
+- **Older disks still work:** a `work/` disk synced before 2026-10-08 is
+  still the 56K system, and boots on either machine.
+- **A 62K disk does not boot on a 56K machine.** A `work/` that holds a
+  62K disk needs the 62K `cadzilla.toml`, which `sync_pristine.sh` gives
+  it.
+- **To move a project to 62K,** re-sync its `work/` with
+  `sync_pristine.sh software/<name>/work`. That discards what was built
+  there.
+- **Real hardware** needs 62K of RAM below the boot PROM for this disk.
+
 ## One-time setup (per machine)
 
 The `claude` CLI isn't always on `PATH` in every environment (e.g. inside
@@ -596,6 +627,32 @@ They run unchanged on this CP/M 2.2. Verified on the 8080 machine:
   RMAC's `.REL` files, and DRI LINK links M80's, including a mixed
   RMAC+M80 link. That's the path for a GSX driver whose code comes from
   F80 (Microsoft FORTRAN-80) or M80.
+
+## GSX graphics
+
+GSX-80 is DRI's device-independent graphics layer for CP/M (BDOS function
+115). `software/ddcz` is the CADzilla GSX screen driver: three `.PRL`s, one
+per display mode, built with RMAC + LINK against czgfx.
+`software/ddcz/README.md` covers:
+- what the driver implements;
+- how to set up a disk for it;
+- how it's tested, with GSXTEST, DEMOGRAF, DR Graph and
+  `software/cgsxdemo` (a z88dk C client).
+
+The runtime files are cached locally by `scripts/fetch_upstream.sh` and are
+never tracked or put on pristine, because GSX-80's licence is unsettled
+(`upstream/README.md`):
+- the GDOS, `GSX.SYS`;
+- `GENGRAF.COM`, which attaches the GSX loader to a program;
+- the test programs and DR Graph.
+
+To try GSX on a project's `work/` disk, `R` from `upstream/GSX/`:
+- `GSX.SYS` and `GENGRAF.COM`;
+- the driver;
+- an `ASSIGN.SYS` naming the driver for workstation 01.
+
+Then `GENGRAF` your program and run it. GSX programs need the 62K system
+(above).
 
 ## Adding a new program
 

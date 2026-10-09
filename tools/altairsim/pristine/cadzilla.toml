@@ -17,7 +17,7 @@
 # tools/altairsim/README.md.
 #
 # The disk images here are TEMPLATES, named for what they hold:
-#   CPM22SYS.DSK  an 8MB virtual hard disk carrying CP/M 2.2 (56K), ASM.COM, LOAD.COM,
+#   CPM22SYS.DSK  an 8MB virtual hard disk carrying CP/M 2.2 (62K), ASM.COM, LOAD.COM,
 #                 DDT.COM, M80/L80/LIB80, and the host-bridge R/W/HDIR.COM utilities used
 #                 to move files between the host and CP/M -- this build boots to an "A0>"
 #                 prompt (logical-unit numbering), not the plain "A>" of an 8" floppy
@@ -43,7 +43,7 @@
 #     -- decodes no memory at all, so nothing below touches it
 #   - dsk0: 88-DCDD floppy controller @ 0x08, four drives, all empty
 #   - hb0: host bridge @ 0xB0 (R/W/HDIR), hostdir = "" (the launch directory)
-#   - mem0: 56K of RAM (0000-DFFF), no boot ROM
+#   - mem0: 56K of RAM (0000-DFFF), no boot ROM (the base's; replaced below)
 #
 # What this file adds is exactly what turns that bench into something CP/M boots on,
 # plus the one board strap every project has to agree with:
@@ -51,7 +51,7 @@
 #   - console  bsdel = bs, for CP/M's line editor
 #   - cad0     MODIFIED: the monitor resolution, stated here rather than inherited
 #   - dsk0     MODIFIED: this project's disks in drives 0 and 1
-#   - mem0     REPLACED: the same 56K of RAM plus the DBL boot PROM at FF00. `type` +
+#   - mem0     REPLACED: 62K of RAM (0000-F7FF) plus the DBL boot PROM at FF00. `type` +
 #              a base id replaces the board outright, so the RAM region is re-stated too.
 
 [machine]
@@ -101,8 +101,11 @@ id = "dsk0"
   mount = "SCRATCH.DSK"
 
 # MEMORY, REPLACED. The base's mem0 is 56K of plain RAM with no boot ROM; this CP/M disk
-# was built for 56K (0000-DFFF) with the DBL boot PROM at FF00. cad0 decodes no memory
-# at all, so nothing here touches the graphics board.
+# is a 62K system (0000-F7FF: CCP C600, BDOS CE06, BIOS DC00-F7FF), made with MOVCPM8M 62
+# and SYSGEN on 2026-10-08 -- it was 56K, but GSX applications (DR Graph, DEMOGRAF) need
+# the 6K more TPA beside a GSX driver. The DBL boot PROM is at FF00. A 56K disk boots here
+# too (older work/ disks); a 62K disk does NOT boot in 56K. cad0 decodes no memory at all,
+# so nothing here touches the graphics board.
 [[board]]
 type = "memory"
 id   = "mem0"
@@ -111,7 +114,7 @@ fill = "random"
   [[board.region]]
   type = "ram"
   at   = 0000
-  size = "56K"
+  size = "62K"
 
   [[board.region]]
   type  = "rom"

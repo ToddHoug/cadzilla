@@ -19,7 +19,7 @@
 OPAARC  EQU     0B0H            ;AARC: absolute arc, counter-clockwise
 TXOPAQ  EQU     1               ;CZTATR: the cell's 0 bits in CL0
 TXMAX   EQU     128             ;the longest string drawn
-MAXPIE  EQU     80              ;pie slice points
+MAXPIE  EQU     40              ;pie slice points
 OMMASK  EQU     0E0H            ;CZDM's area-mode bits
 ;
         CSEG
@@ -483,7 +483,7 @@ CIROUT: MVI     A,1
 ;
 ; 3: pie slice, centre ptsin(1)-(2), radius ptsin(7), from intin(1) to
 ; intin(2) tenths of a degree, counter-clockwise, in the fill attributes:
-; a polygon, the centre and points on the arc 5 degrees apart.
+; a polygon, the centre and points on the arc 10 degrees apart.
 PIE:    MVI     A,1
         CALL    PTW
         SHLD    MX
@@ -514,14 +514,14 @@ PI1:    SHLD    PA1
         CALL    PPUT
         LXI     H,1
         SHLD    PNPT
-PI2:    LHLD    PA1             ;each 5 degrees from the start, then the end
+PI2:    LHLD    PA1             ;each 10 degrees from the start, then the end
         XCHG
         LHLD    PA0
         CALL    CPSGN           ;angle < end?
         JNC     PI3
         CALL    PPOINT
         LHLD    PA0
-        LXI     D,5
+        LXI     D,10
         DAD     D
         SHLD    PA0
         JMP     PI2

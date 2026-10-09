@@ -110,6 +110,45 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
   links M80 `.REL` files, and L80 links RMAC's. That's the route for F80
   (FORTRAN-80) or M80 code in a `.PRL`.
 
+### GSX drivers (software/ddcz)
+
+`software/ddcz` is the worked example of a GSX-80 driver built this way. Its
+README covers the GSX side.
+
+- **Linking with czgfx.** An RMAC project can link the czgfx library, which
+  is built with M80/LIB80:
+  - pin it in `czgfx.version`;
+  - run `tools/altairsim/scripts/attach_libdisk.sh software/<name>/work`,
+    which mounts that release read-only as `B:`;
+  - link with `LINK OUT=FIRST,...,B:CZGFX[S,OP]`. `[S]` searches the LIB80
+    library and loads only the modules used.
+  - Call czgfx routines by `EXTRN` (`CZLINE`, `CZINIT`, ...). Its
+    `CZGFX.INC` macros are M80-only.
+- **The entry is the PRL's first byte**, so the entry module links first.
+- **Use a `DSEG` for variables and stack.** LINK includes it in the image.
+- **Size matters.** GDOS loads the driver below itself, out of the
+  application's memory, and DR Graph needs the 62K CP/M even with an
+  11.5 KB driver. Measure an application's limit with a dummy `.PRL` of a
+  chosen size listed first in `ASSIGN.SYS`; GDOS reserves room for the
+  first driver.
+- **The test flow:**
+  - `R` `GSX.SYS`, `GENGRAF.COM`, `GSXTEST.COM` and the rest from
+    `tools/altairsim/upstream/GSX/` (after `fetch_upstream.sh`), plus the
+    driver and an `ASSIGN.SYS`;
+  - run `GSXTEST [device]`;
+  - `snapshot` and render it with `tools/altairsim/scripts/cadzilla_png.py`.
+- **Driving GSX programs over MCP:**
+  - wait for a menu's last line, then one more `run` with no input, before
+    typing. Programs that print with BDOS 9 and poll with BDOS 6 drop a key
+    typed in between;
+  - control keys and CR go in with `monitor TYPE "\^["` (ESC) or
+    `TYPE "\r"`.
+- **Debugging a driver:**
+  - the load address is found by `mem_search` for its entry bytes;
+  - runtime address = link address + (load base − 0100H);
+  - `BREAK MEM W <addr>` and `HISTORY` find who overwrote what;
+  - `BREAK 8-FF` catches a jump into page zero.
+
 ## 3. Pull the artifacts back
 
 ```

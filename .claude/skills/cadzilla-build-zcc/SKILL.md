@@ -144,8 +144,9 @@ unless asked.
   `#` starts a comment. Examples: `-O3`, `-DDEBUG`, `-lm`,
   `-pragma-define:...`.
 - **Size:** a `printf` hello is about 7 KB. With floats (`-lm`) it is about
-  15 KB on the 8080 and 12 KB on the Z80. This 56K CP/M leaves under 50 KB
-  for program, data and stack. The `.COM` size is printed on every build.
+  15 KB on the 8080 and 12 KB on the Z80. The 62K CP/M leaves about 51 KB
+  (0100H-CDFFH) for program, data and stack; a `work/` disk synced before
+  2026-10-08 is still the 56K system, about 45 KB. The `.COM` size is printed on every build.
 - **`#ifdef`:** zcc defines `__8080`, `__8085` or `__Z80`, and `__CPM__`.
 - **`\n` prints as CR/LF** on the CP/M console; the library adds the CR.
 - **Calling assembly from C** (`src/CPUID.Z88` is the worked example):

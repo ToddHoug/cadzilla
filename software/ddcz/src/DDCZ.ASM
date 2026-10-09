@@ -391,7 +391,7 @@ OLDSP:  DS      2               ;GDOS's stack pointer
 LDPTR:  DS      2
 INTIN0: DS      2
 ;
-        DS      256             ;the driver's stack
+        DS      192             ;the driver's stack
 STACK:
 ;
         END
