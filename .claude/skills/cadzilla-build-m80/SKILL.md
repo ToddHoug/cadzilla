@@ -1,24 +1,24 @@
 ---
 name: cadzilla-build-m80
-description: Builds and runs CADzilla programs with the Microsoft M80/L80 toolchain and the shared czgfx graphics library -- rebuilding and releasing the czgfx library disk when its sources changed, then assembling a consumer project's <NAME>.MAC with M80, linking it against the czgfx release it pins with SUBMIT B:CZLINK, running it and pulling the .COM/.PRN back -- all by driving the altairsim MCP server. Use this whenever the user wants to build, run, test or debug a CADzilla project whose source is a .MAC file (software/gfxdemo, software/czgfx, anything scaffolded with --toolchain m80), change or extend the czgfx library (new primitive, new macro, new module), or asks how to share code/macros between CADzilla programs. For single-file .ASM projects (hello, firstdraw, drawdemo) use cadzilla-build-asm; for .Z88 projects (z88dk host cross-assembler, 8080/8085/Z80) use cadzilla-build-z88dk; for C (.c) projects use cadzilla-build-zcc; for DRI RMAC + LINK projects (relocatable .ASM modules with a <NAME>.SUB, e.g. software/rhello) or to make a .PRL use cadzilla-build-rmac.
+description: Builds and runs CADzilla programs with the Microsoft M80/L80 toolchain and the shared czgfx graphics library -- rebuilding and releasing the czgfx library disk when its sources changed, then assembling a consumer project's <NAME>.MAC with M80, linking it against the czgfx release it pins with SUBMIT B:CZLINK, running it and pulling the .COM/.PRN back -- all by driving the altairsim MCP server. Use this whenever the user wants to build, run, test or debug a CADzilla project whose source is a .MAC file (software/m80/gfxdemo, software/m80/czgfx, anything scaffolded with --toolchain m80), change or extend the czgfx library (new primitive, new macro, new module), or asks how to share code/macros between CADzilla programs. For single-file .ASM projects (hello, firstdraw, drawdemo) use cadzilla-build-asm; for .Z88 projects (z88dk host cross-assembler, 8080/8085/Z80) use cadzilla-build-z88dk; for C (.c) projects use cadzilla-build-zcc; for DRI RMAC + LINK projects (relocatable .ASM modules with a <NAME>.SUB, e.g. software/rmac/rhello) or to make a .PRL use cadzilla-build-rmac.
 ---
 
 # Build with M80/L80 and the czgfx library
 
 The pieces (full background is in `tools/altairsim/README.md`, "The M80/L80
-toolchain", and in `software/czgfx/README.md`):
+toolchain", and in `software/m80/czgfx/README.md`):
 
-- **`software/czgfx/`** is the graphics library. Its sources are in `src/`
+- **`software/m80/czgfx/`** is the graphics library. Its sources are in `src/`
   (`CZGFX.INC`, `CZ*.MAC`, `CZBUILD.SUB`, `CZLINK.SUB`, `CZCHK.MAC`). Its
   fourteen modules are combined with **LIB80** into one library, `CZGFX.REL`.
   That library, the header and `CZLINK.SUB` go onto the **build disk**
-  `software/czgfx/libdisk/CZGFXLIB.DSK`, which czgfx's own `work/` mounts
-  **writable** as drive 1 (B:). `software/czgfx/tools/release.sh`
+  `software/m80/czgfx/libdisk/CZGFXLIB.DSK`, which czgfx's own `work/` mounts
+  **writable** as drive 1 (B:). `software/m80/czgfx/tools/release.sh`
   snapshots it as a tracked, never-changed **release**,
-  `software/czgfx/releases/CZGFXLIB-<version>.DSK`, named by `CZVERS` in
+  `software/m80/czgfx/releases/CZGFXLIB-<version>.DSK`, named by `CZVERS` in
   `CZGFX.INC`.
-- **Consumer projects** (`software/gfxdemo` is the example) pin a release
-  in `software/<name>/czgfx.version`. Each mounts **its own copy**,
+- **Consumer projects** (`software/m80/gfxdemo` is the example) pin a release
+  in `software/m80/<name>/czgfx.version`. Each mounts **its own copy**,
   `work/CZGFXLIB-<version>.DSK`, as **B:, read-only**. They
   `INCLUDE B:CZGFX.INC`, and link with `SUBMIT B:CZLINK <NAME>`, which
   is `L80 <NAME>,B:CZGFX/S,<NAME>/N/E`. L80's library search loads only
@@ -34,37 +34,37 @@ prompt is printed; see step 3.
 
 ## 0. Preflight (host side)
 
-1. **Names.** The project directory is `software/<name>/`. The source is
+1. **Names.** The project directory is `software/m80/<name>/`. The source is
    `src/<NAME>.MAC`, uppercase and at most 8 characters. Look in `src/`
    rather than guessing.
 2. **The project must be wired to the library.**
-   - `software/<name>/work/` must exist. If not, run
-     `tools/altairsim/scripts/sync_pristine.sh software/<name>/work`.
-   - It must have a pin, `software/<name>/czgfx.version` (e.g. `1.0`, or
+   - `software/m80/<name>/work/` must exist. If not, run
+     `tools/altairsim/scripts/sync_pristine.sh software/m80/<name>/work`.
+   - It must have a pin, `software/m80/<name>/czgfx.version` (e.g. `1.0`, or
      `dev` for the current build disk).
    - Its `cadzilla.toml` drive 1 must mount `CZGFXLIB-<version>.DSK`, a
      file in `work/` itself, with `readonly = true`. If it doesn't (for
      example after `sync_pristine.sh --machine-only`, or after a pin
-     change), run `tools/altairsim/scripts/attach_libdisk.sh software/<name>/work`.
+     change), run `tools/altairsim/scripts/attach_libdisk.sh software/m80/<name>/work`.
      A `dev` pin needs that run again after every library rebuild, to
      refresh the copy.
-   - czgfx itself uses `attach_libdisk.sh --writable software/czgfx/work`
+   - czgfx itself uses `attach_libdisk.sh --writable software/m80/czgfx/work`
      (its build disk, no pin).
    - **czgfx's work disk must have LIB80.COM.** It's on the pristine disk
-     from 2026-09-24. An older `software/czgfx/work` doesn't have it, and
+     from 2026-09-24. An older `software/m80/czgfx/work` doesn't have it, and
      CZBUILD's `LIB80` lines then fail with `LIB80?`. To fix that:
-     1. run `sync_pristine.sh software/czgfx/work`; it only discards build
+     1. run `sync_pristine.sh software/m80/czgfx/work`; it only discards build
         intermediates
-     2. run `attach_libdisk.sh --writable software/czgfx/work` again
+     2. run `attach_libdisk.sh --writable software/m80/czgfx/work` again
      Consumers need only M80 and L80, which every work disk has.
 3. **CR/LF.** Run `tools/altairsim/scripts/crlf.sh` on every source you're
-   about to `R`: the project's `src/*.MAC`, plus `software/czgfx/src/*`
+   about to `R`: the project's `src/*.MAC`, plus `software/m80/czgfx/src/*`
    when rebuilding the library. It is idempotent. Files written on the host
    are LF-only, and LF-only source silently assembles to nothing.
 4. **Only when working on czgfx itself (or a `dev` pin): is the build disk
    stale?** Check whether it is missing, or any czgfx source is newer:
    ```bash
-   find software/czgfx/src -newer software/czgfx/libdisk/CZGFXLIB.DSK -type f
+   find software/m80/czgfx/src -newer software/m80/czgfx/libdisk/CZGFXLIB.DSK -type f
    ```
    If so, do step 1. A consumer pinned to a release never needs this. It
    builds against its own copy of that release.
@@ -77,10 +77,10 @@ prompt is printed; see step 3.
 ## 1. Rebuild the library (czgfx's own machine)
 
 ```
-monitor {command: "CONFIG LOAD <repo-root>/software/czgfx/work/cadzilla.toml"}
+monitor {command: "CONFIG LOAD <repo-root>/software/m80/czgfx/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>", timeout_ms: 10000}
 monitor {command: "SHOW MOUNTS"}
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/czgfx/src"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/m80/czgfx/src"}
 run {input: "R *.*\r", until: "A0>", timeout_ms: 30000}
 run {input: "SUBMIT CZBUILD\r", timeout_ms: 180000}
 ```
@@ -102,7 +102,7 @@ run {input: "SUBMIT CZBUILD\r", timeout_ms: 180000}
     clean link means the published header and modules agree.
 - Pull the artifacts back, then close this machine:
   ```
-  monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/czgfx/build"}
+  monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/m80/czgfx/build"}
   run {input: "W *.REL\r", until: "A0>", timeout_ms: 20000}       # binary
   run {input: "W *.PRN T\r", until: "A0>", timeout_ms: 30000}
   run {input: "DIR B:\r", until: "A0>"}      # CZGFX.REL, CZGFX.INC, CZLINK.SUB
@@ -113,17 +113,17 @@ run {input: "SUBMIT CZBUILD\r", timeout_ms: 180000}
 - **Scan the `.PRN`s for error flags.** M80 marks a bad line with a letter
   in column 1:
   ```bash
-  for f in software/czgfx/build/*.PRN; do tr -d '\r' <"$f" | grep -nE '^[A-Z%?]' | grep -vE ':(Macros|Symbols|No Fatal)'; done
+  for f in software/m80/czgfx/build/*.PRN; do tr -d '\r' <"$f" | grep -nE '^[A-Z%?]' | grep -vE ':(Macros|Symbols|No Fatal)'; done
   ```
   Apart from the macro-name rows of the symbol table, this should print nothing.
 
 ## 2. Build and run the consumer (its own machine)
 
 ```
-monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
+monitor {command: "CONFIG LOAD <repo-root>/software/m80/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>", timeout_ms: 10000}
 monitor {command: "SHOW MOUNTS"}   # drive1 = CZGFXLIB-<version>.DSK (write-protected)
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/src"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/m80/<name>/src"}
 run {input: "R <NAME>.MAC\r", until: "A0>", timeout_ms: 15000}
 run {input: "M80 <NAME>,<NAME>=<NAME>\r", until: "A0>", timeout_ms: 60000}
 run {input: "SUBMIT B:CZLINK <NAME>\r", timeout_ms: 60000}
@@ -161,19 +161,19 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 30000}
   - An ESC can't be typed through the `input` string, so step to the end
     with ordinary keys instead.
 - **Resolution.** The monitor strap comes from the machine file: pristine's
-  1024x768, or the project's own `software/<name>/machine.toml` overlay,
+  1024x768, or the project's own `software/m80/<name>/machine.toml` overlay,
   which `sync_pristine.sh` appends to `work/cadzilla.toml`. The program's
   `GINIT` must name the matching descriptor (`CZM640`, `CZM800`, `CZM1K`).
   To change it for good, edit `machine.toml` and the `GINIT`, then
-  `sync_pristine.sh --machine-only software/<name>/work` and
-  `attach_libdisk.sh software/<name>/work` again before the `CONFIG LOAD`.
+  `sync_pristine.sh --machine-only software/m80/<name>/work` and
+  `attach_libdisk.sh software/m80/<name>/work` again before the `CONFIG LOAD`.
   To try another mode for one session only, `monitor {command: "SET cad0
   mode=800x600"}` (it lasts until the next `CONFIG LOAD`). `board_set` may
   report a malformed result even though the change took, so confirm it
   with `SHOW cad0`.
 - Pull the artifacts back:
   ```
-  monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/build"}
+  monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/m80/<name>/build"}
   run {input: "W <NAME>.COM\r", until: "A0>"}        # binary -- NEVER with T
   run {input: "W <NAME>.PRN T\r", until: "A0>"}
   monitor {command: "SET hb0 HOSTDIR=<repo-root>"}
@@ -184,9 +184,9 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 30000}
 - `run {timeout_ms: 5000}`, with no input and no `until`, must report
   `stopped: "idle"`
 - `UNMOUNT dsk0:drive0` and `UNMOUNT dsk0:drive1`
-- `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK` must say
+- `tools/altairsim/scripts/check_dsk.py software/m80/<name>/work/*.DSK` must say
   `ok` for every image (for czgfx itself, add
-  `software/czgfx/libdisk/CZGFXLIB.DSK`)
+  `software/m80/czgfx/libdisk/CZGFXLIB.DSK`)
 - confirm `git status tools/altairsim/pristine` is clean; if it isn't, stop
   and tell the user
 - a consumer mounts its library copy read-only, so the copy's modification
@@ -199,7 +199,7 @@ Don't commit unless asked.
 
 ## Changing the library
 
-`software/czgfx/README.md` has the API and the extension recipe. In short:
+`software/m80/czgfx/README.md` has the API and the extension recipe. In short:
 
 - **New routine:** `PUBLIC` it in its module, optionally add a `G...`
   macro that calls it as `NAME##`, and exercise it in `CZCHK.MAC`. The
@@ -217,7 +217,7 @@ Don't commit unless asked.
 - **Releasing.**
   1. Raise `CZVERS` in `CZGFX.INC` (major high byte, minor low byte).
   2. Rebuild (step 1).
-  3. Run `software/czgfx/tools/release.sh`. It refuses a stale build disk
+  3. Run `software/m80/czgfx/tools/release.sh`. It refuses a stale build disk
      or an existing version.
   4. `git add` the new `releases/CZGFXLIB-<version>.DSK`.
 - **Moving a consumer to the new release.** Do this only for the consumers
@@ -273,7 +273,7 @@ the CCP waits for console input, which happens *after* the `A0>` prompt is
 printed. A `run` that stopped on `until: "A0>"` can therefore still have
 that write outstanding. Unmounting then either loses it, or cuts it short
 halfway through a sector, and the next boot says
-`Bdos Err On A: Bad Sector`. This has happened to `software/gfxdemo/work`.
+`Bdos Err On A: Bad Sector`. This has happened to `software/m80/gfxdemo/work`.
 So before any `UNMOUNT`, `CONFIG LOAD` or `reset`, run once with no input
 and no `until`, and check that it reports `stopped: "idle"`.
 - **CR/LF, uppercase names, and the `W` rules are the same as for ASM.**

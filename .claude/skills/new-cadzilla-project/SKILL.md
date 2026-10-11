@@ -1,6 +1,6 @@
 ---
 name: new-cadzilla-project
-description: Scaffolds a new 8080/8085/Z80 CP/M software project in the CADzilla repo under software/<name>/, with a starter source file for any of the five toolchains -- the original DRI ASM.COM (single .ASM), DRI RMAC + LINK-80 (relocatable .ASM modules plus a <NAME>.SUB build script; LINK can also write .PRL, e.g. GSX drivers), Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:), the z88dk host cross-assembler for the 8080, 8085 or Z80 with Intel and/or Zilog mnemonics (.Z88, --cpu; pins the cz88gfx graphics library, czgfx ported to z80asm), or the z88dk zcc C compiler for the 8080, 8085 or Z80 (lowercase .c plus a .Z88 module, --cpu) -- then drives the altairsim MCP server through a first build and run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080/8085/Z80 assembly or C program for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
+description: Scaffolds a new 8080/8085/Z80 CP/M software project in the CADzilla repo under software/<toolchain>/<name>/, with a starter source file for any of the five toolchains -- the original DRI ASM.COM (single .ASM), DRI RMAC + LINK-80 (relocatable .ASM modules plus a <NAME>.SUB build script; LINK can also write .PRL, e.g. GSX drivers), Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:), the z88dk host cross-assembler for the 8080, 8085 or Z80 with Intel and/or Zilog mnemonics (.Z88, --cpu; pins the cz88gfx graphics library, czgfx ported to z80asm), or the z88dk zcc C compiler for the 8080, 8085 or Z80 (lowercase .c plus a .Z88 module, --cpu) -- then drives the altairsim MCP server through a first build and run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080/8085/Z80 assembly or C program for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
 ---
 
 # New CADzilla project
@@ -15,11 +15,11 @@ There are five toolchains. The project is built for one of them:
 
 | `--toolchain` | Source | Build skill | Reference project |
 |---|---|---|---|
-| `asm` (default) | one self-contained `<NAME>.ASM`; DRI `ASM.COM` + `LOAD.COM`; no INCLUDE, no macros, no linker | `cadzilla-build-asm` | `software/hello` |
-| `rmac` | relocatable `<NAME>.ASM` + a second module `PRINT.ASM` (`CSEG`/`DSEG`, `EXTRN`/`PUBLIC`, no `ORG`); DRI `RMAC` + `LINK` 1.31, run by the tracked `<NAME>.SUB` (`SUBMIT <NAME>`); `LINK ...[OP]` writes a `.PRL` (the GSX-80 driver format) | `cadzilla-build-rmac` | `software/rhello` |
-| `m80` | relocatable `<NAME>.MAC`; Microsoft `M80` + `L80`; `INCLUDE B:CZGFX.INC`, the czgfx graphics macros and library, linked with `SUBMIT B:CZLINK` | `cadzilla-build-m80` | `software/gfxdemo` |
-| `z88dk` | `<NAME>.Z88` (plus any other `.Z88` modules); z88dk's `z80asm`, run **on the host** by `tools/z88dk/z88build.sh`; Intel and/or Zilog mnemonics; targets the 8080, 8085 or Z80 (`--cpu`); draws with **cz88gfx** (czgfx ported to z80asm), pinned in `cz88gfx.version` | `cadzilla-build-z88dk` | `software/zhello`, `software/z88demo` (draws) |
-| `zcc` | **C**: lowercase `<name>.c` (plus any other `.c` and `.Z88` modules); z88dk's `zcc`, run **on the host** by `tools/z88dk/zccbuild.sh`; targets the 8080, 8085 or Z80 (`--cpu`); draws with **cz88gfx**'s C bindings (`#include <cz88gfx.h>`), pinned in `cz88gfx.version` | `cadzilla-build-zcc` | `software/chello`, `software/cgfxdemo` (draws) |
+| `asm` (default) | one self-contained `<NAME>.ASM`; DRI `ASM.COM` + `LOAD.COM`; no INCLUDE, no macros, no linker | `cadzilla-build-asm` | `software/asm/hello` |
+| `rmac` | relocatable `<NAME>.ASM` + a second module `PRINT.ASM` (`CSEG`/`DSEG`, `EXTRN`/`PUBLIC`, no `ORG`); DRI `RMAC` + `LINK` 1.31, run by the tracked `<NAME>.SUB` (`SUBMIT <NAME>`); `LINK ...[OP]` writes a `.PRL` (the GSX-80 driver format) | `cadzilla-build-rmac` | `software/rmac/rhello` |
+| `m80` | relocatable `<NAME>.MAC`; Microsoft `M80` + `L80`; `INCLUDE B:CZGFX.INC`, the czgfx graphics macros and library, linked with `SUBMIT B:CZLINK` | `cadzilla-build-m80` | `software/m80/gfxdemo` |
+| `z88dk` | `<NAME>.Z88` (plus any other `.Z88` modules); z88dk's `z80asm`, run **on the host** by `tools/z88dk/z88build.sh`; Intel and/or Zilog mnemonics; targets the 8080, 8085 or Z80 (`--cpu`); draws with **cz88gfx** (czgfx ported to z80asm), pinned in `cz88gfx.version` | `cadzilla-build-z88dk` | `software/z88dk/zhello`, `software/z88dk/z88demo` (draws) |
+| `zcc` | **C**: lowercase `<name>.c` (plus any other `.c` and `.Z88` modules); z88dk's `zcc`, run **on the host** by `tools/z88dk/zccbuild.sh`; targets the 8080, 8085 or Z80 (`--cpu`); draws with **cz88gfx**'s C bindings (`#include <cz88gfx.h>`), pinned in `cz88gfx.version` | `cadzilla-build-zcc` | `software/zcc/chello`, `software/zcc/cgfxdemo` (draws) |
 
 **For anything that draws on the CADzilla board, use a toolchain with a
 graphics library: `m80` (czgfx), `z88dk` (cz88gfx) or `zcc` (cz88gfx from
@@ -39,8 +39,8 @@ program does, ask.
 ## 1. Get the project name
 
 Ask the user if they haven't given one. The directory name follows this
-repo's normal convention (`software/<name>/`, matching `software/hello`,
-`software/firstdraw`) -- lowercase letters and digits, starting with a
+repo's normal convention (`software/<toolchain>/<name>/`, matching `software/asm/hello`,
+`software/asm/firstdraw`) -- lowercase letters and digits, starting with a
 letter. The CP/M-side `<NAME>.ASM` is that same name uppercased, and CP/M's
 8.3 format caps it at 8 characters -- if the project name itself is longer
 (e.g. "firstdraw" is 9), don't silently truncate or slugify it: keep the
@@ -90,7 +90,7 @@ The message can't contain `"`, `\` or `%`.
 
 `--mode` is the display resolution: `1024x768` (default), `800x600` or
 `640x480`. The script writes it to the project's tracked
-`software/<name>/machine.toml` overlay (cad0's `mode` strap), which
+`software/<toolchain>/<name>/machine.toml` overlay (cad0's `mode` strap), which
 `sync_pristine.sh` appends into `work/cadzilla.toml`. Only ask about it if
 the user mentions a resolution or it matters for what they're building;
 otherwise take the default. If the project already has a `machine.toml`,
@@ -108,8 +108,8 @@ With `--toolchain rmac`, the script writes three CR/LF files instead of one
 The message can't contain `'` or `$`, as for `asm`.
 
 With `--toolchain m80`, the script also pins the newest czgfx release
-(from `software/czgfx/releases/`) in the project's tracked
-`software/<name>/czgfx.version`, keeping an existing pin. It then runs
+(from `software/m80/czgfx/releases/`) in the project's tracked
+`software/<toolchain>/<name>/czgfx.version`, keeping an existing pin. It then runs
 `tools/altairsim/scripts/attach_libdisk.sh` on the new `work/`, which copies
 that release into `work/` as `CZGFXLIB-<version>.DSK` and mounts it as drive
 1 (B:), read-only. The project builds against that copy, so later czgfx
@@ -120,11 +120,11 @@ changes don't touch it until its pin is moved. It writes `src/<NAME>.MAC` instea
   waits for `GWAIT`
 - prints the message and returns to CP/M
 
-This creates `software/<name>/{src,include,build,work}` (with `.gitkeep`
+This creates `software/<toolchain>/<name>/{src,include,build,work}` (with `.gitkeep`
 in `include/` and `build/`, since build output itself is gitignored per
-the repo's existing `software/*/build/*` rule), `software/<name>/machine.toml`
+the repo's existing `software/*/*/build/*` rule), `software/<toolchain>/<name>/machine.toml`
 (tracked), and writes
-`software/<name>/src/<NAME>.ASM`: a minimal BDOS-function-9 string-print
+`software/<toolchain>/<name>/src/<NAME>.ASM`: a minimal BDOS-function-9 string-print
 stub, self-contained (no `INCLUDE` -- `ASM.COM` doesn't support it) and
 free of underscores in any symbol name (`ASM.COM` silently resolves an
 underscored symbol to 0 instead of erroring, which is a much worse failure
@@ -141,7 +141,7 @@ between projects.
 
 The script is also safe to run against a directory that already exists as
 an empty scaffold (`src`/`include`/`build` holding only `.gitkeep`, like
-`software/firstdraw` shipped from this repo's initial commit) -- it fills
+`software/asm/firstdraw` shipped from this repo's initial commit) -- it fills
 those in rather than refusing outright, but still won't overwrite a source
 file that's already there with real content, and skips creating `work/` if
 one's already there.
@@ -157,7 +157,7 @@ known to build. Otherwise a toolchain problem turns up later, mixed in with
 their own code changes.
 
 **For a `z88dk` project, follow the `cadzilla-build-z88dk` skill instead of
-the steps below:** `tools/z88dk/z88build.sh software/<name>` on the host, then
+the steps below:** `tools/z88dk/z88build.sh software/<toolchain>/<name>` on the host, then
 `CONFIG LOAD` and boot, `R <NAME>.COM` from `build/`, run it, and close the
 session. Its first-run check: the console shows the welcome message and
 `Built for <X>, running on <X>` with the same CPU twice, the one given to
@@ -172,7 +172,7 @@ close the session. Its first-run check: both modules' assemblies end in
 welcome message and then `Linked by DRI LINK from two RMAC modules`.
 
 **For a `zcc` project, follow the `cadzilla-build-zcc` skill** in the same
-way: `tools/z88dk/zccbuild.sh software/<name>`, then boot, `R`, run and
+way: `tools/z88dk/zccbuild.sh software/<toolchain>/<name>`, then boot, `R`, run and
 close. The first-run check is the same `Built for <X>, running on <X>` line.
 
 **For an `m80` project, follow the `cadzilla-build-m80` skill instead of the
@@ -194,12 +194,12 @@ registered in this session yet -- stop and point the user at
 guessing at setup steps.
 
 **Point the server at this project's own disk.** Step 2 already gave
-`software/<name>/` its own `work/` directory (a fresh copy of the pristine
+`software/<toolchain>/<name>/` its own `work/` directory (a fresh copy of the pristine
 machine + disk, synced by the script itself), so there's nothing to reset
 -- just switch the running server onto it and boot:
 
 ```
-monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
+monitor {command: "CONFIG LOAD <repo-root>/software/<toolchain>/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>"}
 ```
 
@@ -218,7 +218,7 @@ cleanly at the prompt.
 Then, from a freshly-booted `A0>` prompt:
 
 ```
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/src"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<toolchain>/<name>/src"}
 run {input: "R <NAME>.ASM\r", until: "A0>"}
 run {input: "ASM <NAME>\r", until: "A0>", timeout_ms: 20000}
 run {input: "LOAD <NAME>\r", until: "A0>"}
@@ -230,7 +230,7 @@ that's the real proof the toolchain works, not just that each step
 returned without an error. Then pull the build artifacts back:
 
 ```
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/build"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<toolchain>/<name>/build"}
 run {input: "W <NAME>.COM\r", until: "A0>"}
 run {input: "W <NAME>.HEX T\r", until: "A0>"}
 run {input: "W <NAME>.PRN T\r", until: "A0>"}
@@ -243,14 +243,14 @@ Then close the session: `run {timeout_ms: 5000}` with no input and no
 the `A0>` match isn't enough: the BIOS writes its last buffered track only
 after the prompt is printed, and unmounting before that finishes has left a
 half-written sector (`Bdos Err On A: Bad Sector` at the next boot).
-`tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK` should
+`tools/altairsim/scripts/check_dsk.py software/<toolchain>/<name>/work/*.DSK` should
 then say `ok`.
 
 ### Things that will bite you if you skip them
 
 - **CP/M uppercases everything typed at its console** (a real BDOS
   behavior, not an altairsim quirk), so `R`/`W` can't be given a path like
-  `software/<name>/src/<NAME>.ASM` directly -- it gets uppercased and then
+  `software/<toolchain>/<name>/src/<NAME>.ASM` directly -- it gets uppercased and then
   fails a case-sensitive lookup against this repo's lowercase directories.
   That's why `hb0` gets repointed at the exact directory first, and only
   bare filenames get typed at the CP/M prompt.
@@ -265,7 +265,7 @@ then say `ok`.
   a project's `.COM` file before (left it with a directory entry showing 0
   records, so CP/M ran stale leftover memory instead of the program). If
   this project's working disk does end up in a bad state,
-  `tools/altairsim/scripts/sync_pristine.sh software/<name>/work` recovers
+  `tools/altairsim/scripts/sync_pristine.sh software/<toolchain>/<name>/work` recovers
   it -- but that discards anything built there since the last sync, so
   treat an unplanned reset as a deliberate call, not a reflex, and check
   with the user first.
@@ -281,6 +281,6 @@ then say `ok`.
 ## 4. Report back
 
 Tell the user what was created, confirm the build/run check passed (quote
-the actual console output), and remind them that `software/<name>/build/`
+the actual console output), and remind them that `software/<toolchain>/<name>/build/`
 is gitignored (only `.gitkeep` is tracked) and that nothing has been
 staged or committed -- per this repo's convention, only commit when asked.

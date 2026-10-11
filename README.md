@@ -34,8 +34,14 @@ could never have put together on my own.
 
 - `schematics/` — KiCAD project (schematic, PCB, libraries, fab outputs)
 - `pld/` — GAL16V8 PLD source (`src/`) and assembled fuse maps (`jed/`)
-- `software/` — one directory per software project targeting the board
-  - `firstdraw/` — first software project
+- `software/` — software projects targeting the board, grouped by toolchain
+  - `asm/` — Digital Research ASM + LOAD: hello, firstdraw, drawdemo
+  - `m80/` — Microsoft M80 + L80: the czgfx graphics library, gfxdemo,
+    czbasic, testpat
+  - `rmac/` — Digital Research RMAC + LINK: rhello, ddcz (GSX-80 driver)
+  - `z88dk/` — z88dk z80asm (host cross-assembler): the cz88gfx graphics
+    library, zhello, z88demo
+  - `zcc/` — z88dk zcc (C): chello, cgfxdemo, cgsxdemo
 - `docs/` — design notes and reference datasheets
   - `docs/cadzilla-manual.pdf` — user reference manual
   - `docs/images/` — logo and other documentation images

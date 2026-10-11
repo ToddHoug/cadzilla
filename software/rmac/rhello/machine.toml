@@ -1,0 +1,10 @@
+# software/rmac/rhello's own straps on top of tools/altairsim/pristine/cadzilla.toml.
+# tools/altairsim/scripts/sync_pristine.sh appends this to work/cadzilla.toml
+# (a later [[board]] block for the same id overrides pristine's). Only
+# [[board]] tables may appear here.
+#
+# The monitor resolution: 640x480, 800x600 or 1024x768 --
+# if the program programs the ACRTC, its timing must agree with it.
+[[board]]
+id   = "cad0"
+mode = "1024x768"

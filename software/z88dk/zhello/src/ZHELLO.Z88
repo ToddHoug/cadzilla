@@ -1,0 +1,75 @@
+; ZHELLO.Z88 -- CADzilla program, z88dk toolchain
+;
+; Built on the host by z88dk's z80asm, then copied onto the CP/M disk and run
+; (cadzilla-build-z88dk skill):
+;   tools/z88dk/z88build.sh software/z88dk/zhello       -> build/ZHELLO.COM
+;   A0>R ZHELLO.COM                          (hb0 HOSTDIR = build/)
+;   A0>ZHELLO
+;
+; The target CPU (z80) is machine.toml's cpu0 block: it is both the emulated
+; CPU and z80asm's -m flag. z80asm takes Intel and Zilog mnemonics alike, even
+; mixed in one file -- but JP and CP always mean the Zilog jump and compare
+; (tools/z88dk/README.md).
+;
+; The program prints the CPU it was built for and the one it is running on;
+; the two should always match.
+;
+        ORG     0100H           ;a CP/M .COM
+;
+BDOS    EQU     0005H
+PSTRING EQU     9
+CR      EQU     0DH
+LF      EQU     0AH
+;
+start:  ld      ix,0            ;keep CCP's stack, run on our own. IX is
+        add     ix,sp           ;Z80-only, so -m8080/-m8085 refuse these
+        ld      (oldsp),ix      ;(z80asm makes 8080 code for some others)
+        ld      sp,stack
+        ld      de,MSG
+        call    print
+        ld      de,BUILT
+        call    print
+;
+; Which CPU is this? 7FH+1 overflows: the Z80 sets P/V for that, the 8080 and
+; 8085 set P for parity, and 80H has odd parity, so P is clear.
+        ld      a,7fh
+        inc     a
+        ld      de,CZ80
+        jp      pe,show
+; The 8085's ANA always sets AC; the 8080's sets it from bit 3 of the operands,
+; which are 0 here. AC is bit 4 of the flags byte PUSH PSW saves.
+        xor     a
+        and     a
+        push    af
+        pop     hl
+        ld      a,l
+        and     10h
+        ld      de,C8085
+        jp      nz,show
+        ld      de,C8080
+show:   call    print
+        ld      sp,(oldsp)
+        ret                     ;back to the CCP
+;
+print:  ld      c,PSTRING       ;print the $-terminated string at DE
+        jp      BDOS
+;
+MSG:    DB      "Welcome to CADzilla: zhello!",CR,LF,"$"
+BUILT:  DB      "Built for "
+        IFDEF   __CPU_Z80__     ;z80asm defines one of these, from -m
+        DB      "Z80"
+        ENDIF
+        IFDEF   __CPU_8085__
+        DB      "8085"
+        ENDIF
+        IFDEF   __CPU_8080__
+        DB      "8080"
+        ENDIF
+        DB      ", running on $"
+CZ80:   DB      "Z80",CR,LF,"$"
+C8085:  DB      "8085",CR,LF,"$"
+C8080:  DB      "8080",CR,LF,"$"
+;
+oldsp:  DS      2
+        DS      64
+stack:

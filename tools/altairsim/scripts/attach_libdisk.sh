@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Give a project's altairsim work machine the czgfx library as drive 1 (CP/M B:).
 #
-# The czgfx project (software/czgfx/) builds the CADzilla graphics library --
+# The czgfx project (software/m80/czgfx/) builds the CADzilla graphics library --
 # the CZGFX.INC macro header plus the relocatable CZGFX.REL and the CZLINK.SUB
 # link script -- onto a disk image. An M80 project INCLUDEs B:CZGFX.INC and
 # links with SUBMIT B:CZLINK <NAME>.
@@ -10,12 +10,12 @@
 # own work/ -- so work/ is self-contained, and a czgfx change reaches a project
 # only when the project moves to a new release:
 #
-#   software/<project>/czgfx.version   the pin (tracked): a release number such
+#   software/<toolchain>/<project>/czgfx.version   the pin (tracked): a release number such
 #                                      as 1.0, or `dev` for the current build
-#   software/czgfx/releases/CZGFXLIB-<version>.DSK
+#   software/m80/czgfx/releases/CZGFXLIB-<version>.DSK
 #                                      the releases (tracked, never changed),
-#                                      made by software/czgfx/tools/release.sh
-#   software/<project>/work/CZGFXLIB-<version>.DSK
+#                                      made by software/m80/czgfx/tools/release.sh
+#   software/<toolchain>/<project>/work/CZGFXLIB-<version>.DSK
 #                                      the project's own copy, mounted as B:,
 #                                      read-only (CZGFXLIB-DEV.DSK for `dev`)
 #
@@ -26,11 +26,11 @@
 #     kept, with a note)
 #   - the work dir's unused SCRATCH.DSK, if it is an untouched copy of the
 #     pristine EMPTY.DSK
-# `dev` copies the current build, software/czgfx/libdisk/CZGFXLIB.DSK, and
+# `dev` copies the current build, software/m80/czgfx/libdisk/CZGFXLIB.DSK, and
 # refreshes it on every run: for trying out an unreleased library.
 #
-# --writable is for software/czgfx/work itself, where the library is built: it
-# mounts the build disk software/czgfx/libdisk/CZGFXLIB.DSK writable (creating
+# --writable is for software/m80/czgfx/work itself, where the library is built: it
+# mounts the build disk software/m80/czgfx/libdisk/CZGFXLIB.DSK writable (creating
 # it from the pristine EMPTY.DSK if it doesn't exist yet), with no pin.
 #
 # Re-run this after `sync_pristine.sh --machine-only <work-dir>` (which puts
@@ -54,9 +54,9 @@ fi
 WORK="$1"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 PRISTINE="$REPO_ROOT/tools/altairsim/pristine"
-LIBDIR="$REPO_ROOT/software/czgfx/libdisk"
+LIBDIR="$REPO_ROOT/software/m80/czgfx/libdisk"
 LIBDISK="$LIBDIR/CZGFXLIB.DSK"
-RELDIR="$REPO_ROOT/software/czgfx/releases"
+RELDIR="$REPO_ROOT/software/m80/czgfx/releases"
 EMPTY="$PRISTINE/EMPTY.DSK"
 TOML="$WORK/cadzilla.toml"
 
@@ -79,7 +79,7 @@ if [ "$WRITABLE" -eq 1 ]; then
     mkdir -p "$LIBDIR"
     cp "$EMPTY" "$LIBDISK"
     chmod u+w "$LIBDISK"
-    echo "Created empty library disk $LIBDISK (build it from software/czgfx)"
+    echo "Created empty library disk $LIBDISK (build it from software/m80/czgfx)"
   fi
   MOUNT="$(realpath --relative-to="$(cd "$WORK" && pwd -P)" "$LIBDISK")"
 else

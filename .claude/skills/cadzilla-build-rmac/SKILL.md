@@ -1,11 +1,11 @@
 ---
 name: cadzilla-build-rmac
-description: Builds, runs and debugs a CADzilla software project that uses Digital Research's relocating toolchain -- RMAC (RMAC 1.1) + LINK-80 (LINK 1.31), plus LIB and XREF -- inside CP/M 2.2 on altairsim: relocatable .ASM modules (CSEG/DSEG, PUBLIC/EXTRN, no ORG) assembled by RMAC and linked by DRI LINK into a .COM, or with LINK's [OP] option into a .PRL (page-relocatable, the format of GSX-80 device drivers), driven by the project's own <NAME>.SUB through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla project whose src/ has a <NAME>.SUB next to its .ASM modules (software/rhello, anything scaffolded with --toolchain rmac), make a .PRL or a GSX driver, link RMAC and M80 modules together, build a LIB library, or asks about RMAC, DRI LINK, LIB or XREF on this repo's CP/M. A single self-contained .ASM with ORG 0100H and no .SUB is the ASM.COM flow (cadzilla-build-asm); .MAC is cadzilla-build-m80; .Z88 is cadzilla-build-z88dk; .c is cadzilla-build-zcc.
+description: Builds, runs and debugs a CADzilla software project that uses Digital Research's relocating toolchain -- RMAC (RMAC 1.1) + LINK-80 (LINK 1.31), plus LIB and XREF -- inside CP/M 2.2 on altairsim: relocatable .ASM modules (CSEG/DSEG, PUBLIC/EXTRN, no ORG) assembled by RMAC and linked by DRI LINK into a .COM, or with LINK's [OP] option into a .PRL (page-relocatable, the format of GSX-80 device drivers), driven by the project's own <NAME>.SUB through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla project whose src/ has a <NAME>.SUB next to its .ASM modules (software/rmac/rhello, anything scaffolded with --toolchain rmac), make a .PRL or a GSX driver, link RMAC and M80 modules together, build a LIB library, or asks about RMAC, DRI LINK, LIB or XREF on this repo's CP/M. A single self-contained .ASM with ORG 0100H and no .SUB is the ASM.COM flow (cadzilla-build-asm); .MAC is cadzilla-build-m80; .Z88 is cadzilla-build-z88dk; .c is cadzilla-build-zcc.
 ---
 
 # Build a CADzilla project with DRI RMAC + LINK
 
-These projects are relocatable 8080 `.ASM` modules in `software/<name>/src/`.
+These projects are relocatable 8080 `.ASM` modules in `software/rmac/<name>/src/`.
 They are assembled by DRI **RMAC** and linked by DRI **LINK-80**, all inside
 CP/M 2.2 on altairsim. The project's tracked `src/<NAME>.SUB` lists the
 build: one `RMAC` line per module, then the `LINK`.
@@ -15,26 +15,26 @@ build: one `RMAC` line per module, then the `LINK`.
   has no `ORG`.
 - **Why it exists:** `LINK [OP]` writes a `.PRL`, the format of a GSX-80
   device driver, which Microsoft's L80 can't make.
-- **Reference project:** `software/rhello`, with two modules (`RHELLO.ASM`
+- **Reference project:** `software/rmac/rhello`, with two modules (`RHELLO.ASM`
   calls `PRINT` in `PRINT.ASM`).
 
 Background is in "The DRI RMAC/LINK toolchain" in `tools/altairsim/README.md`.
 
 ## 0. Before touching the emulator
 
-- **Find the names.** The project directory is `software/<name>/`, in
+- **Find the names.** The project directory is `software/rmac/<name>/`, in
   lowercase. The program is `<NAME>`, uppercase and at most 8 characters,
   and its build script is `src/<NAME>.SUB`. Read the `.SUB` to see the
   modules and the link line. Look rather than guess.
 - **CR/LF.** Run
-  `tools/altairsim/scripts/crlf.sh software/<name>/src/*.ASM software/<name>/src/*.SUB`
+  `tools/altairsim/scripts/crlf.sh software/rmac/<name>/src/*.ASM software/rmac/<name>/src/*.SUB`
   after any host edit. It is idempotent.
   - An LF-only `.ASM` makes RMAC print garbage `S` and `E` error lines, a
     run of `^Z` characters and `NO SPACE`.
   - An LF-only `.SUB` breaks SUBMIT.
-- **The project needs its own `work/`.** If `software/<name>/work/` is
+- **The project needs its own `work/`.** If `software/rmac/<name>/work/` is
   missing, create it with
-  `tools/altairsim/scripts/sync_pristine.sh software/<name>/work`.
+  `tools/altairsim/scripts/sync_pristine.sh software/rmac/<name>/work`.
 - **The tools must be on its disk.** RMAC, LINK, LIB and XREF were added to
   pristine on 2026-10-08. A `work/` copied before then lacks them, and
   `RMAC?` at the prompt is the symptom. Fix it without losing builds:
@@ -49,7 +49,7 @@ Background is in "The DRI RMAC/LINK toolchain" in `tools/altairsim/README.md`.
 
 ```
 monitor {command: "SHOW MOUNTS"}            # what is mounted right now?
-monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
+monitor {command: "CONFIG LOAD <repo-root>/software/rmac/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>", timeout_ms: 10000}
 monitor {command: "SHOW MOUNTS"}            # drive0 must be this project's work/ disk
 ```
@@ -64,7 +64,7 @@ monitor {command: "SHOW MOUNTS"}            # drive0 must be this project's work
 ## 2. Assemble, link, run
 
 ```
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/src"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/rmac/<name>/src"}
 run {input: "R *.*\r", until: "A0>", timeout_ms: 30000}       # every module + the .SUB
 run {input: "SUBMIT <NAME>\r", timeout_ms: 120000}            # no until: stops when idle
 run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
@@ -110,15 +110,15 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
   links M80 `.REL` files, and L80 links RMAC's. That's the route for F80
   (FORTRAN-80) or M80 code in a `.PRL`.
 
-### GSX drivers (software/ddcz)
+### GSX drivers (software/rmac/ddcz)
 
-`software/ddcz` is the worked example of a GSX-80 driver built this way. Its
+`software/rmac/ddcz` is the worked example of a GSX-80 driver built this way. Its
 README covers the GSX side.
 
 - **Linking with czgfx.** An RMAC project can link the czgfx library, which
   is built with M80/LIB80:
   - pin it in `czgfx.version`;
-  - run `tools/altairsim/scripts/attach_libdisk.sh software/<name>/work`,
+  - run `tools/altairsim/scripts/attach_libdisk.sh software/rmac/<name>/work`,
     which mounts that release read-only as `B:`;
   - link with `LINK OUT=FIRST,...,B:CZGFX[S,OP]`. `[S]` searches the LIB80
     library and loads only the modules used.
@@ -152,7 +152,7 @@ README covers the GSX side.
 ## 3. Pull the artifacts back
 
 ```
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/build"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/rmac/<name>/build"}
 run {input: "W <NAME>.COM\r", until: "A0>"}         # binary -- NEVER with T (same for .PRL, .REL)
 run {input: "W <NAME>.PRN T\r", until: "A0>"}       # and each other module's .PRN
 run {input: "W <NAME>.SYM T\r", until: "A0>"}       # LINK's symbol table
@@ -171,7 +171,7 @@ monitor {command: "UNMOUNT dsk0:drive1"}
 buffered track only after the prompt is printed. Unmounting before that
 finishes leaves a half-written sector, and the next boot then says
 `Bdos Err On A: Bad Sector`. Then:
-- `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK` should
+- `tools/altairsim/scripts/check_dsk.py software/rmac/<name>/work/*.DSK` should
   say `ok`;
 - `git status tools/altairsim/pristine` should be clean. If it isn't, stop
   and tell the user.
@@ -204,5 +204,5 @@ unless asked.
   the exact directory and type only bare file names.
 - **Don't interrupt a disk operation.** If a `run` times out mid-RMAC,
   LINK, `R` or `W`, call `run` again with no input. Never `reset` or
-  `CONFIG LOAD` mid-write. `sync_pristine.sh software/<name>/work` recovers
+  `CONFIG LOAD` mid-write. `sync_pristine.sh software/rmac/<name>/work` recovers
   a corrupted disk but discards everything built on it, so ask first.

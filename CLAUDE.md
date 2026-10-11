@@ -12,31 +12,41 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
 
 - `schematics/` — KiCAD project files, libraries, fab outputs
 - `pld/src/` — GAL16V8 source (equations), `pld/jed/` — assembled fuse maps
-- `software/<project>/` — independent software projects targeting the board;
-  each has its own `src/`, `include/`, `build/`, and `work/` (its own,
-  gitignored altairsim CP/M disk — see `tools/altairsim/README.md`). A
+- `software/<toolchain>/<project>/` — independent software projects targeting
+  the board, grouped by toolchain. The `<toolchain>` directory names are the
+  `--toolchain` values of new-cadzilla-project:
+  - `asm/`: hello, firstdraw, drawdemo
+  - `m80/`: czgfx, gfxdemo, czbasic, testpat
+  - `rmac/`: rhello, ddcz
+  - `z88dk/`: cz88gfx, zhello, z88demo
+  - `zcc/`: chello, cgfxdemo, cgsxdemo
+
+  Each shared library lives with the toolchain that builds it. `rmac/ddcz`
+  links czgfx, and the zcc projects use cz88gfx. A project name is unique
+  across all the toolchain directories. Each project has its own `src/`,
+  `include/`, `build/`, and `work/` (its own, gitignored altairsim CP/M disk — see `tools/altairsim/README.md`). A
   project that draws also has a tracked `machine.toml` overlay pinning its
   display resolution (cad0 `mode`: 640x480, 800x600 or 1024x768, default
   1024x768); the code's timing (`GINIT CZM...` or its own register table)
   must match it. A z88dk or zcc project's `machine.toml` also pins its CPU (a
   `cpu0` block: 8080, 8085 or z80), which the build and the emulator both
   follow
-- `software/czgfx/` — the shared czgfx graphics-primitive library (M80
+- `software/m80/czgfx/` — the shared czgfx graphics-primitive library (M80
   macros + relocatable modules). It is deliberately built only with period
   tools (M80/LIB80/L80 inside CP/M), as the all-vintage example; the z88dk
   flow has its own port, cz88gfx (below).
   - It builds onto its gitignored build disk
-    `software/czgfx/libdisk/CZGFXLIB.DSK`.
+    `software/m80/czgfx/libdisk/CZGFXLIB.DSK`.
   - `tools/release.sh` snapshots that disk as a tracked, never-changed
-    release, `software/czgfx/releases/CZGFXLIB-<version>.DSK` (version:
+    release, `software/m80/czgfx/releases/CZGFXLIB-<version>.DSK` (version:
     `CZVERS` in `CZGFX.INC`).
-  - An M80 consumer project (e.g. `software/gfxdemo/`) pins a release in
+  - An M80 consumer project (e.g. `software/m80/gfxdemo/`) pins a release in
     its tracked `czgfx.version`, and mounts its own copy of it from
     `work/` read-only as CP/M `B:`. So `work/` is self-contained, and a
     czgfx change reaches a project only when its pin moves.
 
-  See `software/czgfx/README.md`.
-- `software/cz88gfx/` — cz88gfx, czgfx ported to z88dk's z80asm: the same
+  See `software/m80/czgfx/README.md`.
+- `software/z88dk/cz88gfx/` — cz88gfx, czgfx ported to z88dk's z80asm: the same
   8080 routines, names and macros, but independent of czgfx (no shared
   files). From 1.1 it also has C bindings for zcc: `cz88gfx.h` and the
   `CZC*.Z88` stub modules, which jump into the same routines.
@@ -50,10 +60,10 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   - A z88dk or zcc project pins a release (or `dev`) in its tracked
     `cz88gfx.version`. `tools/z88dk/z88build.sh` or `zccbuild.sh` then adds
     the include path and links the library; C needs 1.1 or later.
-  - `software/z88demo/` is gfxdemo ported to it. `software/cgfxdemo/` is
+  - `software/z88dk/z88demo/` is gfxdemo ported to it. `software/zcc/cgfxdemo/` is
     the same in C, pixel-identical.
 
-  See `software/cz88gfx/README.md`.
+  See `software/z88dk/cz88gfx/README.md`.
 - `tools/altairsim/pristine/` — master CP/M machine + disk images.
   **Never boot, `CONFIG LOAD` or `MOUNT` anything from here**; always use a
   project's own `work/`. Kept read-only on the host; its git status must
@@ -68,13 +78,13 @@ The project name CADzilla should be used for all documentation and textual refer
 However, lower case cadzilla should be used for all filename, directory or command line references.
 
 Files that pass through the CP/M toolchain — assembly source and the build
-artifacts it produces, i.e. everything under `software/<project>/src/` and
-`software/<project>/build/` (`.ASM`, `.MAC`, `.Z88`, `.INC`, `.SUB`, `.REL`, `.COM`,
+artifacts it produces, i.e. everything under `software/<toolchain>/<project>/src/` and
+`software/<toolchain>/<project>/build/` (`.ASM`, `.MAC`, `.Z88`, `.INC`, `.SUB`, `.REL`, `.COM`,
 `.HEX`, `.PRN`, `.LIS`, `.MAP`, `.SYM`, etc.), plus CP/M disk images (`.DSK`) — are the
 one exception to the lowercase rule above: they are UPPERCASE on **both**
 the host and the CP/M side (8.3 names as they exist on the emulated CP/M
 disk, e.g. `HELLO.ASM`), so the same name is used consistently everywhere.
-Directory names (`software/hello/`, `src/`, `build/`) still follow the
+Directory names (`software/asm/hello/`, `src/`, `build/`) still follow the
 normal lowercase rule — only the files themselves are uppercase. See
 `tools/altairsim/README.md` for the CP/M-side mechanics this also
 sidesteps: CP/M uppercases everything typed at its console anyway, so a
@@ -102,10 +112,10 @@ over its MCP server; `tools/altairsim/README.md`):
   the `.PRL` files a GSX-80 driver needs, which L80 can't (`rhello`; skill
   `cadzilla-build-rmac`; "The DRI RMAC/LINK toolchain" in
   `tools/altairsim/README.md`).
-  `software/ddcz` is the CADzilla GSX-80 screen driver built this way
-  (`DDCZ1K`/`DDCZ800`/`DDCZ640.PRL`, linked with czgfx); `software/cgsxdemo`
+  `software/rmac/ddcz` is the CADzilla GSX-80 screen driver built this way
+  (`DDCZ1K`/`DDCZ800`/`DDCZ640.PRL`, linked with czgfx); `software/zcc/cgsxdemo`
   is a zcc GSX client. The GSX runtime is local-only
-  (`tools/altairsim/scripts/fetch_upstream.sh`); see `software/ddcz/README.md`.
+  (`tools/altairsim/scripts/fetch_upstream.sh`); see `software/rmac/ddcz/README.md`.
 - **z88dk `z80asm`** (snap) — a host cross-assembler for the 8080, 8085 or
   Z80, taking Intel and/or Zilog mnemonics: `src/*.Z88` built on the host by
   `tools/z88dk/z88build.sh` into `build/<NAME>.COM`, which altairsim only

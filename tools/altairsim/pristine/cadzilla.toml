@@ -4,16 +4,16 @@
 # under CP/M 2.2 on the same port map the real board answers to -- not a generic Altair.
 #
 # This is the PRISTINE copy (tools/altairsim/pristine/) -- read-only master, never
-# mutated, booted, or mounted directly. Every software/<project>/ gets its OWN copy of
-# this file + the disk(s) beside it, in its own gitignored software/<project>/work/ --
+# mutated, booted, or mounted directly. Every software/<toolchain>/<project>/ gets its OWN copy of
+# this file + the disk(s) beside it, in its own gitignored software/<toolchain>/<project>/work/ --
 # so each project has a persistent disk that's never shared with (or reset by) any
 # other project. `tools/altairsim/scripts/sync_pristine.sh <dest-dir>` makes the copy
 # (`--machine-only` refreshes just this file in an existing work/, keeping its disks).
 #
-#     cd software/<project>/work && altairsim cadzilla.toml    # a human, at the A0> prompt
+#     cd software/<toolchain>/<project>/work && altairsim cadzilla.toml    # a human, at the A0> prompt
 #
 # The MCP server starts on the built-in `cadzilla` machine (no disks) and is pointed at
-# a project with `CONFIG LOAD <repo>/software/<project>/work/cadzilla.toml` -- see
+# a project with `CONFIG LOAD <repo>/software/<toolchain>/<project>/work/cadzilla.toml` -- see
 # tools/altairsim/README.md.
 #
 # The disk images here are TEMPLATES, named for what they hold:
@@ -23,7 +23,7 @@
 #                 prompt (logical-unit numbering), not the plain "A>" of an 8" floppy
 #                 image. A project's work/ gets a copy under the same name: its A: disk.
 #   EMPTY.DSK     an empty 8MB volume. A project's work/ gets a copy named SCRATCH.DSK,
-#                 its B: disk; czgfx's build disk (software/czgfx/libdisk/CZGFXLIB.DSK)
+#                 its B: disk; czgfx's build disk (software/m80/czgfx/libdisk/CZGFXLIB.DSK)
 #                 starts as a copy too. An M80 project mounts its own copy of the
 #                 czgfx release it pins (work/CZGFXLIB-<version>.DSK) as B: instead.
 # The mounts below name the WORK copies (CPM22SYS.DSK, SCRATCH.DSK), so this file only
@@ -79,7 +79,7 @@ bsdel = "bs"
 # never be silently re-strapped by that.
 #
 # 1024x768 is the default for new projects. A project that wants another resolution
-# says so in its own tracked software/<project>/machine.toml overlay (a [[board]]
+# says so in its own tracked software/<toolchain>/<project>/machine.toml overlay (a [[board]]
 # id = "cad0" block), which sync_pristine.sh appends after this file into the
 # project's work/cadzilla.toml -- a later block for the same id overrides this one.
 [[board]]

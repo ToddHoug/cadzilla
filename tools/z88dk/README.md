@@ -21,9 +21,9 @@ src/<NAME>.Z88 ──z88build.sh (host)──► build/<NAME>.COM ──R──�
 
 The `cadzilla-build-z88dk` skill drives all of this. To start a project, use
 the `new-cadzilla-project` skill with `--toolchain z88dk --cpu 8080|8085|z80`.
-`software/zhello` is the reference project.
+`software/z88dk/zhello` is the reference project.
 
-Programs draw with **cz88gfx** (`software/cz88gfx/`), czgfx ported to z80asm
+Programs draw with **cz88gfx** (`software/z88dk/cz88gfx/`), czgfx ported to z80asm
 and built into a z80asm library on the host. A project pins a cz88gfx release
 in its `cz88gfx.version`, and `z88build.sh` puts `CZ88GFX.INC` on the include
 path and links the library. See [Graphics: cz88gfx](#graphics-cz88gfx) below.
@@ -49,7 +49,7 @@ scratch experiments, use `~/snap/z88dk/common/`.
 
 ## A project
 
-`software/<name>/`, laid out as for the other toolchains:
+`software/<toolchain>/<name>/`, laid out as for the other toolchains:
 
 | Path | |
 |---|---|
@@ -84,7 +84,7 @@ This one block does two jobs:
 
 So the code and the emulated CPU can't disagree. With no cpu0 block, both use
 pristine's 8080. To change the CPU, edit the block, then run
-`tools/altairsim/scripts/sync_pristine.sh --machine-only software/<name>/work`
+`tools/altairsim/scripts/sync_pristine.sh --machine-only software/<toolchain>/<name>/work`
 and rebuild.
 
 z80asm defines one of `__CPU_8080__`, `__CPU_8085__` or `__CPU_Z80__` (and
@@ -94,7 +94,7 @@ CPU-specific paths.
 ## Building
 
 ```bash
-tools/z88dk/z88build.sh software/<name>
+tools/z88dk/z88build.sh software/<toolchain>/<name>
 ```
 
 It writes into `build/`, using uppercase names like every other build artifact
@@ -116,9 +116,9 @@ failed.
 From a clean `A0>` on the project's own machine:
 
 ```
-monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
+monitor {command: "CONFIG LOAD <repo-root>/software/<toolchain>/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>"}
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/build"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<toolchain>/<name>/build"}
 run {input: "R <NAME>.COM\r", until: "A0>"}      # binary: byte-exact
 run {input: "<NAME>\r", until: "A0>"}
 ```
@@ -127,7 +127,7 @@ run {input: "<NAME>\r", until: "A0>"}
 - End the session as for any project: `run {}` until `stopped: "idle"`,
   `UNMOUNT` both drives, then run `check_dsk.py`. See
   `tools/altairsim/README.md`.
-- To debug, `monitor {command: "SYMBOLS LOAD <repo-root>/software/<name>/build/<NAME>.SYM"}`.
+- To debug, `monitor {command: "SYMBOLS LOAD <repo-root>/software/<toolchain>/<name>/build/<NAME>.SYM"}`.
   Then `BREAK START`, `DISASM START`, and so on work by name. Symbols are kept
   across `CONFIG LOAD`; `SYMBOLS CLEAR` drops them.
 
@@ -168,22 +168,22 @@ two disagree, the Zilog meaning wins:
 
 ## Graphics: cz88gfx
 
-`software/cz88gfx/` is czgfx ported to z80asm: the same 8080 routines,
+`software/z88dk/cz88gfx/` is czgfx ported to z80asm: the same 8080 routines,
 names and register conventions, in a z80asm library (`CZ88GFX.LIB`) that
 links into an 8080, 8085 or Z80 program. Its README has the API, and a
-table for porting czgfx code. `software/z88demo/` is gfxdemo ported to it.
+table for porting czgfx code. `software/z88dk/z88demo/` is gfxdemo ported to it.
 
-- **Using it:** pin a release, `echo 1.1 > software/<name>/cz88gfx.version`
+- **Using it:** pin a release, `echo 1.1 > software/<toolchain>/<name>/cz88gfx.version`
   (`new_project.sh --toolchain z88dk` pins the newest one). Then
   `INCLUDE "CZ88GFX.INC"` and draw. `z88build.sh` adds
-  `-I software/cz88gfx/releases/1.1` and `-l=.../CZ88GFX.LIB`, and its
+  `-I software/z88dk/cz88gfx/releases/1.1` and `-l=.../CZ88GFX.LIB`, and its
   first line names the pin. Only the library modules the program uses go
   into the `.COM`; the `.MAP` lists them, and the `.SYM` includes their
   labels.
 - **Macros:** every argument is required (z80asm can't test for a blank
   one). czgfx's "already in a register" forms are a plain `CALL CZxxxx`.
 - **From C:** see [Graphics from C](#graphics-from-c).
-- **Changing it:** `software/cz88gfx/tools/build.sh` builds
+- **Changing it:** `software/z88dk/cz88gfx/tools/build.sh` builds
   `build/CZ88GFX.LIB`, and links its check programs (assembly and C)
   against it for all three CPUs. A project pinned to `dev` builds against
   that. Then raise `CZ88VER` (and `cz88gfx.h`'s `CZ88GFX_VERSION`) and run
@@ -198,7 +198,7 @@ table for porting czgfx code. `software/z88demo/` is gfxdemo ported to it.
 
 As with `.Z88`, everything happens on the host. altairsim only `R`s the
 `.COM` onto the disk and runs it. The `cadzilla-build-zcc` skill drives it,
-and `software/chello` is the reference project. To start a C project, use the
+and `software/zcc/chello` is the reference project. To start a C project, use the
 `new-cadzilla-project` skill with `--toolchain zcc --cpu 8080|8085|z80`.
 
 ```
@@ -237,7 +237,7 @@ predefined macro:
 ### Building
 
 ```bash
-tools/z88dk/zccbuild.sh software/<name>
+tools/z88dk/zccbuild.sh software/<toolchain>/<name>
 ```
 
 It writes into `build/`:
@@ -284,7 +284,7 @@ cz_box(0, 0, 1023, 767);
 cz_wait();
 ```
 
-- **Pinning:** `echo 1.1 > software/<name>/cz88gfx.version`.
+- **Pinning:** `echo 1.1 > software/<toolchain>/<name>/cz88gfx.version`.
   `new_project.sh --toolchain zcc` pins the newest release.
 - **What `zccbuild.sh` does with the pin:**
   - it puts the release on the include path, for `cz88gfx.h` and, for the
@@ -295,9 +295,9 @@ cz_wait();
 - **How it works:** each `cz_` function is a few instructions of assembly
   that jump into the library's own routine. It is not a C reimplementation,
   which would be bigger and slower (see [Port I/O](#port-io)). So a C
-  program draws exactly what the assembly one does: `software/cgfxdemo`
+  program draws exactly what the assembly one does: `software/zcc/cgfxdemo`
   draws z88demo's ten screens pixel for pixel.
-- **Further reading:** `software/cz88gfx/README.md`, "Using it from C", has
+- **Further reading:** `software/z88dk/cz88gfx/README.md`, "Using it from C", has
   the API, the conventions and the sizes. `docs/cz88gfx-guide.pdf` is the
   user guide, for assembly and C alike.
 

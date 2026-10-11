@@ -1,0 +1,11 @@
+# software/asm/drawdemo's own straps on top of tools/altairsim/pristine/cadzilla.toml.
+# tools/altairsim/scripts/sync_pristine.sh appends this to work/cadzilla.toml
+# (a later [[board]] block for the same id overrides pristine's). Only
+# [[board]] tables may appear here.
+#
+# The monitor: drawdemo programs the ACRTC's 1024x768 timing, so its machine must
+# be strapped for 1024x768 too -- pinned here so a change to pristine's
+# default can never re-strap this project behind its back.
+[[board]]
+id   = "cad0"
+mode = "1024x768"

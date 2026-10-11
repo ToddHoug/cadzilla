@@ -1,6 +1,6 @@
 # tools/altairsim — CADzilla's 8080/CP/M build-and-run environment
 
-Every `software/<project>` in this repo is a program meant to run under CP/M
+Every `software/<toolchain>/<project>` in this repo is a program meant to run under CP/M
 2.2. It is one of these:
 - 8080 assembly built inside CP/M by `ASM.COM` or `M80`;
 - 8080, 8085 or Z80 assembly or C, built on the host by z88dk
@@ -14,11 +14,11 @@ built-in MCP server. This directory holds everything that workflow needs.
 ## Naming convention
 
 **Files that pass through the CP/M toolchain are UPPERCASE on both the
-host and the CP/M side** — everything under `software/<project>/src/` and
-`software/<project>/build/` (`HELLO.ASM`, `HELLO.COM`, `HELLO.HEX`,
+host and the CP/M side** — everything under `software/<toolchain>/<project>/src/` and
+`software/<toolchain>/<project>/build/` (`HELLO.ASM`, `HELLO.COM`, `HELLO.HEX`,
 `HELLO.PRN`, ...), and every `ASM`/`LOAD`/run/`W` argument typed at the
 CP/M console. The same name is used consistently everywhere — no renaming
-between host and CP/M. Directory names (`software/hello/`, `src/`,
+between host and CP/M. Directory names (`software/asm/hello/`, `src/`,
 `build/`, `work/`) still follow this repo's normal lowercase convention
 (`CLAUDE.md`); only the files themselves are uppercase.
 
@@ -65,22 +65,22 @@ could never be created from the command line in the first place.
   work directory that's ended up in a bad state. `--machine-only` copies
   just the machine files (`cadzilla.toml`, `cadzilla-real.toml`) and leaves the destination's disks alone — use it to
   pick up a change to the pristine machine definition in every existing
-  `software/*/work/` without losing what's been built there. Either way,
+  `software/*/*/work/` without losing what's been built there. Either way,
   if the directory above `<dest-dir>` has a `machine.toml` (the project's
-  tracked overlay, `software/<project>/machine.toml`), it is appended to
+  tracked overlay, `software/<toolchain>/<project>/machine.toml`), it is appended to
   the copied `cadzilla.toml` — see "Display resolution". It makes the
   copies writable, keeps pristine read-only, and refuses to target
   `pristine/` itself.
 - `scripts/attach_libdisk.sh [--writable] <work-dir>` — gives a work
   machine the czgfx library as drive 1 (CP/M `B:`), read-only:
   - it copies the czgfx release the project pins in
-    `software/<project>/czgfx.version` into `work/` as
+    `software/<toolchain>/<project>/czgfx.version` into `work/` as
     `CZGFXLIB-<version>.DSK`, and mounts it;
   - it removes copies of releases no longer pinned, and the now-unmounted
     `SCRATCH.DSK`, but only if they are unchanged.
 
   `--writable` is for czgfx's own `work/` alone: it mounts the build disk
-  `software/czgfx/libdisk/CZGFXLIB.DSK` writable, creating it from
+  `software/m80/czgfx/libdisk/CZGFXLIB.DSK` writable, creating it from
   `pristine/EMPTY.DSK` if needed. See "The M80/L80 toolchain" below. Re-run
   it after
   `sync_pristine.sh --machine-only`, which puts the pristine drive 1 back.
@@ -104,7 +104,7 @@ could never be created from the command line in the first place.
 - `DRIVING-WITH-AI.md` — altairsim's own guide for driving it via MCP
   (kept here for reference; canonical copy lives in `~/altairsim/docs/`).
 
-**Every `software/<project>/` also has its own `work/`** — a project's
+**Every `software/<toolchain>/<project>/` also has its own `work/`** — a project's
 private, gitignored copy of the pristine machine + disk(s), created once
 (by the `new-cadzilla-project` skill, or by hand with `sync_pristine.sh`)
 and then persisting across sessions for that project alone. Because each
@@ -123,12 +123,12 @@ other files that pass through CP/M are.
 |---|---|---|---|
 | `CPM22SYS.DSK` | `pristine/` | the template: CP/M 2.2 (62K) and the dev tools | never — it is only copied |
 | `EMPTY.DSK` | `pristine/` | the template: an empty 8MB volume | never — it is only copied |
-| `CPM22SYS.DSK` | `software/<project>/work/` | the project's own copy of the system disk: CP/M, the tools, and everything built there | drive 0, `A:` |
-| `SCRATCH.DSK` | `software/<project>/work/` | a copy of `EMPTY.DSK`, for scratch | drive 1, `B:`, in the DRI `ASM` projects |
-| `CZGFXLIB.DSK` | `software/czgfx/libdisk/` | the czgfx library as last built: `CZGFX.INC`, `CZGFX.REL`, `CZLINK.SUB` | drive 1, `B:`, writable, in czgfx's own `work/` only |
-| `CZGFXLIB-<version>.DSK` | `software/czgfx/releases/` | a czgfx release, snapshot of the build disk (tracked, never changed) | never — it is only copied |
-| `CZGFXLIB-<version>.DSK` | `software/<project>/work/` | the project's own copy of the czgfx release it pins in `czgfx.version` | drive 1, `B:`, read-only, in the M80 projects |
-| `CZBDEMO.DSK` | `software/czbasic/demodisk/` | the bootable CZBASIC demo disk | drive 0 of its own machine |
+| `CPM22SYS.DSK` | `software/<toolchain>/<project>/work/` | the project's own copy of the system disk: CP/M, the tools, and everything built there | drive 0, `A:` |
+| `SCRATCH.DSK` | `software/<toolchain>/<project>/work/` | a copy of `EMPTY.DSK`, for scratch | drive 1, `B:`, in the DRI `ASM` projects |
+| `CZGFXLIB.DSK` | `software/m80/czgfx/libdisk/` | the czgfx library as last built: `CZGFX.INC`, `CZGFX.REL`, `CZLINK.SUB` | drive 1, `B:`, writable, in czgfx's own `work/` only |
+| `CZGFXLIB-<version>.DSK` | `software/m80/czgfx/releases/` | a czgfx release, snapshot of the build disk (tracked, never changed) | never — it is only copied |
+| `CZGFXLIB-<version>.DSK` | `software/<toolchain>/<project>/work/` | the project's own copy of the czgfx release it pins in `czgfx.version` | drive 1, `B:`, read-only, in the M80 projects |
+| `CZBDEMO.DSK` | `software/m80/czbasic/demodisk/` | the bootable CZBASIC demo disk | drive 0 of its own machine |
 
 `sync_pristine.sh` makes the `work/` copies of the templates. `attach_libdisk.sh`
 swaps an M80 project's `SCRATCH.DSK` for its own copy of its pinned czgfx
@@ -142,7 +142,7 @@ CP/M 2.2**:
 - **Memory map:** CCP at C600H, BDOS at CE06H, BIOS from DC00H to F7FFH.
   The TPA runs from 0100H to CDFFH, 6 KB more than before.
 - **The reason:** GSX graphics. GDOS loads its device driver below itself,
-  out of the program's TPA. With the CADzilla driver (`software/ddcz`, 11.5
+  out of the program's TPA. With the CADzilla driver (`software/rmac/ddcz`, 11.5
   KB) that left too little for DR Graph or DEMOGRAF.
 - **How it was built:** with the disk's own tools, on a copy, never in
   place:
@@ -161,7 +161,7 @@ What it means for each disk:
   62K disk needs the 62K `cadzilla.toml`, which `sync_pristine.sh` gives
   it.
 - **To move a project to 62K,** re-sync its `work/` with
-  `sync_pristine.sh software/<name>/work`. That discards what was built
+  `sync_pristine.sh software/<toolchain>/<name>/work`. That discards what was built
   there.
 - **Real hardware** needs 62K of RAM below the boot PROM for this disk.
 
@@ -243,7 +243,7 @@ reset when switching between projects — just point the server at the
 project you're working on:
 
 ```
-monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
+monitor {command: "CONFIG LOAD <repo-root>/software/<toolchain>/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>"}
 ```
 
@@ -258,7 +258,7 @@ per-project disks, or one someone set up by hand without it), create one
 the same way the `new-cadzilla-project` skill does:
 
 ```bash
-tools/altairsim/scripts/sync_pristine.sh software/<name>/work
+tools/altairsim/scripts/sync_pristine.sh software/<toolchain>/<name>/work
 ```
 
 ### Display resolution — each project pins its own
@@ -277,7 +277,7 @@ So the resolution is stated, never inherited:
 - **Pristine** `cadzilla.toml` sets `mode = "1024x768"` explicitly — the
   default for new projects.
 - **Each project** that draws pins its own in a small tracked overlay,
-  `software/<project>/machine.toml`:
+  `software/<toolchain>/<project>/machine.toml`:
   ```toml
   [[board]]
   id   = "cad0"
@@ -295,7 +295,7 @@ So the resolution is stated, never inherited:
   values for each mode are in altairsim's `docs/boards/cadzilla.md`.
 
 To **change** a project's resolution: edit its `machine.toml` and its
-code, then `sync_pristine.sh --machine-only software/<name>/work` (plus
+code, then `sync_pristine.sh --machine-only software/<toolchain>/<name>/work` (plus
 `attach_libdisk.sh` again for an M80 project) and `CONFIG LOAD` it. To
 **check** one: `board_get cad0` after a run — `mode` is the strap, and
 `picture` should read the mode's full size `at (0,0)` with `wiring` `ok`. A
@@ -331,7 +331,7 @@ clock_hz = 0
   project (`--cpu`, default 8080).
 
 To **change** it: edit the block, run `sync_pristine.sh --machine-only
-software/<name>/work`, then rebuild and `CONFIG LOAD`. To **check** it: the
+software/<toolchain>/<name>/work`, then rebuild and `CONFIG LOAD`. To **check** it: the
 register line `CONFIG LOAD` prints shows `IX`/`IY` and the alternate bank on a
 Z80, and the extra `V`/`K` flags on an 8085. `SHOW cpu0` names the core.
 
@@ -353,7 +353,7 @@ disk and resolution all carry over) with two straps changed:
 Build with `cadzilla.toml`, then switch to run:
 
 ```
-monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla-real.toml"}
+monitor {command: "CONFIG LOAD <repo-root>/software/<toolchain>/<name>/work/cadzilla-real.toml"}
 run {from: 0xFF00, until: "A0>"}
 run {input: "<NAME>\r", until: "A0>", timeout_ms: 120000}
 ```
@@ -385,7 +385,7 @@ every lowercase letter you type** before any program — including `R`/`W`
 — ever sees it. Since this repo's directories and filenames are lowercase
 by convention (per `CLAUDE.md`), any path or filename typed at the prompt
 gets uppercased first and then fails a case-sensitive lookup against the
-real lowercase host paths (`R software/hello/src/hello.asm HELLO.ASM`
+real lowercase host paths (`R software/asm/hello/src/hello.asm HELLO.ASM`
 becomes `R SOFTWARE/HELLO/SRC/HELLO.ASM HELLO.ASM` internally, and
 `software/` on the host doesn't match `SOFTWARE/`).
 
@@ -395,17 +395,17 @@ There's no way around the uppercasing from inside CP/M — instead, repoint
 subject to its uppercasing) before each `R`/`W`, and use bare filenames:
 
 ```
-monitor {command: "CONFIG LOAD /home/thoug/Projects/cadzilla/software/<proj>/work/cadzilla.toml"}
+monitor {command: "CONFIG LOAD /home/thoug/Projects/cadzilla/software/<toolchain>/<proj>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>"}                                  # boot CP/M
 
-monitor {command: "SET hb0 HOSTDIR=/home/thoug/Projects/cadzilla/software/<proj>/src"}
+monitor {command: "SET hb0 HOSTDIR=/home/thoug/Projects/cadzilla/software/<toolchain>/<proj>/src"}
 run {input: "R <NAME>.ASM\r", until: "A0>"}                       # host -> CP/M
 
 run {input: "ASM <NAME>\r", until: "A0>", timeout_ms: 20000}      # assemble
 run {input: "LOAD <NAME>\r", until: "A0>"}                        # -> .COM
 run {input: "<NAME>\r", until: "A0>"}                              # run, capture output
 
-monitor {command: "SET hb0 HOSTDIR=/home/thoug/Projects/cadzilla/software/<proj>/build"}
+monitor {command: "SET hb0 HOSTDIR=/home/thoug/Projects/cadzilla/software/<toolchain>/<proj>/build"}
 run {input: "W <NAME>.COM\r", until: "A0>"}                       # CP/M -> host (binary)
 run {input: "W <NAME>.HEX T\r", until: "A0>"}                     # (text)
 run {input: "W <NAME>.PRN T\r", until: "A0>"}                     # (text)
@@ -489,21 +489,21 @@ Unlike `ASM.COM`, M80 has `INCLUDE`, real macros (`MACRO`,
 relocatable `.REL` modules that L80 links into a `.COM`. That's what makes
 a shared library possible:
 
-- **`software/czgfx/`** is the CADzilla graphics-primitive library. It has
+- **`software/m80/czgfx/`** is the CADzilla graphics-primitive library. It has
   three parts:
   - the `CZGFX.INC` header: board equates and the `G...` drawing macros
   - `CZGFX.REL`, a LIB80 library of its fourteen modules
   - `CZLINK.SUB`, the link script (`L80 $1,B:CZGFX/S,$1/N$2/E`)
 
-  API reference: `software/czgfx/README.md`.
+  API reference: `software/m80/czgfx/README.md`.
 - czgfx builds all of that onto its **build disk**,
-  `software/czgfx/libdisk/CZGFXLIB.DSK` (gitignored — a build product),
+  `software/m80/czgfx/libdisk/CZGFXLIB.DSK` (gitignored — a build product),
   which czgfx's own `work/` mounts **writable** as drive 1.
-- `software/czgfx/tools/release.sh` snapshots the build disk as a numbered,
-  tracked **release**, `software/czgfx/releases/CZGFXLIB-<version>.DSK`.
+- `software/m80/czgfx/tools/release.sh` snapshots the build disk as a numbered,
+  tracked **release**, `software/m80/czgfx/releases/CZGFXLIB-<version>.DSK`.
   The version comes from `CZVERS` in `CZGFX.INC`.
 - Every M80 consumer project:
-  - pins a release in `software/<project>/czgfx.version`;
+  - pins a release in `software/<toolchain>/<project>/czgfx.version`;
   - mounts its own copy of that release from its `work/` as **`B:`,
     read-only** (`readonly = true` in its `work/cadzilla.toml`; `SHOW
     MOUNTS` says `(write-protected)`);
@@ -512,17 +512,17 @@ a shared library possible:
     pulls in only the modules the program uses.
 
   A czgfx change reaches a project only when the project moves its pin.
-  `software/gfxdemo/` is the working example.
+  `software/m80/gfxdemo/` is the working example.
 
 ```
-drive 0  A:  software/<project>/work/CPM22SYS.DSK       the project's own disk
-drive 1  B:  software/<project>/work/CZGFXLIB-1.0.DSK   its czgfx release (read-only)
+drive 0  A:  software/<toolchain>/<project>/work/CPM22SYS.DSK       the project's own disk
+drive 1  B:  software/<toolchain>/<project>/work/CZGFXLIB-1.0.DSK   its czgfx release (read-only)
 ```
 
 Build a consumer (from a clean `A0>` on the project's own machine):
 
 ```
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<proj>/src"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<toolchain>/<proj>/src"}
 run {input: "R <NAME>.MAC\r", until: "A0>"}
 run {input: "M80 <NAME>,<NAME>=<NAME>\r", until: "A0>", timeout_ms: 60000}   # -> .REL + .PRN
 run {input: "SUBMIT B:CZLINK <NAME>\r", timeout_ms: 60000}                 # -> .COM (no until: stops when idle)
@@ -533,7 +533,7 @@ then `W <NAME>.COM` (binary) and `W <NAME>.PRN T` into `build/` as usual.
 
 **A consumer never needs the library rebuilt**: it builds against its
 pinned release. The build disk matters only to czgfx itself, and to a
-project pinned to `dev`. Rebuild it when anything in `software/czgfx/src/` is
+project pinned to `dev`. Rebuild it when anything in `software/m80/czgfx/src/` is
 newer than `libdisk/CZGFXLIB.DSK`, or the disk doesn't exist yet:
 1. `CONFIG LOAD` czgfx's own `work/cadzilla.toml` and boot;
 2. `R *.*` from `czgfx/src`, then `SUBMIT CZBUILD`;
@@ -577,7 +577,7 @@ assembler package, from the CP/M 3 distribution:
 They are here for one thing L80 can't do. `LINK [OP]` writes a **`.PRL`**
 (page-relocatable) file, which is the format of a GSX-80 device driver
 (`DD*.PRL`). A project builds with them through its tracked
-`src/<NAME>.SUB`. `software/rhello` is the example, the
+`src/<NAME>.SUB`. `software/rmac/rhello` is the example, the
 `cadzilla-build-rmac` skill has the procedure, and `new-cadzilla-project
 --toolchain rmac` scaffolds a new one.
 
@@ -631,13 +631,13 @@ They run unchanged on this CP/M 2.2. Verified on the 8080 machine:
 ## GSX graphics
 
 GSX-80 is DRI's device-independent graphics layer for CP/M (BDOS function
-115). `software/ddcz` is the CADzilla GSX screen driver: three `.PRL`s, one
+115). `software/rmac/ddcz` is the CADzilla GSX screen driver: three `.PRL`s, one
 per display mode, built with RMAC + LINK against czgfx.
-`software/ddcz/README.md` covers:
+`software/rmac/ddcz/README.md` covers:
 - what the driver implements;
 - how to set up a disk for it;
 - how it's tested, with GSXTEST, DEMOGRAF, DR Graph and
-  `software/cgsxdemo` (a z88dk C client).
+  `software/zcc/cgsxdemo` (a z88dk C client).
 
 The runtime files are cached locally by `scripts/fetch_upstream.sh` and are
 never tracked or put on pristine, because GSX-80's licence is unsettled
@@ -660,16 +660,16 @@ Then `GENGRAF` your program and run it. GSX programs need the 62K system
 up the project's own `work/` — this is the manual version if you're not
 using it.)
 
-1. `software/<name>/{src,include,build}` — create the directory
+1. `software/<toolchain>/<name>/{src,include,build}` — create the directory
    layout (`build/` needs a `.gitkeep`; it's gitignored otherwise), using
    this repo's normal lowercase directory-naming convention.
-2. Write `software/<name>/src/<NAME>.ASM` (CR/LF line endings, uppercase
+2. Write `software/<toolchain>/<name>/src/<NAME>.ASM` (CR/LF line endings, uppercase
    filename per the naming convention above).
-3. If it draws, write `software/<name>/machine.toml` pinning cad0's `mode`
+3. If it draws, write `software/<toolchain>/<name>/machine.toml` pinning cad0's `mode`
    to the resolution the code programs (see "Display resolution").
-4. `tools/altairsim/scripts/sync_pristine.sh software/<name>/work` — give
+4. `tools/altairsim/scripts/sync_pristine.sh software/<toolchain>/<name>/work` — give
    the new project its own disk (with the overlay applied).
-5. `monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}`,
+5. `monitor {command: "CONFIG LOAD <repo-root>/software/<toolchain>/<name>/work/cadzilla.toml"}`,
    then drive the build/run/debug loop above through the MCP tools,
    repointing `hb0` between the source directory (for `R`) and `build/`
    (for `W`). The pulled-back `<NAME>.COM`/`.HEX`/`.PRN` land in `build/`
@@ -691,11 +691,11 @@ the CCP waits for console input, which happens *after* the `A0>` prompt is
 printed. A `run` that stopped on `until: "A0>"` can therefore still have
 that write outstanding. Unmounting then either loses it, or cuts it short
 halfway through a sector, and the next boot says
-`Bdos Err On A: Bad Sector`. This has happened to `software/gfxdemo/work`.
+`Bdos Err On A: Bad Sector`. This has happened to `software/m80/gfxdemo/work`.
 So before any `UNMOUNT`, `CONFIG LOAD` or `reset`, run once with no input
 and no `until`, and check that it reports `stopped: "idle"`.
 
-Afterwards, `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK`
+Afterwards, `tools/altairsim/scripts/check_dsk.py software/<toolchain>/<name>/work/*.DSK`
 should say `ok`.
 
 (And `dsk0:drive1` too — `SCRATCH.DSK`, or an M80 project's own
@@ -714,7 +714,7 @@ restore it from `pristine/` and rebuild rather than debugging the
 corruption:
 
 ```bash
-tools/altairsim/scripts/sync_pristine.sh software/<name>/work
+tools/altairsim/scripts/sync_pristine.sh software/<toolchain>/<name>/work
 ```
 
 (This discards everything built on that project's disk since the last

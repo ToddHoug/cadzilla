@@ -57,7 +57,7 @@ unpatched release. The YAZE copy, the one used here, differs in 38 bytes:
 serial field). It is not taken from here, because the pristine disk
 already has its own `MAC.COM`.
 
-## GSX-80 runtime and GSXTEST, for software/ddcz (local only)
+## GSX-80 runtime and GSXTEST, for software/rmac/ddcz (local only)
 
 These files are for developing the CADzilla GSX driver. Unlike the DRI
 tools above, **none of them goes onto the pristine disk.** They are `R`'d
@@ -72,7 +72,7 @@ onto the driver project's own `work/` disk only.
 | `drgraph.tgz` | <https://www.icl1900.co.uk/unix4fun/z80pack/ftp/drgraph.tgz>, z80pack: DRI's DR Graph 1.0 (19 May 83), a GSX chart program, on a CP/M disk | `17c84b5b5c38d20f95ee2b2e8cbc1d54d09cc8aecf7b2f39635d2a9014c43627` |
 | `DRGRAPH.DSK` | the disk image in that archive (`disks/library/drgraph.dsk`), an 8" IBM 3740 image | `be6b6056b4f39b81566a0f828790b11f6713583ac4832a63ef71f17b5b989595` |
 
-| `drdraw.tgz` | <https://www.icl1900.co.uk/unix4fun/z80pack/ftp/drdraw.tgz>, z80pack: DRI's DR Draw, a GSX drawing program, on a CP/M disk. It needs **CP/M Plus, a Z80 and about 61K of TPA**, so it doesn't run here yet (`software/ddcz/README.md`) | `68f7960e43343437c7be27dfd9ffa459b019cba3e260a616648e630542a2f345` |
+| `drdraw.tgz` | <https://www.icl1900.co.uk/unix4fun/z80pack/ftp/drdraw.tgz>, z80pack: DRI's DR Draw, a GSX drawing program, on a CP/M disk. It needs **CP/M Plus, a Z80 and about 61K of TPA**, so it doesn't run here yet (`software/rmac/ddcz/README.md`) | `68f7960e43343437c7be27dfd9ffa459b019cba3e260a616648e630542a2f345` |
 | `DRDRAW.DSK` | the disk image in that archive (`disks/library/drdraw.dsk`) | `5a0553599c8ec2e04d92837a01e73988acb4cbe06725518f9f38d97234d250de` |
 
 All six were retrieved on 2026-10-08.

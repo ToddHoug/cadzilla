@@ -1,32 +1,32 @@
 ---
 name: cadzilla-build-asm
-description: Builds, runs and pulls back an existing CADzilla software project that uses the original CP/M toolchain -- Digital Research ASM.COM + LOAD.COM, a single self-contained <NAME>.ASM -- by driving the altairsim MCP server on that project's own work/ disk. Use this whenever the user wants to assemble, rebuild, run, test or debug a CADzilla program whose source is a single self-contained .ASM file with ORG 0100H (software/hello, software/firstdraw, software/drawdemo, or any project scaffolded with --toolchain asm), even if they just say "build hello", "rerun firstdraw", or "try my change to DRAWDEMO". For projects with a .MAC source that use the czgfx library, use cadzilla-build-m80 instead; for .Z88 sources (z88dk, 8080/8085/Z80, assembled on the host) use cadzilla-build-z88dk; for C (.c) sources use cadzilla-build-zcc; for relocatable .ASM modules linked by DRI RMAC + LINK (a <NAME>.SUB in src/, e.g. software/rhello, --toolchain rmac) use cadzilla-build-rmac.
+description: Builds, runs and pulls back an existing CADzilla software project that uses the original CP/M toolchain -- Digital Research ASM.COM + LOAD.COM, a single self-contained <NAME>.ASM -- by driving the altairsim MCP server on that project's own work/ disk. Use this whenever the user wants to assemble, rebuild, run, test or debug a CADzilla program whose source is a single self-contained .ASM file with ORG 0100H (software/asm/hello, software/asm/firstdraw, software/asm/drawdemo, or any project scaffolded with --toolchain asm), even if they just say "build hello", "rerun firstdraw", or "try my change to DRAWDEMO". For projects with a .MAC source that use the czgfx library, use cadzilla-build-m80 instead; for .Z88 sources (z88dk, 8080/8085/Z80, assembled on the host) use cadzilla-build-z88dk; for C (.c) sources use cadzilla-build-zcc; for relocatable .ASM modules linked by DRI RMAC + LINK (a <NAME>.SUB in src/, e.g. software/rmac/rhello, --toolchain rmac) use cadzilla-build-rmac.
 ---
 
 # Build a CADzilla project with ASM.COM (the original CP/M toolchain)
 
-These projects are one self-contained `software/<name>/src/<NAME>.ASM`,
+These projects are one self-contained `software/asm/<name>/src/<NAME>.ASM`,
 assembled by DRI `ASM.COM` into a `.HEX` + `.PRN` and turned into a `.COM`
 by `LOAD.COM`, all inside CP/M 2.2 on altairsim. They have no INCLUDE, no
 macros and no linker. For shared code, see `cadzilla-build-m80`. For
 relocatable `.ASM` modules linked by DRI LINK, see `cadzilla-build-rmac`.
 Such projects have a `<NAME>.SUB` in `src/` and no `ORG`. Reference
-examples: `software/hello` (minimal), `software/firstdraw` and
-`software/drawdemo` (graphics). `tools/altairsim/README.md` has the
+examples: `software/asm/hello` (minimal), `software/asm/firstdraw` and
+`software/asm/drawdemo` (graphics). `tools/altairsim/README.md` has the
 full background.
 
 ## 0. Before touching the emulator
 
-- **Find the names.** The project directory is `software/<name>/` (lowercase).
+- **Find the names.** The project directory is `software/asm/<name>/` (lowercase).
   The source is `src/<NAME>.ASM`, uppercase and at most 8 characters, e.g.
   `firstdraw` → `FIRSTDRW.ASM`. Look in `src/` rather than guessing.
 - **CR/LF.** If the source was edited on the host, run
-  `tools/altairsim/scripts/crlf.sh software/<name>/src/<NAME>.ASM`. It is
+  `tools/altairsim/scripts/crlf.sh software/asm/<name>/src/<NAME>.ASM`. It is
   idempotent. An LF-only file assembles to nothing with no error: the
   address `ASM` prints before `USE FACTOR` stays at `0100`.
-- **The project needs its own `work/`.** If `software/<name>/work/` is
+- **The project needs its own `work/`.** If `software/asm/<name>/work/` is
   missing, create it with `tools/altairsim/scripts/sync_pristine.sh
-  software/<name>/work`.
+  software/asm/<name>/work`.
 - The altairsim MCP tools must be loaded (`mcp__altairsim__run`). If they
   aren't, point the user at the README's "Starting a session" instead of
   guessing at setup.
@@ -35,7 +35,7 @@ full background.
 
 ```
 monitor {command: "SHOW MOUNTS"}            # what is mounted right now?
-monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
+monitor {command: "CONFIG LOAD <repo-root>/software/asm/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>", timeout_ms: 10000}
 monitor {command: "SHOW MOUNTS"}            # drive0 must be this project's work/ disk
 ```
@@ -52,7 +52,7 @@ monitor {command: "SHOW MOUNTS"}            # drive0 must be this project's work
 ## 2. Assemble, load, run
 
 ```
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/src"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/asm/<name>/src"}
 run {input: "R <NAME>.ASM\r", until: "A0>", timeout_ms: 15000}
 run {input: "ASM <NAME>\r", until: "A0>", timeout_ms: 30000}
 run {input: "LOAD <NAME>\r", until: "A0>", timeout_ms: 15000}
@@ -82,7 +82,7 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
 ## 3. Pull the artifacts back
 
 ```
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/build"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/asm/<name>/build"}
 run {input: "W <NAME>.COM\r", until: "A0>"}         # binary -- NEVER with T
 run {input: "W <NAME>.HEX T\r", until: "A0>"}
 run {input: "W <NAME>.PRN T\r", until: "A0>"}
@@ -103,13 +103,13 @@ the CCP waits for console input, which happens *after* the `A0>` prompt is
 printed. A `run` that stopped on `until: "A0>"` can therefore still have
 that write outstanding. Unmounting then either loses it, or cuts it short
 halfway through a sector, and the next boot says
-`Bdos Err On A: Bad Sector`. This has happened to `software/gfxdemo/work`.
+`Bdos Err On A: Bad Sector`. This has happened to `software/m80/gfxdemo/work`.
 So before any `UNMOUNT`, `CONFIG LOAD` or `reset`, run once with no input
 and no `until`, and check that it reports `stopped: "idle"`.
 
 UNMOUNT flushes the disk image to the host file; if you skip it, work on
 the project's disk can be lost. Then:
-- run `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK`,
+- run `tools/altairsim/scripts/check_dsk.py software/asm/<name>/work/*.DSK`,
   which should say `ok`
 - confirm `git status tools/altairsim/pristine` is clean; if it isn't, stop
   and tell the user
@@ -138,7 +138,7 @@ unless asked.
 - **Don't interrupt a disk operation.** If a `run` times out mid-`ASM`,
   `LOAD`, `R` or `W`, call `run` again with no input to let it finish.
   Never `reset` or `CONFIG LOAD` mid-write. A corrupted work disk is
-  recovered with `sync_pristine.sh software/<name>/work`, but that discards
+  recovered with `sync_pristine.sh software/asm/<name>/work`, but that discards
   everything on it, so ask the user first.
 - Mixing BDOS function 9 (print) with function 6 (direct console input)
   loses a key typed while text is still printing. The BDOS stashes it in a

@@ -1,38 +1,38 @@
 ---
 name: cadzilla-build-zcc
-description: Builds, runs and debugs a CADzilla software project written in C with the z88dk zcc toolchain -- lowercase src/*.c sources (plus optional .Z88 assembly modules), compiled on the HOST by z88dk's zcc (sccz80 + the classic CP/M C library) via tools/z88dk/zccbuild.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, all through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .c file (software/chello, software/cgfxdemo, anything scaffolded with --toolchain zcc), draw on the board from C with cz88gfx's C bindings (#include <cz88gfx.h>, cz_ functions), retarget a C program to another CPU, call assembly from C, or asks about writing C for the 8080, 8085, Z80 or CP/M in this repo. To change the C bindings themselves (software/cz88gfx), use cadzilla-build-z88dk. For .Z88-only projects use cadzilla-build-z88dk; for .ASM use cadzilla-build-asm (or cadzilla-build-rmac when src/ has a <NAME>.SUB driving DRI RMAC + LINK); for .MAC use cadzilla-build-m80.
+description: Builds, runs and debugs a CADzilla software project written in C with the z88dk zcc toolchain -- lowercase src/*.c sources (plus optional .Z88 assembly modules), compiled on the HOST by z88dk's zcc (sccz80 + the classic CP/M C library) via tools/z88dk/zccbuild.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, all through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .c file (software/zcc/chello, software/zcc/cgfxdemo, anything scaffolded with --toolchain zcc), draw on the board from C with cz88gfx's C bindings (#include <cz88gfx.h>, cz_ functions), retarget a C program to another CPU, call assembly from C, or asks about writing C for the 8080, 8085, Z80 or CP/M in this repo. To change the C bindings themselves (software/z88dk/cz88gfx), use cadzilla-build-z88dk. For .Z88-only projects use cadzilla-build-z88dk; for .ASM use cadzilla-build-asm (or cadzilla-build-rmac when src/ has a <NAME>.SUB driving DRI RMAC + LINK); for .MAC use cadzilla-build-m80.
 ---
 
 # Build a CADzilla C project with z88dk (zcc)
 
-These projects are `software/<name>/src/*.c`, plus any `src/*.Z88` assembly
+These projects are `software/zcc/<name>/src/*.c`, plus any `src/*.Z88` assembly
 modules. z88dk's `zcc` compiles them **on the host** for the 8080, 8085 or Z80,
 straight into `build/<NAME>.COM`. altairsim then only copies that `.COM` onto
 the project's own CP/M disk with `R` and runs it, on an emulated CPU of the
 same type. `tools/z88dk/README.md` ("C with zcc") has the background. The
-reference project is `software/chello` (8080).
+reference project is `software/zcc/chello` (8080).
 
 ## 0. Before building
 
-- **Find the names.** The project is `software/<name>/`. The main module is
+- **Find the names.** The project is `software/zcc/<name>/`. The main module is
   the `src/*.c` that defines `main()`. Its name, uppercased, is the program's
   CP/M name: `src/chello.c` gives `CHELLO.COM`. Look in `src/`; don't guess.
 - **C sources are lowercase** (`.c`, `.h`): zcc doesn't recognise `.C`. They
   never reach CP/M, so the repo's uppercase rule doesn't apply to them. `.Z88`
   modules and every build output are uppercase as usual.
-- **The CPU** is the `cpu0` block in `software/<name>/machine.toml`
+- **The CPU** is the `cpu0` block in `software/zcc/<name>/machine.toml`
   (`type = "8080" | "8085" | "z80"`). The build reads it to pick zcc's C
   library (`-clib=8080`, `-clib=8085` or `-clib=default` for the Z80), and the
   work machine gets it as its CPU card. To retarget, edit that block, then run
-  `tools/altairsim/scripts/sync_pristine.sh --machine-only software/<name>/work`
+  `tools/altairsim/scripts/sync_pristine.sh --machine-only software/zcc/<name>/work`
   so the emulator follows.
 - **The project needs its own `work/`.** If it's missing, create it with
-  `tools/altairsim/scripts/sync_pristine.sh software/<name>/work`.
+  `tools/altairsim/scripts/sync_pristine.sh software/zcc/<name>/work`.
 
 ## 1. Build on the host
 
 ```bash
-tools/z88dk/zccbuild.sh software/<name>
+tools/z88dk/zccbuild.sh software/zcc/<name>
 ```
 
 - It prints `zcc: <NAME> for <cpu> (<modules>)`, then the `.COM` size. Any
@@ -64,9 +64,9 @@ session".
 
 ```
 monitor {command: "SHOW MOUNTS"}
-monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
+monitor {command: "CONFIG LOAD <repo-root>/software/zcc/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>", timeout_ms: 10000}
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/build"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/zcc/<name>/build"}
 run {input: "R <NAME>.COM\r", until: "A0>", timeout_ms: 15000}
 run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
 ```
@@ -94,7 +94,7 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
 ## 3. Debugging
 
 ```
-monitor {command: "SYMBOLS LOAD <repo-root>/software/<name>/build/<NAME>.SYM"}
+monitor {command: "SYMBOLS LOAD <repo-root>/software/zcc/<name>/build/<NAME>.SYM"}
 monitor {command: "BREAK _MAIN"}
 run {input: "<NAME>\r", timeout_ms: 15000}        # stops: "breakpoint" at main()
 monitor {command: "DISASM _MAIN 8"}
@@ -122,7 +122,7 @@ monitor {command: "UNMOUNT dsk0:drive1"}
 - Stopping on `A0>` is not idle. The BIOS writes its buffered track only
   after the prompt. Before any `UNMOUNT`, `CONFIG LOAD` or `reset`, do a
   `run` with no input that reports `stopped: "idle"`.
-- Then run `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK`,
+- Then run `tools/altairsim/scripts/check_dsk.py software/zcc/<name>/work/*.DSK`,
   which should say `ok`, and check that `git status tools/altairsim/pristine`
   is clean.
 - Never interrupt `R`/`W` mid-transfer. If a `run` times out, call `run`
@@ -180,7 +180,7 @@ unless asked.
     interrupt-safe. `zccbuild.sh` fails such a build (the `iotmp` error), and
     `inp()` doesn't even link there (`undefined symbol: inp_fastcall`).
 - **Graphics: cz88gfx's C bindings** (release 1.1 and later).
-  `software/cgfxdemo` is the worked example.
+  `software/zcc/cgfxdemo` is the worked example.
   - **Setup:** pin a release in `cz88gfx.version` (`echo 1.1 > ...`), then
     `#include <cz88gfx.h>`. `zccbuild.sh` adds the include path and links
     `CZ88GFX.LIB`; its first line names the pin, and a 1.0 pin is an error.
@@ -193,7 +193,7 @@ unless asked.
   - **Under the hood:** each function is a few instructions of assembly
     jumping into the library routine. Draw with these, not with C loops
     over `<cadzilla.h>` ports, which are bigger and slower.
-  - **Reference:** `software/cz88gfx/README.md`, "Using it from C", has the
+  - **Reference:** `software/z88dk/cz88gfx/README.md`, "Using it from C", has the
     API table.
   - **To verify a drawing,** snapshot the machine and decode it with
     `tools/altairsim/scripts/cadzilla_png.py`.

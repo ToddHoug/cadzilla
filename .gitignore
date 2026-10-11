@@ -6,17 +6,17 @@ schematics/fp-info-cache
 schematics/*.kicad_prl
 
 # Build outputs
-software/*/build/*
-!software/*/build/.gitkeep
+software/*/*/build/*
+!software/*/*/build/.gitkeep
 # L80 symbol files (/Y), written into src/ for the debugger's SYMBOLS LOAD
-software/*/src/*.SYM
+software/*/*/src/*.SYM
 
 # altairsim working disks -- pristine/ is the tracked master; each project has its own
 # work/ (mutated in place, never shared between projects)
-software/*/work/
+software/*/*/work/
 
-# the czgfx library disk -- a build product of software/czgfx/src, rebuilt from it
-software/*/libdisk/
+# the czgfx library disk -- a build product of software/m80/czgfx/src, rebuilt from it
+software/*/*/libdisk/
 
 # upstream archives/disk images that pristine's third-party tools came from --
 # a local cache rebuilt by tools/altairsim/scripts/fetch_upstream.sh; only the

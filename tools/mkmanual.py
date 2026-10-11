@@ -8,7 +8,7 @@ to say the same thing in two forms.
 
 Usage (from the repository root):
     python3 tools/mkmanual.py
-Needs ReportLab (same as software/czbasic/tools/mkmanual.py).
+Needs ReportLab (same as software/m80/czbasic/tools/mkmanual.py).
 """
 import os
 

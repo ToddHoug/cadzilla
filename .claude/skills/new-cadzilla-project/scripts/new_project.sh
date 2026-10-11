@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scaffold a new CADzilla software project: software/<name>/{src,include,build}
+# Scaffold a new CADzilla software project: software/<toolchain>/<name>/{src,include,build}
 # plus a minimal starter assembly source file, correctly CR/LF-terminated and
 # uppercased for CP/M.
 #
@@ -7,7 +7,7 @@
 #
 # --mode is the display resolution: 640x480, 800x600 or 1024x768 (default,
 # the pristine machine's). It is written to the project's tracked
-# software/<name>/machine.toml overlay as cad0's `mode` strap, which
+# software/<toolchain>/<name>/machine.toml overlay as cad0's `mode` strap, which
 # sync_pristine.sh applies to work/cadzilla.toml; an m80 stub's GINIT gets the
 # matching czgfx descriptor. An existing machine.toml is never overwritten.
 #
@@ -17,20 +17,20 @@
 #   m80  Microsoft M80 + L80: a relocatable <NAME>.MAC that INCLUDEs the
 #        czgfx graphics library header from B: and links against its .REL
 #        modules (cadzilla-build-m80 skill). The project pins the newest
-#        czgfx release in software/<name>/czgfx.version, and its work machine
+#        czgfx release in software/<toolchain>/<name>/czgfx.version, and its work machine
 #        gets its own copy of that release as drive 1 (B:), read-only.
 #   z88dk  z88dk's z80asm, run on the HOST (tools/z88dk/z88build.sh): a
 #        <NAME>.Z88 in Intel and/or Zilog mnemonics, built straight to
 #        build/<NAME>.COM, which altairsim then only R's onto the disk and runs
 #        (cadzilla-build-z88dk skill). The project pins the newest cz88gfx
-#        release (czgfx ported to z80asm) in software/<name>/cz88gfx.version,
+#        release (czgfx ported to z80asm) in software/<toolchain>/<name>/cz88gfx.version,
 #        so it can INCLUDE "CZ88GFX.INC" and draw; a program that draws
 #        nothing links none of it.
 #   zcc  z88dk's zcc, C compiled on the HOST (tools/z88dk/zccbuild.sh): a
 #        lowercase src/<name>.c plus an assembly module src/CPUID.Z88, built
 #        straight to build/<NAME>.COM, which altairsim then only R's onto the
 #        disk and runs (cadzilla-build-zcc skill). Like z88dk, it pins the
-#        newest cz88gfx release in software/<name>/cz88gfx.version, so it can
+#        newest cz88gfx release in software/<toolchain>/<name>/cz88gfx.version, so it can
 #        #include <cz88gfx.h> and draw (C bindings: release 1.1 and later).
 #   rmac DRI RMAC + LINK-80, inside CP/M: relocatable <NAME>.ASM (CSEG/DSEG,
 #        EXTRN) plus a second module, PRINT.ASM, and the build script
@@ -175,15 +175,25 @@ if [ "$TOOLCHAIN" != "zcc" ] && [[ "$MESSAGE" == *'$'* ]]; then
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-PROJECT_DIR="$REPO_ROOT/software/$NAME"
+# Projects are grouped by toolchain: software/<toolchain>/<name>/.
+PROJECT_DIR="$REPO_ROOT/software/$TOOLCHAIN/$NAME"
 
 # This repo's directory-naming convention (CLAUDE.md): lowercase, matching the
-# existing software/hello, software/firstdraw. Keep it simple and predictable
+# existing software/asm/hello, software/asm/firstdraw. Keep it simple and predictable
 # rather than trying to slugify arbitrary input.
 if [[ ! "$NAME" =~ ^[a-z][a-z0-9]*$ ]]; then
   echo "error: '$NAME' must be lowercase letters/digits, starting with a letter" >&2
   exit 1
 fi
+
+# A project name stays unique across all the toolchain directories, so a
+# bare name ("build hello") always means one project.
+for other in "$REPO_ROOT"/software/*/"$NAME"; do
+  if [ -d "$other" ] && [ "$other" != "$PROJECT_DIR" ]; then
+    echo "error: there is already a project '$NAME' in $(realpath --relative-to="$REPO_ROOT" "$other") -- pick another name" >&2
+    exit 1
+  fi
+done
 
 # The CP/M-side name is the project name, uppercased (CLAUDE.md: files that
 # pass through the CP/M toolchain are uppercase on both the host and the
@@ -215,7 +225,7 @@ case "$CPM_NAME" in
 esac
 
 # The directory itself may already exist -- e.g. an empty scaffold checked in
-# ahead of time (software/firstdraw's src/include/build with only .gitkeep in
+# ahead of time (software/asm/firstdraw's src/include/build with only .gitkeep in
 # them). That's fine to fill in. What's NOT fine is clobbering a source file
 # that's already there with real content in it.
 # A zcc project's C source is lowercase (zcc only takes a lowercase .c; it
@@ -293,7 +303,7 @@ else
     AGREE="if the program programs the ACRTC, its timing must agree with it"
   fi
   cat > "$OVERLAY" <<EOF
-# software/$NAME's own straps on top of tools/altairsim/pristine/cadzilla.toml.
+# software/$TOOLCHAIN/$NAME's own straps on top of tools/altairsim/pristine/cadzilla.toml.
 # tools/altairsim/scripts/sync_pristine.sh appends this to work/cadzilla.toml
 # (a later [[board]] block for the same id overrides pristine's). Only
 # [[board]] tables may appear here.
@@ -343,10 +353,10 @@ fi
 if [ "$TOOLCHAIN" = "m80" ]; then
   PIN="$PROJECT_DIR/czgfx.version"
   if [ ! -f "$PIN" ]; then
-    LATEST="$(ls "$REPO_ROOT/software/czgfx/releases" 2>/dev/null \
+    LATEST="$(ls "$REPO_ROOT/software/m80/czgfx/releases" 2>/dev/null \
               | sed -nE 's/^CZGFXLIB-([0-9]+\.[0-9]+)\.DSK$/\1/p' | sort -V | tail -n1)"
     if [ -z "$LATEST" ]; then
-      echo "error: no czgfx release in software/czgfx/releases -- release one first" >&2
+      echo "error: no czgfx release in software/m80/czgfx/releases -- release one first" >&2
       exit 1
     fi
     echo "$LATEST" > "$PIN"
@@ -362,13 +372,13 @@ fi
 if [ "$TOOLCHAIN" = "z88dk" ] || [ "$TOOLCHAIN" = "zcc" ]; then
   PIN="$PROJECT_DIR/cz88gfx.version"
   if [ ! -f "$PIN" ]; then
-    LATEST="$(ls "$REPO_ROOT/software/cz88gfx/releases" 2>/dev/null \
+    LATEST="$(ls "$REPO_ROOT/software/z88dk/cz88gfx/releases" 2>/dev/null \
               | grep -E '^[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)"
     if [ -n "$LATEST" ]; then
       echo "$LATEST" > "$PIN"
       echo "Pinned cz88gfx $LATEST in $PIN"
     else
-      echo "note: no cz88gfx release in software/cz88gfx/releases -- no cz88gfx.version pin written"
+      echo "note: no cz88gfx release in software/z88dk/cz88gfx/releases -- no cz88gfx.version pin written"
     fi
   fi
 fi
@@ -431,7 +441,7 @@ cat > "$ASM_PATH" <<EOF
 ;
 ; Built on the host by z88dk's z80asm, then copied onto the CP/M disk and run
 ; (cadzilla-build-z88dk skill):
-;   tools/z88dk/z88build.sh software/$NAME       -> build/$CPM_NAME.COM
+;   tools/z88dk/z88build.sh software/z88dk/$NAME       -> build/$CPM_NAME.COM
 ;   A0>R $CPM_NAME.COM                          (hb0 HOSTDIR = build/)
 ;   A0>$CPM_NAME
 ;
@@ -509,7 +519,7 @@ cat > "$ASM_PATH" <<EOF
 ;
 ; Built on the host by z88dk's z80asm, then copied onto the CP/M disk and run
 ; (cadzilla-build-z88dk skill):
-;   tools/z88dk/z88build.sh software/$NAME       -> build/$CPM_NAME.COM
+;   tools/z88dk/z88build.sh software/z88dk/$NAME       -> build/$CPM_NAME.COM
 ;   A0>R $CPM_NAME.COM                          (hb0 HOSTDIR = build/)
 ;   A0>$CPM_NAME
 ;
@@ -641,7 +651,7 @@ cat > "$ASM_PATH" <<EOF
  *
  * Compiled on the host by z88dk's zcc, then copied onto the CP/M disk and run
  * (cadzilla-build-zcc skill):
- *   tools/z88dk/zccbuild.sh software/$NAME      -> build/$CPM_NAME.COM
+ *   tools/z88dk/zccbuild.sh software/zcc/$NAME      -> build/$CPM_NAME.COM
  *   A0>R $CPM_NAME.COM                          (hb0 HOSTDIR = build/)
  *   A0>$CPM_NAME
  *
@@ -749,9 +759,9 @@ echo "Created/filled in $PROJECT_DIR"
 if [ "$TOOLCHAIN" = "m80" ]; then
   echo "  src/$CPM_NAME.MAC   (CR/LF line endings, ready for M80.COM; uses czgfx from B:)"
 elif [ "$TOOLCHAIN" = "z88dk" ]; then
-  echo "  src/$CPM_NAME.Z88   (for z80asm on the host: tools/z88dk/z88build.sh software/$NAME)"
+  echo "  src/$CPM_NAME.Z88   (for z80asm on the host: tools/z88dk/z88build.sh software/z88dk/$NAME)"
 elif [ "$TOOLCHAIN" = "zcc" ]; then
-  printf '  %-19s %s\n' "src/$C_NAME.c" "(for zcc on the host: tools/z88dk/zccbuild.sh software/$NAME)"
+  printf '  %-19s %s\n' "src/$C_NAME.c" "(for zcc on the host: tools/z88dk/zccbuild.sh software/zcc/$NAME)"
   echo "  src/CPUID.Z88       (an assembly module the C code calls)"
 elif [ "$TOOLCHAIN" = "rmac" ]; then
   printf '  %-19s %s\n' "src/$CPM_NAME.ASM" "(CR/LF, relocatable, for RMAC.COM)"

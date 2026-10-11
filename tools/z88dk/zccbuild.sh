@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Build a CADzilla zcc (C) project on the host: compile software/<name>/src/*.c
+# Build a CADzilla zcc (C) project on the host: compile software/zcc/<name>/src/*.c
 # with z88dk's zcc (+cpm, the sccz80 compiler and classic C library), assemble
 # any src/*.Z88 modules with z80asm, and link them into
-# software/<name>/build/<NAME>.COM, for the CPU the project's machine.toml puts
+# software/zcc/<name>/build/<NAME>.COM, for the CPU the project's machine.toml puts
 # in the emulator (8080, 8085 or Z80).
 #
-# Usage: zccbuild.sh software/<name>
+# Usage: zccbuild.sh software/zcc/<name>
 #
 # The project:
 #   src/<name>.c     the main module: the one .c that defines main(). Its name,
@@ -27,7 +27,7 @@
 #                    against ("1.1" or later, or "dev"). Puts cz88gfx.h on the
 #                    include path (#include <cz88gfx.h>) and links CZ88GFX.LIB;
 #                    only the modules the program uses go into the .COM. See
-#                    software/cz88gfx/README.md, "Using it from C".
+#                    software/z88dk/cz88gfx/README.md, "Using it from C".
 #
 # Writes into build/ (gitignored), uppercase like every other build artifact:
 #   <NAME>.COM   the program, ready for `R <NAME>.COM` in CP/M
@@ -46,7 +46,7 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/z88common.sh"
 
 if [ $# -ne 1 ]; then
-  echo "Usage: $0 software/<name>" >&2
+  echo "Usage: $0 software/zcc/<name>" >&2
   exit 1
 fi
 

@@ -19,7 +19,7 @@
 #   upstream/DRI/RMAC.COM LINK.COM LIB.COM XREF.COM
 #                                extracted from yazecpm3.zip, uppercased
 #
-# and, for the GSX driver work (software/ddcz) -- never tracked, never put on
+# and, for the GSX driver work (software/rmac/ddcz) -- never tracked, never put on
 # pristine, since GSX-80's licence status is unsettled (upstream/README.md):
 #
 #   upstream/gsx80-1.0.tgz       z80pack's GSX-80 1.0 disk, as downloaded
@@ -37,7 +37,7 @@
 #                                the same for DRI's DR Draw, plus its own GSX.SYS
 #                                (GSX-80 1.1). It needs CP/M Plus, a Z80 and about
 #                                61K of TPA, so it doesn't run here yet
-#                                (software/ddcz/README.md)
+#                                (software/rmac/ddcz/README.md)
 #
 # Extracting from the GSX disk image needs cpmtools (cpmcp).
 #
@@ -143,7 +143,7 @@ for t in "${tools[@]}"; do
   echo "  ok      DRI/$name"
 done
 
-# GSX-80 1.0 and GSXTEST, for software/ddcz
+# GSX-80 1.0 and GSXTEST, for software/rmac/ddcz
 if ! command -v cpmcp >/dev/null; then
   echo "error: cpmcp not found -- install cpmtools (it reads the GSX-80 disk image)" >&2
   exit 1

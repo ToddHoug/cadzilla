@@ -9,7 +9,7 @@
 # attach_libdisk.sh, which also removes the unused SCRATCH.DSK).
 #
 # Used for two things:
-#   - Setting up a new project's own software/<name>/work/ the first time
+#   - Setting up a new project's own software/<toolchain>/<name>/work/ the first time
 #     (each project gets its own persistent CP/M disk, so projects don't
 #     share -- and don't fill up -- a single common disk).
 #   - Resetting a work directory back to a known-clean state if it ends up
@@ -27,7 +27,7 @@
 # and only switches the CPU to 2 MHz and cad0 to draw_rate = "real".
 #
 # Project overlay: if the directory above <dest-dir> holds a machine.toml
-# (i.e. software/<project>/machine.toml, tracked in git), it is appended to
+# (i.e. software/<toolchain>/<project>/machine.toml, tracked in git), it is appended to
 # the copied cadzilla.toml. That is how a project pins its own board straps --
 # above all cad0's `mode`, the monitor resolution its code programs -- so they
 # survive every sync and a fresh clone. A later [[board]] block for the same

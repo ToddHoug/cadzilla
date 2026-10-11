@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build a CADzilla z88dk project on the host: assemble software/<name>/src/*.Z88
-# with z88dk's z80asm into software/<name>/build/<NAME>.COM, for the CPU the
+# Build a CADzilla z88dk project on the host: assemble software/z88dk/<name>/src/*.Z88
+# with z88dk's z80asm into software/z88dk/<name>/build/<NAME>.COM, for the CPU the
 # project's machine.toml puts in the emulator (8080, 8085 or Z80).
 #
-# Usage: z88build.sh software/<name>
+# Usage: z88build.sh software/z88dk/<name>
 #
 # The project:
 #   src/<NAME>.Z88   the main module: the one .Z88 with an ORG (ORG 0100H for a
@@ -16,11 +16,11 @@
 #   z88dk.flags      optional: extra z80asm flags, e.g. -ucase or -no-synth
 #                    ('#' starts a comment)
 #   cz88gfx.version  optional: the cz88gfx graphics library release it builds
-#                    against ("1.0", or "dev" for software/cz88gfx's own
+#                    against ("1.0", or "dev" for software/z88dk/cz88gfx's own
 #                    build). Puts CZ88GFX.INC on the include path and links
 #                    CZ88GFX.LIB; only the library modules the program
 #                    references go into the .COM. See
-#                    software/cz88gfx/README.md.
+#                    software/z88dk/cz88gfx/README.md.
 #
 # Writes into build/ (gitignored), uppercase like every other build artifact:
 #   <NAME>.COM   the program, ready for `R <NAME>.COM` in CP/M
@@ -36,7 +36,7 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/z88common.sh"
 
 if [ $# -ne 1 ]; then
-  echo "Usage: $0 software/<name>" >&2
+  echo "Usage: $0 software/z88dk/<name>" >&2
   exit 1
 fi
 

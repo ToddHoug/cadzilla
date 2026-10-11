@@ -4,7 +4,7 @@
 #
 # THIS FILE IS A DELTA on `base = "cadzilla.toml"` -- the cadzilla.toml lying beside it, so in
 # a project's work/ it is THAT project's machine: its disks, its host bridge, and its own
-# monitor resolution from software/<project>/machine.toml. It changes exactly two straps:
+# monitor resolution from software/<toolchain>/<project>/machine.toml. It changes exactly two straps:
 #
 #   - cpu0  clock_hz = 2000000. The Altair's 2 MHz 8080, in wall-clock time: the host waits,
 #           so one emulated second takes one real second. (Flat out, clock_hz = 0, the

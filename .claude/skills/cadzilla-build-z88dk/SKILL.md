@@ -1,42 +1,42 @@
 ---
 name: cadzilla-build-z88dk
-description: Builds, runs and debugs a CADzilla software project that uses the z88dk host toolchain -- a <NAME>.Z88 source in Intel (8080) and/or Zilog (Z80) mnemonics, assembled on the HOST by z88dk's z80asm via tools/z88dk/z88build.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, all through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .Z88 file (software/zhello, software/z88demo, anything scaffolded with --toolchain z88dk), retarget one to another CPU, draw with the cz88gfx graphics library (INCLUDE "CZ88GFX.INC", cz88gfx.version pin), change, rebuild or release cz88gfx itself (software/cz88gfx), port czgfx/M80 drawing code to z80asm, or asks about assembling for the 8085 or Z80, mixing Intel and Zilog mnemonics, or cross-assembling on the host. For .ASM projects use cadzilla-build-asm; for .MAC projects use cadzilla-build-m80; for C (.c) projects, even ones with .Z88 modules, use cadzilla-build-zcc; for DRI RMAC + LINK projects (.ASM modules with a <NAME>.SUB) use cadzilla-build-rmac.
+description: Builds, runs and debugs a CADzilla software project that uses the z88dk host toolchain -- a <NAME>.Z88 source in Intel (8080) and/or Zilog (Z80) mnemonics, assembled on the HOST by z88dk's z80asm via tools/z88dk/z88build.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, all through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .Z88 file (software/z88dk/zhello, software/z88dk/z88demo, anything scaffolded with --toolchain z88dk), retarget one to another CPU, draw with the cz88gfx graphics library (INCLUDE "CZ88GFX.INC", cz88gfx.version pin), change, rebuild or release cz88gfx itself (software/z88dk/cz88gfx), port czgfx/M80 drawing code to z80asm, or asks about assembling for the 8085 or Z80, mixing Intel and Zilog mnemonics, or cross-assembling on the host. For .ASM projects use cadzilla-build-asm; for .MAC projects use cadzilla-build-m80; for C (.c) projects, even ones with .Z88 modules, use cadzilla-build-zcc; for DRI RMAC + LINK projects (.ASM modules with a <NAME>.SUB) use cadzilla-build-rmac.
 ---
 
 # Build a CADzilla project with z88dk (host cross-assembler)
 
-These projects are `software/<name>/src/*.Z88`. z88dk's `z80asm` assembles
+These projects are `software/z88dk/<name>/src/*.Z88`. z88dk's `z80asm` assembles
 them **on the host**, for the 8080, 8085 or Z80, straight into
 `build/<NAME>.COM`. altairsim then only copies that `.COM` onto the project's
 own CP/M disk with `R` and runs it, on an emulated CPU of the same type.
 `tools/z88dk/README.md` has the background and the syntax traps. The reference
-project is `software/zhello` (Z80). A project that draws uses **cz88gfx**, the
-z80asm port of czgfx (`software/cz88gfx/README.md`). Its reference is
-`software/z88demo` (gfxdemo ported, Z80).
+project is `software/z88dk/zhello` (Z80). A project that draws uses **cz88gfx**, the
+z80asm port of czgfx (`software/z88dk/cz88gfx/README.md`). Its reference is
+`software/z88dk/z88demo` (gfxdemo ported, Z80).
 
 ## 0. Before building
 
-- **Find the names.** The project is `software/<name>/`. The main module is
+- **Find the names.** The project is `software/z88dk/<name>/`. The main module is
   the `src/*.Z88` with an `ORG`, and its name is the program's CP/M name,
   e.g. `src/ZHELLO.Z88` gives `ZHELLO.COM`. Look in `src/`; don't guess.
-- **The CPU** is the `cpu0` block in `software/<name>/machine.toml`
+- **The CPU** is the `cpu0` block in `software/z88dk/<name>/machine.toml`
   (`type = "8080" | "8085" | "z80"`). The build reads it for z80asm's `-m`
   flag, and the work machine gets it as its CPU card. To retarget, edit that
   block, then run `tools/altairsim/scripts/sync_pristine.sh --machine-only
-  software/<name>/work` so the emulator follows.
+  software/z88dk/<name>/work` so the emulator follows.
 - **The project needs its own `work/`.** If it's missing, create it with
-  `tools/altairsim/scripts/sync_pristine.sh software/<name>/work`.
+  `tools/altairsim/scripts/sync_pristine.sh software/z88dk/<name>/work`.
 - **The cz88gfx pin**, for a project that draws, is
-  `software/<name>/cz88gfx.version`: a release (`1.0`, from
-  `software/cz88gfx/releases/`) or `dev` (the library's own current build).
+  `software/z88dk/<name>/cz88gfx.version`: a release (`1.0`, from
+  `software/z88dk/cz88gfx/releases/`) or `dev` (the library's own current build).
   Nothing is mounted for it: the build links it on the host. If the project
-  uses `dev` and `software/cz88gfx/src/` changed, rebuild the library first
+  uses `dev` and `software/z88dk/cz88gfx/src/` changed, rebuild the library first
   (below).
 
 ## 1. Build on the host
 
 ```bash
-tools/z88dk/z88build.sh software/<name>
+tools/z88dk/z88build.sh software/z88dk/<name>
 ```
 
 - It prints `z88dk: <NAME> for <cpu>`, then the `.COM` size. Any error exits
@@ -60,12 +60,12 @@ tools/z88dk/z88build.sh software/<name>
   `number of macro arguments` on a `G...` macro means a czgfx-style blank or
   omitted argument. Every argument is required, so write the default out,
   or load the registers and `CALL` the routine (the porting table in
-  `software/cz88gfx/README.md`).
+  `software/z88dk/cz88gfx/README.md`).
 
 ## 1a. The cz88gfx library itself (only when changing it)
 
 ```bash
-software/cz88gfx/tools/build.sh      # -> software/cz88gfx/build/CZ88GFX.LIB
+software/z88dk/cz88gfx/tools/build.sh      # -> software/z88dk/cz88gfx/build/CZ88GFX.LIB
 ```
 
 - It assembles every `src/CZ*.Z88` module (8080 code, `-m8080`) into the
@@ -85,21 +85,21 @@ software/cz88gfx/tools/build.sh      # -> software/cz88gfx/build/CZ88GFX.LIB
   - a call in `czcchk.c`;
   - a row in the README's C table.
 
-  `software/cz88gfx/README.md`, "How the bindings work", has the calling
+  `software/z88dk/cz88gfx/README.md`, "How the bindings work", has the calling
   conventions.
-- Try it in a program pinned to `dev` (`software/z88demo`;
-  `software/cgfxdemo` for C). Check the pictures as well as the build
+- Try it in a program pinned to `dev` (`software/z88dk/z88demo`;
+  `software/zcc/cgfxdemo` for C). Check the pictures as well as the build
   (step 2, then a snapshot). z88demo draws exactly gfxdemo's screens, and
   cgfxdemo exactly z88demo's.
 - **Release:** raise `CZ88VER` in `src/CZ88GFX.INC` and `CZ88GFX_VERSION`
   in `src/cz88gfx.h` together, rebuild, then run
-  `software/cz88gfx/tools/release.sh`. It writes the read-only
-  `software/cz88gfx/releases/<M>.<m>/` (`CZ88GFX.LIB`, `CZ88GFX.INC`,
+  `software/z88dk/cz88gfx/tools/release.sh`. It writes the read-only
+  `software/z88dk/cz88gfx/releases/<M>.<m>/` (`CZ88GFX.LIB`, `CZ88GFX.INC`,
   `cz88gfx.h`), refuses a stale build, an existing release or mismatched
   versions, and prints the `git add`.
   Then move each project that wants it: edit its `cz88gfx.version` and
   rebuild it.
-- Leave czgfx (`software/czgfx/`, M80) alone: it is the separate
+- Leave czgfx (`software/m80/czgfx/`, M80) alone: it is the separate
   period-tools library, and the two share no files.
 
 ## 2. Boot the project's machine, copy the `.COM` in, run it
@@ -110,9 +110,9 @@ session".
 
 ```
 monitor {command: "SHOW MOUNTS"}
-monitor {command: "CONFIG LOAD <repo-root>/software/<name>/work/cadzilla.toml"}
+monitor {command: "CONFIG LOAD <repo-root>/software/z88dk/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>", timeout_ms: 10000}
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<name>/build"}
+monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/z88dk/<name>/build"}
 run {input: "R <NAME>.COM\r", until: "A0>", timeout_ms: 15000}
 run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
 ```
@@ -138,7 +138,7 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
 ## 3. Debugging
 
 ```
-monitor {command: "SYMBOLS LOAD <repo-root>/software/<name>/build/<NAME>.SYM"}
+monitor {command: "SYMBOLS LOAD <repo-root>/software/z88dk/<name>/build/<NAME>.SYM"}
 monitor {command: "BREAK START"}
 run {input: "<NAME>\r", timeout_ms: 15000}        # stops: "breakpoint", pc 0x0100
 monitor {command: "DISASM START 8"}
@@ -159,7 +159,7 @@ monitor {command: "UNMOUNT dsk0:drive1"}
 - Stopping on `A0>` is not idle. The BIOS writes its buffered track only
   after the prompt. Before any `UNMOUNT`, `CONFIG LOAD` or `reset`, do a
   `run` with no input that reports `stopped: "idle"`.
-- Then run `tools/altairsim/scripts/check_dsk.py software/<name>/work/*.DSK`,
+- Then run `tools/altairsim/scripts/check_dsk.py software/z88dk/<name>/work/*.DSK`,
   which should say `ok`, and check that `git status tools/altairsim/pristine`
   is clean.
 - Never interrupt `R`/`W` mid-transfer. If a `run` times out, call `run`
