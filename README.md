@@ -102,10 +102,19 @@ host interface options:
 
 ### Frame buffer and feature support
 
-- 2 MBytes of SRAM frame buffer — no refresh cycles required
-- 8 bits per pixel only, Graphics Address Increment (GAI) = 8
-- Cursors, superimposed access mode, light pen, zooming, video attributes,
-  external sync, and DMA transfers are **not supported**
+- About 2.2 MBytes of video SRAM in total — no refresh cycles required
+- 2 MByte frame buffer (U11–U18): 8 bits per pixel only, Graphics Address
+  Increment (GAI) = 8
+- 256 KByte 1-bit-per-pixel overlay (U19, 128K x 16):
+  - mapped 1:1 onto frame-buffer pixels, and read during the frame buffer's
+    own display cycles;
+  - shown over the picture in the Bt453's programmable overlay color, and
+    turned on or off with MODE register bit OLEN;
+  - drawn through an ACRTC screen with CHR set, which is never displayed.
+    MODE register bit OLSEL selects which half of the overlay it addresses
+- The ACRTC's own hardware cursor, superimposed access mode, light pen,
+  zooming, video attributes, external sync, and DMA transfers are **not
+  supported**. A cursor can be drawn in the overlay instead
 - Interrupts are supported, enabled via SW1-8
 
 See the [board manual](docs/cadzilla-manual.pdf) for full details.
