@@ -4,8 +4,13 @@
 
 CADzilla is an S-100 bus board built around the Hitachi HD63484 Advanced CRT
 Controller (ACRTC) paired with a Brooktree Bt453 video DAC. The board
-carries 2 MBytes of video frame buffer memory and supports 8-bit-per-pixel
-display modes at resolutions up to 1024x768.
+carries about 2.2 MBytes of video memory in total:
+- a 2 MByte frame buffer for 8-bit-per-pixel display modes at resolutions
+  up to 1024x768;
+- a 256 KByte, 1-bit-per-pixel overlay layer, mapped pixel for pixel onto
+  the frame buffer and shown on top of it in the Bt453's overlay color. It
+  can be drawn, shown and hidden without disturbing the picture underneath,
+  which suits text, cursors, grids and annotations.
 
 Board design project: KiCAD schematics/PCB, GAL16V8 PLD logic, and supporting
 software projects that run on it (assembled and tested on an emulator).

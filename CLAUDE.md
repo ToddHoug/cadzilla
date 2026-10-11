@@ -4,7 +4,18 @@ Working notes for AI assistance on this project.
 
 ## What this project is
 
-CADzilla is an S100 bus board based on the Hitachi HD63484 ACRTC combined with the Brooktree Bt453 video DAC. It contains 2 MBytes of video frame buffer memory and supports only 8 bits per pixel displays up to 1024x768 display resolution.
+CADzilla is an S100 bus board based on the Hitachi HD63484 ACRTC combined with the Brooktree Bt453 video DAC. It contains about 2.2 MBytes of video memory in total:
+- a 2 MByte frame buffer, U11-U18. It supports only 8 bits per pixel
+  displays, up to 1024x768 display resolution.
+- a 256 KByte 1bpp overlay, U19 (128K x16), mapped 1:1 onto frame-buffer
+  pixels and shown in the Bt453's overlay color.
+  - It is used for text, cursors, grids and annotations, and is drawn or
+    cleared without touching the picture underneath.
+  - It is drawn through an ACRTC screen with CHR set in its Memory Width
+    register. That screen must never be displayed.
+  - MODE register bits: OLEN shows or hides the overlay; OLSEL picks
+    which 64K-word half a CHR screen addresses.
+  - README.md, "MODE register", has the details.
 Includes: KiCAD schematics/PCB Layout, GAL PLD logic equations and programming files for the board's glue logic, and one or more software projects (assembly source) that target the
 board and can be assembled/run on real S100/Altair bus hardware or altairsim emulator.
 
