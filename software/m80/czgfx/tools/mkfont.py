@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
 """Generate czgfx's text fonts: src/CZFNT8.MAC (CZF8) and src/CZFN11.MAC (CZF11).
 
 Both fonts cover characters 20H-7EH. A glyph is stored bit-packed: its rows
@@ -268,6 +270,8 @@ def module(name, table, cw, ch, gw, gr, mod, comment):
     assert not missing, (name, missing)
     nb = (gw * gr + 7) // 8
     lines = [
+        '; SPDX-License-Identifier: GPL-3.0-or-later',
+        '; Copyright (C) 2026 Todd Houg',
         ';',
         f'; {mod}.MAC -- czgfx: the {name} text font, characters 20H-7EH',
         ';',

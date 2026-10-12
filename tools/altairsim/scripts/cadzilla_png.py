@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
 """Render the CADzilla board's picture from an altairsim snapshot to a PNG.
 
 The picture is rebuilt from the board's own state in the snapshot (altairsim's

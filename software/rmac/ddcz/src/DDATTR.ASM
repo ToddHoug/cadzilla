@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; DDATTR.ASM -- CADzilla GSX driver: the attribute functions and the
 ; pattern RAM.

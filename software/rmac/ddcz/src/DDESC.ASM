@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; DDESC.ASM -- CADzilla GSX driver: escape (opcode 5).
 ;

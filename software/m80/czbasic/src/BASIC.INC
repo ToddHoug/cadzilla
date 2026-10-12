@@ -1,4 +1,6 @@
         .XLIST                  ;(.LIST again at the end of this file)
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; BASIC.INC -- CZBASIC: shared equates and macros
 ;

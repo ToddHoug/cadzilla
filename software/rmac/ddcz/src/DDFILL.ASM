@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; DDFILL.ASM -- CADzilla GSX driver: filled area
 ; (opcode 9), the polygon scan fill, spans, filled circles and outlines.

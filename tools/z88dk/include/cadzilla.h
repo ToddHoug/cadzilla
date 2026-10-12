@@ -1,4 +1,7 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Todd Houg
+ *
  * cadzilla.h -- the CADzilla board's I/O ports, for C programs built with
  * z88dk's zcc (tools/z88dk/zccbuild.sh puts this directory on the include
  * path of every zcc project: #include <cadzilla.h>).

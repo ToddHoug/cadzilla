@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZCMODE.Z88 -- cz88gfx C bindings for CZMODE: the drawing mode's
 ; fields, CL0/CCMP, the area, reading back (cz88gfx.h)

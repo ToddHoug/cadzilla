@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; BEXEC.MAC -- CZBASIC: statement execution and control flow
 ;

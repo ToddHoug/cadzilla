@@ -1,0 +1,116 @@
+CADzilla licensing
+==================
+
+Copyright (C) 2026 Todd Houg
+
+CADzilla is open hardware with open software. The repository is under
+two licenses, according to what each part is:
+
+  Hardware   CERN Open Hardware Licence Version 2 - Permissive
+             (SPDX: CERN-OHL-P-2.0), full text in LICENSES/CERN-OHL-P-2.0.txt
+
+  Software   GNU General Public License, version 3 or (at your option) any
+             later version (SPDX: GPL-3.0-or-later), full text in
+             LICENSES/GPL-3.0.txt
+
+Source files carry an SPDX-License-Identifier line naming their license.
+Files that cannot carry one (KiCad files, Gerbers, fuse maps, images, PDFs,
+disk images and the like) are covered by the table below.
+
+
+Which license covers what
+-------------------------
+
+CERN-OHL-P-2.0 (hardware):
+  schematics/                  KiCad schematics, PCB layout, libraries,
+                               Gerbers, fabrication outputs, BOM (.csv/.xls)
+  pld/                         GAL16V8 logic equations (src/), test vectors
+                               and assembled fuse maps (jed/)
+  docs/cadzilla-manual.pdf     the CADzilla User Reference Manual
+  docs/images/cadzilla.png     the board image
+  docs/design/                 hardware design notes
+
+GPL-3.0-or-later (software):
+  software/                    every program and library: czgfx, cz88gfx,
+                               czbasic, the GSX driver ddcz and the example
+                               programs, with their sources, build scripts,
+                               tests, BASIC demos and releases
+  tools/                       build, release and emulator support scripts
+                               (including tools/mkmanual.py, the generator
+                               of docs/cadzilla-manual.pdf)
+  tests/                       emulator test programs and expected output
+  .claude/                     AI-assistance skills and scaffolding script
+  docs/czgfx-guide.pdf, docs/cz88gfx-guide.pdf, docs/czbasic-manual.pdf
+                               the software guides
+  docs/images/czgfx/, docs/images/cz88gfx/
+                               screenshots of the demo programs
+  README.md, CLAUDE.md, other top-level notes
+
+A program that links the czgfx or cz88gfx library, or is built from
+CADzilla software, is a work based on GPL-licensed code and is covered by
+the GPL as a whole.
+
+
+Third-party material (not covered by either license)
+----------------------------------------------------
+
+These files are included for reference or to run the toolchains. They
+remain the property of their owners and are under their owners' terms:
+
+  docs/datasheets/             manufacturers' datasheets and manuals (Hitachi,
+                               Brooktree, Texas Instruments, Fairchild,
+                               Lattice, Infineon/Cypress) and the Markdown
+                               transcriptions made of them
+
+  CP/M disk images (*.DSK):
+    tools/altairsim/pristine/CPM22SYS.DSK, tools/altairsim/pristine/EMPTY.DSK,
+    software/m80/czgfx/releases/CZGFXLIB-*.DSK,
+    software/m80/czbasic/demodisk/CZBDEMO.DSK
+                               These contain Digital Research CP/M 2.2 and its
+                               utilities, and DRI's RMAC, LINK, LIB and XREF,
+                               distributed under the July 2022 grant by
+                               DRDOS, Inc. (http://www.cpm.z80.de/license.html).
+                               CPM22SYS.DSK also carries Microsoft MACRO-80
+                               (M80, L80, LIB80, CREF80) and a MicroPro
+                               International program, which remain under
+                               their owners' copyrights. The CADzilla files
+                               on these disks (czgfx, czbasic) are
+                               GPL-3.0-or-later.
+
+See tools/altairsim/upstream/README.md for the provenance of the
+third-party CP/M tools, and for GSX-80 and the other tools that are kept
+out of the repository.
+
+
+Hardware notice (CERN-OHL-P-2.0)
+--------------------------------
+
+Copyright Todd Houg 2026.
+
+This source describes Open Hardware and is licensed under the CERN-OHL-P v2.
+
+You may redistribute and modify this source and make products using it
+under the terms of the CERN-OHL-P v2 (https://cern.ch/cern-ohl).
+
+This source is distributed WITHOUT ANY EXPRESS OR IMPLIED WARRANTY,
+INCLUDING OF MERCHANTABILITY, SATISFACTORY QUALITY AND FITNESS FOR A
+PARTICULAR PURPOSE. Please see the CERN-OHL-P v2 for applicable conditions.
+
+
+Software notice (GPL-3.0-or-later)
+----------------------------------
+
+Copyright (C) 2026 Todd Houg
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.

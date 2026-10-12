@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZCF8.Z88 -- cz88gfx C bindings: the CZF8 font under its C name,
 ; cz_f8 (cz88gfx.h). Naming it links CZFNT8.Z88 in, as GFONT CZF8 does.

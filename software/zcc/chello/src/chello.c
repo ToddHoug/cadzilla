@@ -1,4 +1,7 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Todd Houg
+ *
  * chello.c -- CADzilla program, zcc (z88dk C) toolchain
  *
  * Compiled on the host by z88dk's zcc, then copied onto the CP/M disk and run

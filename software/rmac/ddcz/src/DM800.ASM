@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; DM800.ASM -- the mode module for DDCZ800, the 800x600 copy of the CADzilla
 ; GSX driver. It links second, after DDCZ (whose first byte is the driver's

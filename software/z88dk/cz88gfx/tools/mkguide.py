@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
 """Generate docs/cz88gfx-guide.pdf: the cz88gfx graphics library user guide.
 
 One guide for both of cz88gfx's languages: assembly (z88dk's z80asm,

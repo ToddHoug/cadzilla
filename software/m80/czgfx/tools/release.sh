@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Release the czgfx library: snapshot the built library disk,
 # software/m80/czgfx/libdisk/CZGFXLIB.DSK, as the immutable, tracked
 #

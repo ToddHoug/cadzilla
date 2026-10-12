@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; DDINP.ASM -- CADzilla GSX driver: input (opcodes 28-31, 33), all from
 ; the CP/M console's keyboard, read through the BIOS (CONST, CONIN) as the

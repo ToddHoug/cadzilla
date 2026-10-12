@@ -1,4 +1,7 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Todd Houg
+ *
  * cgfxdemo.c -- CADzilla cz88gfx graphics library demo, in C
  *
  * software/z88dk/z88demo's Z88DEMO.Z88 ported from z80asm to C, call for call,

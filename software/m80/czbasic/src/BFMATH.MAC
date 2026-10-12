@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; BFMATH.MAC -- CZBASIC: SQR SIN COS TAN ATN EXP LOG, ^, RND and
 ; RANDOMIZE

@@ -8,6 +8,9 @@ Assembly CADzilla S-100 ACRTC board ;
 Location U58 ;
 Device   G16V8AS ;
 
+/* SPDX-License-Identifier: CERN-OHL-P-2.0 */
+/* Copyright (C) 2026 Todd Houg */
+
 /************************************************************************
  * U58 test vectors - bank MDEN decode
  * Values are pin levels. Generated from behaviour models.

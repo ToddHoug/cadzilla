@@ -1,3 +1,6 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
 ; ZHELLO.Z88 -- CADzilla program, z88dk toolchain
 ;
 ; Built on the host by z88dk's z80asm, then copied onto the CP/M disk and run

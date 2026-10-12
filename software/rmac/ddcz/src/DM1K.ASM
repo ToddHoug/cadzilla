@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; DM1K.ASM -- the mode module for DDCZ1K, the 1024x768 copy of the CADzilla
 ; GSX driver. It links second, after DDCZ (whose first byte is the driver's

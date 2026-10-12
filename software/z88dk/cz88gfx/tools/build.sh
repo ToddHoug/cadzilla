@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Build the cz88gfx library on the host with z88dk's z80asm:
 #
 #     software/z88dk/cz88gfx/src/CZ*.Z88  ->  software/z88dk/cz88gfx/build/CZ88GFX.LIB

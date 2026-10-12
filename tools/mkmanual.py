@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
 """Generate docs/cadzilla-manual.pdf: the CADzilla board user reference manual.
 
 Documents the board's I/O address map, MODE register, SW1 configuration DIP

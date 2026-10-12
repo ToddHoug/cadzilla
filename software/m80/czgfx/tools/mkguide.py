@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
 """Generate docs/czgfx-guide.pdf: the czgfx graphics library user guide.
 
 The palette chart is computed from czgfx's CZPAL tables, the font charts from

@@ -8,6 +8,9 @@ Assembly CADzilla S-100 ACRTC board ;
 Location U56 ;
 Device   G16V8AS ;
 
+/* SPDX-License-Identifier: CERN-OHL-P-2.0 */
+/* Copyright (C) 2026 Todd Houg */
+
 /*************************************************************************
  * U56 - GAL16V8, sheet "Memory Interface"
  *

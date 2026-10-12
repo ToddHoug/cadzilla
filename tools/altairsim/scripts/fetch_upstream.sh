@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Fetch the upstream archives and disk images that third-party CP/M tools on
 # the pristine system disk were taken from, into tools/altairsim/upstream/,
 # and extract those tools there.

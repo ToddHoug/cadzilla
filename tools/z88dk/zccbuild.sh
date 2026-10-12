@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Build a CADzilla zcc (C) project on the host: compile software/zcc/<name>/src/*.c
 # with z88dk's zcc (+cpm, the sccz80 compiler and classic C library), assemble
 # any src/*.Z88 modules with z80asm, and link them into

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Copy the pristine altairsim machine definition and disk images into a
 # work directory, creating it if needed.
 #

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZCOVL.Z88 -- cz88gfx C bindings for CZOVL: the 1 bpp overlay
 ; (cz88gfx.h)

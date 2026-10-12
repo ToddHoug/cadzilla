@@ -1,4 +1,7 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Todd Houg
+ *
  * cgsxdemo.c -- a GSX-80 client in C, for the CADzilla GSX driver
  * (software/rmac/ddcz): text, polylines, markers, a bar, a circle, pie slices,
  * a filled polygon and a palette change, all through z88dk's GSX bindings

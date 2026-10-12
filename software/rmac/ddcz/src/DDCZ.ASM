@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; DDCZ.ASM -- CADzilla GSX-80 screen driver (GIOS): entry, dispatch, the
 ; workstation functions and the state and helpers the other modules share.

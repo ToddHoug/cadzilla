@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Give text files CP/M's CR/LF line endings, in place. Running it again on a
 # file that already has them changes nothing.
 #

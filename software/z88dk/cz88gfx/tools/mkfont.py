@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
 """Generate cz88gfx's text fonts: src/CZFNT8.Z88 (CZF8) and src/CZFN11.Z88 (CZF11).
 
 A copy of czgfx's tools/mkfont.py (same glyphs) that writes z80asm source.
@@ -269,6 +271,8 @@ def module(name, table, cw, ch, gw, gr, mod, comment):
     assert not missing, (name, missing)
     nb = (gw * gr + 7) // 8
     lines = [
+        '; SPDX-License-Identifier: GPL-3.0-or-later',
+        '; Copyright (C) 2026 Todd Houg',
         ';',
         f'; {mod}.Z88 -- cz88gfx: the {name} text font, characters 20H-7EH',
         ';',

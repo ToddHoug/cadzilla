@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; DDPRIM.ASM -- CADzilla GSX driver: the output primitives. Polyline (6),
 ; polymarker (7), text (8), cell array (10), the GDPs (11: bar, arc, pie

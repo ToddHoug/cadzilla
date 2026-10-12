@@ -197,3 +197,12 @@ running.
 - [m80/czgfx/README.md](m80/czgfx/README.md) and
   [z88dk/cz88gfx/README.md](z88dk/cz88gfx/README.md): the graphics library
   APIs. The PDF guides are in [docs/](../docs/).
+
+## License
+
+All of the software here is Copyright (C) 2026 Todd Houg. It is licensed
+under the [GNU General Public License](../LICENSES/GPL-3.0.txt), version 3
+or (at your option) any later version. Each source file names this in its
+`SPDX-License-Identifier` line. A program that links czgfx or cz88gfx is a
+combined work, and the GPL covers it as a whole. The board itself is open
+hardware under CERN-OHL-P-2.0. See [LICENSE](../LICENSE).

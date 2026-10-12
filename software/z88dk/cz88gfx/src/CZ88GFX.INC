@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZ88GFX.INC -- CADzilla graphics library for z88dk: equates and macros
 ;

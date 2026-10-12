@@ -108,6 +108,20 @@ recognises a lowercase `.c`. The main module's name, uppercased, is still the
 CP/M program name (`chello.c` → `CHELLO.COM`). Its `.Z88` modules and every
 build output stay uppercase.
 
+Licensing (`LICENSE` has the full map; the texts are in `LICENSES/`):
+- The hardware is CERN-OHL-P-2.0: `schematics/`, `pld/`, and the board
+  manual. The software is GPL-3.0-or-later: `software/`, `tools/`, `tests/`
+  and `.claude/`. Datasheets and the third-party CP/M tools on the `.DSK`
+  images keep their owners' terms.
+- A new source file starts with an SPDX header in its own comment style,
+  e.g. `; SPDX-License-Identifier: GPL-3.0-or-later` then
+  `; Copyright (C) <year> Todd Houg` (`/* ... */` in `.pld`/`.c`, `#` in
+  scripts; after `.XLIST` in an M80 `.INC`). `new_project.sh` and both
+  `mkfont.py`s already emit it. `.SUB` and `.BAS` files carry none:
+  SUBMIT has no comment syntax, and a `REM` would need a line number.
+- Never edit a frozen release (`releases/`) or a KiCad file just to add a
+  header.
+
 Software toolchains (the first three run inside CP/M 2.2 (62K) on altairsim, driven
 over its MCP server; `tools/altairsim/README.md`):
 - **DRI `ASM.COM` + `LOAD.COM`** — the original flow: one self-contained

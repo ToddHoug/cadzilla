@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZTXL.Z88 -- cz88gfx: the text pen, attributes, characters and lines
 ; (A port of czgfx 1.0's CZTXL.MAC to z88dk's z80asm.)

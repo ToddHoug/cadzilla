@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Shared helpers for the CADzilla z88dk build scripts -- sourced, not run:
 #   tools/z88dk/z88build.sh   .Z88 assembly (z80asm)
 #   tools/z88dk/zccbuild.sh   C (zcc), plus any .Z88 modules

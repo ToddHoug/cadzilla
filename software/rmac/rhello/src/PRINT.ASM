@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; PRINT.ASM -- a second module of a CADzilla RMAC project: print the
 ; '$'-terminated string at DE with BDOS function 9.

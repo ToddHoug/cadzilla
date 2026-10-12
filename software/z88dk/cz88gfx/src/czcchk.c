@@ -1,4 +1,7 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Todd Houg
+ *
  * czcchk.c -- the C bindings' build check (software/z88dk/cz88gfx/tools/build.sh)
  *
  * The C counterpart of CZ88CHK.Z88: it calls every entry point in

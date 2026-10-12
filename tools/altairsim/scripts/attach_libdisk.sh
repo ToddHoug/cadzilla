@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Give a project's altairsim work machine the czgfx library as drive 1 (CP/M B:).
 #
 # The czgfx project (software/m80/czgfx/) builds the CADzilla graphics library --

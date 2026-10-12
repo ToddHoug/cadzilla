@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
 """Generate docs/czbasic-manual.pdf: the CZBASIC graphics extensions reference.
 
 Documents only the CADzilla (CZ...) statements and functions CZBASIC adds to

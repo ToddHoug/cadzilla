@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
 """Check altairsim 8MB Altair CP/M disk images for malformed sectors.
 
 Every 137-byte sector on these images is in one of the two 88-DCDD

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZCURV.Z88 -- cz88gfx: circles, ellipses and arcs
 ; (A port of czgfx 1.0's CZCURV.MAC to z88dk's z80asm.)

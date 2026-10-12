@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Scaffold a new CADzilla software project: software/<toolchain>/<name>/{src,include,build}
 # plus a minimal starter assembly source file, correctly CR/LF-terminated and
 # uppercased for CP/M.
@@ -175,6 +178,8 @@ if [ "$TOOLCHAIN" != "zcc" ] && [[ "$MESSAGE" == *'$'* ]]; then
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# Every starter source opens with the project's SPDX license header (LICENSE).
+COPYRIGHT="Copyright (C) $(date +%Y) Todd Houg"
 # Projects are grouped by toolchain: software/<toolchain>/<name>/.
 PROJECT_DIR="$REPO_ROOT/software/$TOOLCHAIN/$NAME"
 
@@ -388,6 +393,8 @@ if [ "$TOOLCHAIN" = "m80" ]; then
 # wait for the drawing to finish, then print the message and return to CP/M.
 # Relocatable (CSEG, no ORG) -- L80 places it at 0100H.
 cat > "$ASM_PATH" <<EOF
+; SPDX-License-Identifier: GPL-3.0-or-later
+; $COPYRIGHT
 ;
 ; $CPM_NAME.MAC -- CADzilla program using the czgfx graphics library
 ;
@@ -437,6 +444,9 @@ elif [ "$TOOLCHAIN" = "z88dk" ]; then
 # CR/LF needed -- z80asm runs on the host and takes either line ending.
 if [ "$CPU" = "z80" ]; then
 cat > "$ASM_PATH" <<EOF
+; SPDX-License-Identifier: GPL-3.0-or-later
+; $COPYRIGHT
+;
 ; $CPM_NAME.Z88 -- CADzilla program, z88dk toolchain
 ;
 ; Built on the host by z88dk's z80asm, then copied onto the CP/M disk and run
@@ -515,6 +525,9 @@ stack:
 EOF
 else
 cat > "$ASM_PATH" <<EOF
+; SPDX-License-Identifier: GPL-3.0-or-later
+; $COPYRIGHT
+;
 ; $CPM_NAME.Z88 -- CADzilla program, z88dk toolchain
 ;
 ; Built on the host by z88dk's z80asm, then copied onto the CP/M disk and run
@@ -589,6 +602,8 @@ elif [ "$TOOLCHAIN" = "rmac" ]; then
 # CSEG/DSEG, EXTRN/PUBLIC and the link. No ORG: LINK puts CSEG at 0100H and
 # DSEG after it. Global names are kept to 6 characters, the most a .REL holds.
 cat > "$ASM_PATH" <<EOF
+; SPDX-License-Identifier: GPL-3.0-or-later
+; $COPYRIGHT
 ;
 ; $CPM_NAME.ASM -- CADzilla program, DRI RMAC + LINK-80 toolchain
 ;
@@ -619,7 +634,8 @@ LINKED: DB      'Linked by DRI LINK from two RMAC modules',CR,LF,'\$'
 ;
         END     START
 EOF
-cat > "$PRINT_PATH" <<'EOF'
+printf '; SPDX-License-Identifier: GPL-3.0-or-later\n; %s\n' "$COPYRIGHT" > "$PRINT_PATH"
+cat >> "$PRINT_PATH" <<'EOF'
 ;
 ; PRINT.ASM -- a second module of a CADzilla RMAC project: print the
 ; '$'-terminated string at DE with BDOS function 9.
@@ -647,6 +663,9 @@ elif [ "$TOOLCHAIN" = "zcc" ]; then
 # z80asm code link together).
 cat > "$ASM_PATH" <<EOF
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * $COPYRIGHT
+ *
  * $C_NAME.c -- CADzilla program, zcc (z88dk C) toolchain
  *
  * Compiled on the host by z88dk's zcc, then copied onto the CP/M disk and run
@@ -684,7 +703,9 @@ int main(void)
     return 0;
 }
 EOF
-cat > "$CPUID_PATH" <<'EOF'
+printf '; SPDX-License-Identifier: GPL-3.0-or-later\n; %s\n' "$COPYRIGHT" > "$CPUID_PATH"
+cat >> "$CPUID_PATH" <<'EOF'
+;
 ; CPUID.Z88 -- which CPU is this program running on? An assembly module of a
 ; CADzilla zcc (C) project: z80asm assembles it for the project's CPU and the
 ; C code links with it (tools/z88dk/zccbuild.sh). Zilog mnemonics, but only
@@ -728,6 +749,9 @@ else
 # string. No INCLUDE (ASM.COM doesn't support it) and no underscores in any
 # symbol name (ASM.COM silently resolves those to 0 instead of erroring).
 cat > "$ASM_PATH" <<EOF
+; SPDX-License-Identifier: GPL-3.0-or-later
+; $COPYRIGHT
+;
         ORG     0100H
 ;
 BDOS    EQU     0005H

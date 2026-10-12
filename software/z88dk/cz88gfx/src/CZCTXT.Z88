@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZCTXT.Z88 -- cz88gfx C bindings for CZTXT: the font and strings
 ; (cz88gfx.h)

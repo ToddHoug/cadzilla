@@ -119,4 +119,20 @@ host interface options:
 
 See the [board manual](docs/cadzilla-manual.pdf) for full details.
 
+## License
+
+Copyright (C) 2026 Todd Houg.
+
+- **Hardware** (the KiCAD schematics and PCB layout in `schematics/`, the
+  GAL logic in `pld/`, and the board manual) is licensed under the
+  [CERN Open Hardware Licence Version 2 - Permissive](LICENSES/CERN-OHL-P-2.0.txt)
+  (CERN-OHL-P-2.0).
+- **Software** (everything in `software/`, `tools/` and `tests/`) is
+  licensed under the [GNU General Public License](LICENSES/GPL-3.0.txt),
+  version 3 or (at your option) any later version (GPL-3.0-or-later).
+
+The manufacturers' datasheets in `docs/datasheets/`, and the
+third-party CP/M tools on the disk images, are not covered by either
+license. See [LICENSE](LICENSE) for the full breakdown.
+
 See [CLAUDE.md](CLAUDE.md) for AI-assistance working notes.

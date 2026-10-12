@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZMODE.Z88 -- cz88gfx: drawing mode, CL0/CCMP, the area, reading back
 ; (A port of czgfx 1.0's CZMODE.MAC to z88dk's z80asm.)

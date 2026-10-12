@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZPAL.Z88 -- cz88gfx: Bt453 color palette
 ; (A port of czgfx 1.0's CZPAL.MAC to z88dk's z80asm.)

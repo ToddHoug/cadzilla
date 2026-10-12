@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZCPOLY.Z88 -- cz88gfx C bindings for CZPOLY: polylines and polygons
 ; from a point table, int {n, x0,y0, x1,y1, ...} (cz88gfx.h)

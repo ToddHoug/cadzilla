@@ -1,4 +1,7 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Todd Houg
+ *
  * cz88gfx.h -- the cz88gfx graphics library for C programs built with
  * z88dk's zcc (tools/z88dk/zccbuild.sh): #include <cz88gfx.h>.
  *

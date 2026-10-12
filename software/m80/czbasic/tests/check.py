@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
 """Compare a CZBASIC test run with MBASIC 5.21's expected output.
 
 The altairsim MCP server returns guest console output inside the `run`

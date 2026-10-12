@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Build a CADzilla z88dk project on the host: assemble software/z88dk/<name>/src/*.Z88
 # with z88dk's z80asm into software/z88dk/<name>/build/<NAME>.COM, for the CPU the
 # project's machine.toml puts in the emulator (8080, 8085 or Z80).

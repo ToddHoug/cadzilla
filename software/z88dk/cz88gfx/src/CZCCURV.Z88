@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
 ;
 ; CZCCURV.Z88 -- cz88gfx C bindings for CZCURV: circles, ellipses and
 ; arcs (cz88gfx.h)

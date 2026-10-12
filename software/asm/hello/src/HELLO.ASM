@@ -1,3 +1,6 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
         ORG     0100H
 ;
 BDOS    EQU     0005H

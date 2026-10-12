@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
 # Release the cz88gfx library: snapshot the built library and its headers,
 # software/z88dk/cz88gfx/build/CZ88GFX.LIB, src/CZ88GFX.INC (assembly) and
 # src/cz88gfx.h (C), as the immutable, tracked
