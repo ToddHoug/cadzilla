@@ -10,7 +10,7 @@ software/
   m80/     Microsoft M80 + L80     czgfx (library)  gfxdemo  czbasic  testpat
   rmac/    DRI RMAC + LINK         rhello  ddcz
   z88dk/   z88dk z80asm            cz88gfx (library)  zhello  z88demo
-  zcc/     z88dk zcc (C)           chello  cgfxdemo  cgsxdemo
+  zcc/     z88dk zcc (C)           chello  cgfxdemo  cgsxdemo  dxfview
 ```
 
 The directory names are the values of the `--toolchain` option used to create
@@ -116,6 +116,7 @@ tools/z88dk/zccbuild.sh software/zcc/<name>        # -> build/<NAME>.COM
 | `chello` | A hello program in C. An assembly module helps it report the CPU it was built for and the one it is running on |
 | `cgfxdemo` | z88demo ported to C. It produces exactly the same pixels |
 | `cgsxdemo` | A GSX-80 client in C that draws through the `ddcz` driver |
+| [`dxfview`](zcc/dxfview/README.md) | An AutoCAD Release 10 DXF viewer, with 2D and 3D views. Zooming and panning redraw in seconds from a display list kept in the board's spare video memory. Comes with two vintage Space Shuttle drawings |
 
 ## What's in a project
 

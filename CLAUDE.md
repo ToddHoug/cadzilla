@@ -30,7 +30,7 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   - `m80/`: czgfx, gfxdemo, czbasic, testpat
   - `rmac/`: rhello, ddcz
   - `z88dk/`: cz88gfx, zhello, z88demo
-  - `zcc/`: chello, cgfxdemo, cgsxdemo
+  - `zcc/`: chello, cgfxdemo, cgsxdemo, dxfview
 
   Each shared library lives with the toolchain that builds it. `rmac/ddcz`
   links czgfx, and the zcc projects use cz88gfx. A project name is unique
@@ -160,7 +160,9 @@ over its MCP server; `tools/altairsim/README.md`):
   - draws with cz88gfx's C bindings, `#include <cz88gfx.h>`, pinned in
     `cz88gfx.version` (1.1 or later).
 
-  Projects `chello` and `cgfxdemo` (draws). Skill `cadzilla-build-zcc`; see
+  Projects `chello`, `cgfxdemo` (draws) and `dxfview` (an AutoCAD R10 DXF
+  viewer; its drawings are in `dxf/`, converted from DWG by its
+  `tools/dwg2dxf.sh`). Skill `cadzilla-build-zcc`; see
   "C with zcc" in `tools/z88dk/README.md`.
 - New projects: skill `new-cadzilla-project`
   (`--toolchain asm|m80|z88dk|zcc|rmac`, `--cpu 8080|8085|z80` for z88dk and zcc,

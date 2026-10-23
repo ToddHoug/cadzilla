@@ -1,0 +1,444 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; DLRUN.Z88 -- DXFVIEW's display list redraw, the inner loop of dlist.c.
+; Zilog mnemonics, but only instructions the 8080 has.
+;
+; void dl_load(unsigned int chunk) __z88dk_fastcall
+;   Read dl_lcnt words of chunk HL of the display list, from word dl_lofs
+;   of it -- frame word 60000H + chunk * 256 + dl_lofs -- into rd_buf from
+;   word dl_lofs on (dxfread.c's buffer, idle during a redraw): DRD under
+;   program control. The ACRTC must be idle first (DRD's words would queue
+;   behind drawing, and the abort that ends a DRD flushes the FIFOs), so it
+;   waits for that.
+;
+; void dl_prep(void)
+;   Set the shifts up for dl_run and dl_tx/dl_ty, from dl_sx and dl_sy.
+;
+; int dl_run(void)
+;   Draw the vertices from dl_ptr on, until something needs C:
+;     0  dl_ptr reached dl_end
+;     1  dl_ptr is at a record (8000H ...)
+;     2  a line to clip in C: dl_x0,dl_y0 to dl_px,dl_py (screen)
+;   Each vertex is X = 2x + pen, Y = y, and goes to the screen as
+;     x = ((X - dl_cx2) >> dl_sx) + 512    (dl_sx shifts the pen bit out too)
+;     y = ((Y - dl_cy) >> dl_sy) + 384
+;   so a zoom by 2 is one shift more or less, and a pan a different center.
+;   A line is then rejected when both ends are off the same side of the
+;   screen, drawn when both are on it, and also drawn -- the ACRTC's area
+;   clip (CZ_AM_CLIP) cutting it -- when both are within a guard band of
+;   1024 pixels round it. Only a line beyond that goes back to C, so the
+;   ACRTC never walks thousands of pixels off the screen. AMOVE and ALINE go
+;   straight into the FIFO from here.
+;
+; int dl_tx(int x) __z88dk_fastcall, int dl_ty(int y) __z88dk_fastcall
+;   A record's x (or y) on the screen: as a vertex's, by the same shift
+;   (sccz80's >> on a negative int is not arithmetic, so C can't).
+;
+; The shifts. An arithmetic shift right by s (0-15) is done as the 24-bit
+; sign:H:L shifted LEFT by 8-s, keeping its top 16 bits: ADD HL,HL and an
+; RLA a bit, against four instructions and a loop a bit to the right. For
+; s >= 8, a byte move first does eight of it. dl_prep patches each shift's
+; byte move (or NOPs) and the entry into the unrolled shifts.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        SECTION code_user
+        PUBLIC  _dl_load, _dl_prep, _dl_run, _dl_tx, _dl_ty
+        EXTERN  _rd_buf, _dl_ptr, _dl_end, _dl_cx2, _dl_cy, _dl_sx, _dl_sy
+        EXTERN  _dl_px, _dl_py, _dl_pc, _dl_cpok, _dl_x0, _dl_y0, _dl_cx
+        EXTERN  _dl_lofs, _dl_lcnt
+                                ;(CZ88GFX.INC declares CZWAIT, CZDM, ...)
+
+SCRW    EQU     1024            ;the screen, as dxfview.h
+SCRH    EQU     768
+OPDRD   EQU     24H             ;DRD AX,AY (DMA read, here under program control)
+GUARDF  EQU     10H             ;outcode flag: outside the guard band
+LDLH    EQU     6CH             ;LD L,H
+LDHC    EQU     61H             ;LD H,C
+
+; Write HL to the write FIFO, high byte first (CZPUTW, in line)
+MACRO   PUTW
+        LOCAL   w
+w:      in      a,(ACRSR)
+        and     SRWFR
+        jp      z,w
+        ld      a,h
+        out     (ACRDAT),a
+        ld      a,l
+        out     (ACRDAT),a
+ENDM
+
+; HL >>= the shift that dl_prep set at pre/sh (sign into C first)
+MACRO   SHIFT   pre, sh
+        ld      a,h
+        rla
+        sbc     a,a
+        ld      c,a
+pre:    nop                     ;LD L,H / LD H,C for a shift of 8 or more
+        nop
+sh:     call    lsh0
+ENDM
+
+_dl_load:
+        push    hl
+        call    CZWAIT
+dl_lrf: in      a,(ACRSR)       ;the read FIFO must be empty
+        and     SRRFR
+        jp      z,dl_lst
+        in      a,(ACRDAT)
+        jp      dl_lrf
+dl_lst: pop     hl              ;HL = chunk
+        push    hl
+        ld      a,h             ;Pr0C: base screen, address bits 19-12
+        add     a,a             ;= 60H + chunk / 16
+        add     a,a
+        add     a,a
+        add     a,a
+        ld      h,a
+        ld      a,l
+        rrca
+        rrca
+        rrca
+        rrca
+        and     0FH
+        or      h
+        add     a,60H
+        ld      l,a
+        ld      h,40H
+        ld      a,0CH
+        call    CZWPR
+        pop     hl              ;Pr0D: address bits 11-0, shifted left 4:
+        ld      a,l             ;  (chunk AND 0FH) * 1000H + dl_lofs * 10H
+        add     a,a
+        add     a,a
+        add     a,a
+        add     a,a
+        ld      h,a
+        ld      a,(_dl_lofs)
+        rrca
+        rrca
+        rrca
+        rrca
+        ld      c,a
+        and     0FH
+        or      h
+        ld      h,a
+        ld      a,c
+        and     0F0H
+        ld      l,a
+        ld      a,0DH
+        call    CZWPR
+        ld      hl,OPDRD*100H
+        call    CZPUTW
+        ld      hl,(_dl_lcnt)   ;AX: the words - 1
+        dec     hl
+        call    CZPUTW
+        ld      hl,0            ;AY: one row
+        call    CZPUTW
+        ld      hl,(_dl_lofs)   ;to rd_buf + 2 * dl_lofs
+        add     hl,hl
+        ld      de,_rd_buf
+        add     hl,de
+        ex      de,hl
+        ld      hl,(_dl_lcnt)
+        ld      b,h
+        ld      c,l
+        ex      de,hl
+dl_lw:  in      a,(ACRSR)       ;a word ready: its high byte, then its low
+        and     SRRFR
+        jp      z,dl_lw
+        in      a,(ACRDAT)
+        inc     hl
+        ld      (hl),a
+        dec     hl
+        in      a,(ACRDAT)
+        ld      (hl),a
+        inc     hl
+        inc     hl
+        dec     bc
+        ld      a,b
+        or      c
+        jp      nz,dl_lw
+        jp      CZABT           ;DRD then waits for ever: abort it
+
+; The unrolled shifts: enter at lsh0 - 4*n for n left shifts of C:H:L,
+; and get HL = C:H.
+lsh8:   add     hl,hl
+        ld      a,c
+        rla
+        ld      c,a
+        add     hl,hl
+        ld      a,c
+        rla
+        ld      c,a
+        add     hl,hl
+        ld      a,c
+        rla
+        ld      c,a
+        add     hl,hl
+        ld      a,c
+        rla
+        ld      c,a
+        add     hl,hl
+        ld      a,c
+        rla
+        ld      c,a
+        add     hl,hl
+        ld      a,c
+        rla
+        ld      c,a
+        add     hl,hl
+        ld      a,c
+        rla
+        ld      c,a
+        add     hl,hl
+        ld      a,c
+        rla
+        ld      c,a
+lsh0:   ld      l,h
+        ld      h,c
+        ret
+
+; Patch the shift whose pre is at HL, for a shift of A (0-15).
+patch:  cp      8
+        jp      c,pt_lo
+        ld      (hl),LDLH       ;eight by a byte move,
+        inc     hl
+        ld      (hl),LDHC
+        sub     8               ;  the rest as below
+        jp      pt_sh
+pt_lo:  ld      (hl),0          ;NOP NOP
+        inc     hl
+        ld      (hl),0
+pt_sh:  inc     hl              ;the CALL's operand: lsh0 - 4 * (8 - s)
+        inc     hl
+        ld      c,a
+        ld      a,8
+        sub     c
+        add     a,a
+        add     a,a
+        ld      c,a
+        ld      de,lsh0
+        ld      a,e
+        sub     c
+        ld      (hl),a
+        inc     hl
+        ld      a,d
+        sbc     a,0
+        ld      (hl),a
+        ret
+
+_dl_prep:
+        ld      a,(_dl_sx)
+        call    clamp
+        ld      hl,xpre
+        call    patch
+        ld      a,(_dl_sy)
+        call    clamp
+        push    af
+        ld      hl,ypre
+        call    patch
+        pop     af
+        push    af
+        ld      hl,tpre
+        call    patch
+        pop     af
+        ld      hl,upre
+        jp      patch
+clamp:  cp      16
+        ret     c
+        ld      a,15
+        ret
+
+_dl_tx: ex      de,hl
+        ld      hl,(_dl_cx)
+        ex      de,hl
+        call    sub16
+        SHIFT   tpre, tsh
+        ld      de,SCRW/2
+        add     hl,de
+        ret
+
+_dl_ty: ex      de,hl
+        ld      hl,(_dl_cy)
+        ex      de,hl
+        call    sub16
+        SHIFT   upre, ush
+        ld      de,SCRH/2
+        add     hl,de
+        ret
+
+; HL -= DE
+sub16:  ld      a,l
+        sub     e
+        ld      l,a
+        ld      a,h
+        sbc     a,d
+        ld      h,a
+        ret
+
+; Scratch: the current vertex
+curx:   defw    0
+cury:   defw    0
+curc:   defb    0
+pen:    defb    0
+
+_dl_run:
+dr_loop:
+        ld      hl,(_dl_ptr)
+        ld      a,(_dl_end)     ;the end of the chunk?
+        cp      l
+        jp      nz,dr_go
+        ld      a,(_dl_end+1)
+        cp      h
+        jp      nz,dr_go
+        ld      hl,0
+        ret
+dr_go:  ld      e,(hl)          ;DE = X
+        inc     hl
+        ld      d,(hl)
+        inc     hl
+        ld      a,d             ;8000H: a record
+        cp      80H
+        jp      nz,dr_vert
+        ld      a,e
+        or      a
+        jp      nz,dr_vert
+        ld      hl,1            ;(dl_ptr still on it)
+        ret
+dr_vert:
+        ld      c,(hl)          ;Y, kept on the stack
+        inc     hl
+        ld      b,(hl)
+        inc     hl
+        ld      (_dl_ptr),hl
+        push    bc
+        ld      a,e
+        and     1
+        ld      (pen),a
+; x = ((X - cx2) >> sx) + 512
+        ld      hl,(_dl_cx2)
+        ld      a,e
+        sub     l
+        ld      l,a
+        ld      a,d
+        sbc     a,h
+        ld      h,a
+        SHIFT   xpre, xsh
+        ld      de,SCRW/2
+        add     hl,de
+        ld      (curx),hl
+; y = ((Y - cy) >> sy) + 384
+        pop     de
+        ld      hl,(_dl_cy)
+        ld      a,e
+        sub     l
+        ld      l,a
+        ld      a,d
+        sbc     a,h
+        ld      h,a
+        SHIFT   ypre, ysh
+        ld      de,SCRH/2
+        add     hl,de
+        ld      (cury),hl
+; the outcode: 1 left, 2 right, 4 below, 8 above; GUARDF beyond the band
+        ld      b,0
+        ld      a,h             ;y: HL
+        or      a
+        jp      p,dr_ypos
+        ld      b,4
+        cp      0FCH            ;y >= -1024?
+        jp      nc,dr_x
+        ld      b,4+GUARDF
+        jp      dr_x
+dr_ypos:
+        cp      3               ;y >= 768?
+        jp      c,dr_x
+        ld      b,8
+        cp      7               ;y >= 1792?
+        jp      c,dr_x
+        ld      b,8+GUARDF
+dr_x:   ld      a,(curx+1)
+        or      a
+        jp      p,dr_xpos
+        cp      0FCH            ;x >= -1024?
+        ld      a,b
+        jp      nc,dr_x1
+        or      GUARDF
+dr_x1:  or      1
+        ld      b,a
+        jp      dr_cc
+dr_xpos:
+        cp      4               ;x >= 1024?
+        jp      c,dr_cc
+        cp      8               ;x >= 2048?
+        ld      a,b
+        jp      c,dr_x2
+        or      GUARDF
+dr_x2:  or      2
+        ld      b,a
+dr_cc:  ld      a,b
+        ld      (curc),a
+; a move, or a draw?
+        ld      a,(pen)
+        or      a
+        jp      z,dr_nocp
+        ld      a,(_dl_pc)
+        ld      c,a
+        and     b               ;both off the same side: nothing to draw
+        and     0FH
+        jp      nz,dr_nocp
+        ld      a,c
+        or      b
+        jp      z,dr_draw       ;both on the screen
+        and     GUARDF
+        jp      nz,dr_clip      ;an end beyond the guard band: C clips it
+dr_draw:
+        ld      a,(_dl_cpok)
+        or      a
+        jp      nz,dr_line
+        ld      hl,OPMOVE*100H  ;AMOVE to the last vertex first
+        PUTW
+        ld      hl,(_dl_px)
+        PUTW
+        ld      hl,(_dl_py)
+        PUTW
+dr_line:
+        ld      a,(CZDM)        ;ALINE, in the drawing mode
+        ld      l,a
+        ld      h,OPLINE
+        PUTW
+        ld      hl,(curx)
+        PUTW
+        ld      hl,(cury)
+        PUTW
+        ld      a,1
+        ld      (_dl_cpok),a
+        jp      dr_next
+dr_clip:
+        ld      hl,(_dl_px)
+        ld      (_dl_x0),hl
+        ld      hl,(_dl_py)
+        ld      (_dl_y0),hl
+        call    dr_prev
+        xor     a
+        ld      (_dl_cpok),a
+        ld      hl,2
+        ret
+dr_nocp:
+        xor     a
+        ld      (_dl_cpok),a
+dr_next:
+        call    dr_prev
+        jp      dr_loop
+
+; The current vertex becomes the last one.
+dr_prev:
+        ld      hl,(curx)
+        ld      (_dl_px),hl
+        ld      hl,(cury)
+        ld      (_dl_py),hl
+        ld      a,(curc)
+        ld      (_dl_pc),a
+        ret

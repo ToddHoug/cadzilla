@@ -1,0 +1,79 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; RDLINE.Z88 -- DXFVIEW's line reader, the inner loop of dxfread.c.
+; Zilog mnemonics, but only instructions the 8080 has.
+;
+; A DXF file is mostly digits: every byte of it passes through this loop.
+; In C (sccz80) each byte cost a 16-bit compare and an index through library
+; calls; here it is a few instructions.
+;
+; int rdline(char *s) __z88dk_fastcall
+;   Copy the next line from dxfread.c's buffer (rd_ptr up to rd_end,
+;   refilled by rd_fill()) to s, without its CR/LF, NUL-terminated; at most
+;   VALMAX-1 (255) characters are kept, the rest of a longer line is
+;   dropped. A ^Z ends the file (rd_eof = 1). Returns 0 if the file ended
+;   before any character of the line, else non-zero.
+;
+        SECTION code_user
+        PUBLIC  _rdline
+        EXTERN  _rd_ptr, _rd_end, _rd_eof, _rd_fill
+
+VALMAX  EQU     256
+
+_rdline:
+        ex      de,hl           ;DE = s
+        ld      c,0             ;C = characters stored
+        ld      hl,(_rd_ptr)
+rl_next:
+        ld      a,(_rd_end)     ;at the end of the data?
+        cp      l
+        jp      nz,rl_get
+        ld      a,(_rd_end+1)
+        cp      h
+        jp      nz,rl_get
+        push    de
+        push    bc
+        call    _rd_fill        ;HL = 0 at the end of the file
+        pop     bc
+        pop     de
+        ld      a,h
+        or      l
+        jp      z,rl_end
+        ld      hl,(_rd_ptr)
+        jp      rl_next
+rl_get:
+        ld      a,(hl)
+        inc     hl
+        cp      0AH             ;LF: the end of the line
+        jp      z,rl_eol
+        cp      0DH             ;CR: dropped
+        jp      z,rl_next
+        cp      1AH             ;^Z: the end of the file
+        jp      z,rl_ctlz
+        ld      b,a
+        ld      a,c
+        cp      VALMAX-1
+        jp      nc,rl_next      ;the line is full: drop the rest
+        ld      a,b
+        ld      (de),a
+        inc     de
+        inc     c
+        jp      rl_next
+rl_eol:
+        ld      (_rd_ptr),hl
+        xor     a
+        ld      (de),a
+        ld      hl,1
+        ret
+rl_ctlz:
+        ld      a,1
+        ld      (_rd_eof),a
+        ld      hl,(_rd_end)    ;nothing more in the buffer
+        ld      (_rd_ptr),hl
+rl_end:
+        xor     a
+        ld      (de),a
+        ld      l,c             ;the count: 0 if nothing was read
+        ld      h,a
+        ret
