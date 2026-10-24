@@ -98,11 +98,112 @@ S-100 +8V line, which is unregulated and in practice often runs above 8 V.
 
 These are noted for reference only; nothing here is a planned change.
 
-- **74ALS245 in place of the 74F245s.** This would save roughly 1 A. But its
-  A↔B delay is about 10 ns maximum against the F245's 7 ns, which would take
-  the drawing-read margin in `memory-timing.md` from +6.0 ns to about +3 ns.
-- **GAL16V8 Q parts for the five -15 positions** (U45, U46, U56, U58, U60).
-  This would save about 150 mA typical and 175 mA maximum.
+### Replacing the 74F245s
+
+The 21 74F245s are half the board's current. That is because a bipolar F245
+draws 85 mA even when its outputs are disabled.
+
+**Timing limits for the memory buffers (U20–U37).** A replacement must keep
+the drawing read inside the budget in `memory-timing.md` (8 MHz figures):
+
+- **Data delay (max) ≤ 13 ns.** The data path is ~MOE/~OLOE at 175 ns, plus
+  SRAM tDOE 22, plus the buffer's delay, and the data must arrive by 210 ns.
+- **Enable time (max) ≤ 30 ns.** ~MDEN asserts at 180 ns (U58, GAL16V8-15).
+  U36/U37 are enabled by ~OLDEN at 175 ns (U55, -10), so they can take
+  35 ns.
+
+Write setup is much looser: a delay up to 33 ns and an enable time up to
+48 ns both still pass. The write-data hold margin equals the buffer's
+minimum delay (+1.7 ns for the F245).
+
+**Drive requirement for U38–U40.** These face the S-100 bus. Bus I/O cycles
+are stretched by RDY wait states, so they aren't timing-critical, but the bus
+needs 24 mA of drive.
+
+Read margin is 210 − max(197 + delay, 180 + enable time):
+
+| Part | Max delay | Max enable | Min delay | Read margin, 8 MHz (8.125 MHz) | Disabled ICC typ / max | Drive (IOL) | I/O capacitance | Available by 1984 |
+|---|---|---|---|---|---|---|---|---|
+| 74F245 (current) | 7 | 9 | 1.7 | +6.0 (+4.1) | 85 / 110 mA | 24 mA A side, 64 mA B side | | yes |
+| 74ALS245A | 10 | 20 | 3 | +3.0 (+1.1) | 38 / 58 mA | 24 mA (48 mA for -1) | | yes |
+| 74AS245 | 7.5 | 9 | 2 | +5.5 (+3.6) | 95 / 143 mA (outputs low) | 64 mA | | yes |
+| 74LS245 | 12 | 40 | | **−10** (limited by enable time) | 62 / 90 mA | 24 mA | | yes |
+| 74HCT245 | 28 | 58 | | **−28** | µA | 6 mA | | yes (datasheet dated March 1984) |
+| 74BCT245 | 7 | 11.6 | 1 | +6.0 (+4.1) | 10 / 15 mA | 64 mA | | no (BiCMOS, late 1980s) |
+| 74ABT245B | 3.9 | 6.2 | 1 | +9.1 (+7.2) | 0.001 / 0.25 mA | 64 mA | 8 pF | no (1991) |
+| 74ACT245 | 9 | 12 | 1 | +4.0 (+2.1) | µA, plus 1.5 mA per input at TTL levels | 24 mA | 15 pF | no (mid-1980s) |
+| 74AHCT245 | 9.5 | 16 | 1 | +3.5 (+1.6) | µA | 8 mA | 4 pF | no (1995) |
+
+- Times are in ns: SN74 maximums over temperature at CL = 50 pF, from TI's
+  current datasheets.
+- Blank I/O-capacitance cells mean the datasheet doesn't give a figure.
+- Every part listed is still active in PDIP.
+- All the datasheets are in `docs/datasheets/`: `sn74als245a.pdf` (which
+  also covers the 74AS245), `sn74ls245.pdf`, `sn74hct245.pdf`,
+  `sn74bct245.pdf`, `sn74abt245b.pdf`, `sn74act245.pdf` and
+  `sn74ahct245.pdf`.
+
+**Bus loading caveat.** These delays are specified at 50 pF. A MAD line
+actually carries all of these:
+
+- the ACRTC's 17 pF;
+- one latch;
+- eight disabled buffer ports;
+- the trace.
+
+That comes to roughly 100–150 pF. The HCT245 datasheet shows its delay
+growing by 10 ns between 50 pF and 150 pF. Parts with small margins or weak
+drive (ALS245A, AHCT245) lose the most. The current F245's +6.0 ns is
+exposed to this too, because `memory-timing.md` doesn't derate for load. The
+ACT245 also adds load of its own: its 15 pF ports put about 120 pF on each
+MAD line from the disabled buffers alone.
+
+**Board +5V current with each replacement:**
+
+| Option | +5V typical | +5V maximum | U59 at 8 V in, typ / max |
+|---|---|---|---|
+| All 74F245 (current) | 3.56 A | 4.52 A | 10.7 / 13.5 W |
+| 74ALS245A in U38–U40 only | 3.42 A | 4.36 A | 10.3 / 13.1 W |
+| All 74ALS245A | 2.58 A | 3.41 A | 7.7 / 10.2 W |
+| All 74BCT245 | 1.99 A | 2.65 A | 6.0 / 8.0 W |
+| All 74ABT245B | 1.78 A | 2.25 A | 5.3 / 6.8 W |
+
+The maximum totals assume 19 buffers disabled and one pair enabled with
+outputs low.
+
+**How the options compare:**
+
+1. **74ABT245B.** It has the most timing margin (+9.1 ns), 64 mA drive on
+   both ports, low I/O capacitance, and the lowest current, saving about
+   1.8 A. It is **substantially cheaper than the 74BCT245**.
+   - It is a 1991 part, so it breaks the board's 1984-parts rule.
+   - Its fast edges on long MAD traces are worth checking for ringing.
+   - Its 1 ns minimum delay reduces the write-data hold margin from +1.7 ns
+     to +1.0 ns.
+2. **74BCT245.** It is effectively a drop-in: the same 7 ns delay as the
+   F245, so the same +6.0 ns margin, with 64 mA drive. It saves about 1.6 A
+   but costs more than the ABT245B, and it is also post-1984.
+3. **74ALS245A**, the only period-correct part that meets the budget. It
+   saves about 1 A, but its +3.0 ns paper margin (+1.1 ns at 1024x768) is
+   not enough once the real MAD bus load is counted.
+   - GAL16V8-7s in U57 and U55 would bring it to +5.5 ns (+3.6 ns at
+     8.125 MHz), still less than the F245 has today.
+   - In U38–U40 alone, the ALS245A is low risk: those cycles aren't
+     timing-critical, it meets the S-100 bus's 24 mA drive, and it saves
+     about 140 mA.
+4. **Not viable:**
+   - the 74HCT245 and 74LS245 fail the read budget, and the LS245 wouldn't
+     save power anyway;
+   - the 74AHCT245's 8 mA drive is too weak for the MAD bus and the S-100
+     bus;
+   - the 74ACT245 meets timing on paper but loads MAD heavily, and it
+     offers nothing over the ABT245B;
+   - the 74AS245 draws more current than the F245.
+
+### GAL16V8 Q parts
+
+Q parts in the five -15 positions (U45, U46, U56, U58, U60) would save about
+150 mA typical and 175 mA maximum.
 
 ## Gaps and assumptions
 
