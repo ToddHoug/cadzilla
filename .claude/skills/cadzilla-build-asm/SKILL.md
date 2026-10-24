@@ -1,6 +1,6 @@
 ---
 name: cadzilla-build-asm
-description: Builds, runs and pulls back an existing CADzilla software project that uses the original CP/M toolchain -- Digital Research ASM.COM + LOAD.COM, a single self-contained <NAME>.ASM -- by driving the altairsim MCP server on that project's own work/ disk. Use this whenever the user wants to assemble, rebuild, run, test or debug a CADzilla program whose source is a single self-contained .ASM file with ORG 0100H (software/asm/hello, software/asm/firstdraw, software/asm/drawdemo, or any project scaffolded with --toolchain asm), even if they just say "build hello", "rerun firstdraw", or "try my change to DRAWDEMO". For projects with a .MAC source that use the czgfx library, use cadzilla-build-m80 instead; for .Z88 sources (z88dk, 8080/8085/Z80, assembled on the host) use cadzilla-build-z88dk; for C (.c) sources use cadzilla-build-zcc; for relocatable .ASM modules linked by DRI RMAC + LINK (a <NAME>.SUB in src/, e.g. software/rmac/rhello, --toolchain rmac) use cadzilla-build-rmac.
+description: Builds, runs and pulls back an existing CADzilla software project that uses the original CP/M toolchain -- Digital Research ASM.COM + LOAD.COM, a single self-contained <NAME>.ASM -- built on that project's own work/ disk by its build.sh (headless altairsim), then run and debugged by driving the altairsim MCP server. Use this whenever the user wants to assemble, rebuild, run, test or debug a CADzilla program whose source is a single self-contained .ASM file with ORG 0100H (software/asm/hello, software/asm/firstdraw, software/asm/drawdemo, or any project scaffolded with --toolchain asm), even if they just say "build hello", "rerun firstdraw", or "try my change to DRAWDEMO". For projects with a .MAC source that use the czgfx library, use cadzilla-build-m80 instead; for .Z88 sources (z88dk, 8080/8085/Z80, assembled on the host) use cadzilla-build-z88dk; for C (.c) sources use cadzilla-build-zcc; for relocatable .ASM modules linked by DRI RMAC + LINK (a <NAME>.SUB in src/, e.g. software/rmac/rhello, --toolchain rmac) use cadzilla-build-rmac.
 ---
 
 # Build a CADzilla project with ASM.COM (the original CP/M toolchain)
@@ -20,13 +20,41 @@ full background.
 - **Find the names.** The project directory is `software/asm/<name>/` (lowercase).
   The source is `src/<NAME>.ASM`, uppercase and at most 8 characters, e.g.
   `firstdraw` → `FIRSTDRW.ASM`. Look in `src/` rather than guessing.
-- **CR/LF.** If the source was edited on the host, run
-  `tools/altairsim/scripts/crlf.sh software/asm/<name>/src/<NAME>.ASM`. It is
-  idempotent. An LF-only file assembles to nothing with no error: the
+- **CR/LF.** `build.sh` gives an LF-only source CR/LF itself. For a build by
+  hand, run `tools/altairsim/scripts/crlf.sh software/asm/<name>/src/<NAME>.ASM`
+  (idempotent). An LF-only file assembles to nothing with no error: the
   address `ASM` prints before `USE FACTOR` stays at `0100`.
-- **The project needs its own `work/`.** If `software/asm/<name>/work/` is
-  missing, create it with `tools/altairsim/scripts/sync_pristine.sh
-  software/asm/<name>/work`.
+- **The project's `work/`** is created by `build.sh` if it's missing.
+
+## Build: the project's `build.sh`
+
+```bash
+software/asm/<name>/build.sh
+```
+
+- **First, make sure the MCP server hasn't got this project's `work/`
+  loaded** (`monitor {command: "SHOW MOUNTS"}`). If it has, close that
+  session out (step 4) before building: two altairsims must never write one
+  disk.
+- What it does, with a headless altairsim
+  (`tools/altairsim/scripts/cpmsession.py`, not the MCP server):
+  1. creates or refreshes `work/`;
+  2. runs `R`, `ASM` and `LOAD` on the project's own disk;
+  3. pulls `<NAME>.COM`, `.HEX` and `.PRN` into `build/`;
+  4. unmounts, and checks the disks.
+
+  The program stays on `A:`.
+- **Exit 0** means built.
+- **Exit 1** means the build failed. It prints the error lines (ASM's flag
+  lines, LOAD's `ERROR:`), and the whole session is in `build/<NAME>.LOG`.
+  A failed build's `.COM` is erased, not pulled back. Fix the source and
+  rerun.
+- `--clean` re-syncs `work/` from pristine first. That discards the disk, so
+  ask first.
+
+Then run and debug it over MCP: step 1, then the run line of step 2. The
+`R`/`ASM`/`LOAD` lines of step 2, and step 3, are the manual fallback, for
+looking at a build step itself.
 - The altairsim MCP tools must be loaded (`mcp__altairsim__run`). If they
   aren't, point the user at the README's "Starting a session" instead of
   guessing at setup.

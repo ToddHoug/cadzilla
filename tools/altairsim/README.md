@@ -101,6 +101,9 @@ could never be created from the command line in the first place.
   endings in place (idempotent). Run it on every `.ASM`/`.MAC`/`.INC`/`.SUB`
   before `R`: files written on this host are LF-only, and an LF-only
   source assembles to nothing without an error.
+- `scripts/cpmsession.py build <project>` — the CP/M side of a build, run
+  headlessly, with no assistant and no typing. It is what `tools/build.sh`
+  runs; see "Building without an assistant" below.
 - `DRIVING-WITH-AI.md` — altairsim's own guide for driving it via MCP
   (kept here for reference; canonical copy lives in `~/altairsim/docs/`).
 
@@ -164,6 +167,71 @@ What it means for each disk:
   `sync_pristine.sh software/<toolchain>/<name>/work`. That discards what was built
   there.
 - **Real hardware** needs 62K of RAM below the boot PROM for this disk.
+
+## Building without an assistant
+
+`tools/setup.sh` sets up a fresh clone: it checks the dependencies, then
+builds every project. A project's own `build.sh`, e.g.
+`software/asm/hello/build.sh`, rebuilds just that project. Both run
+`tools/build.sh <project>`, which does three things:
+
+1. **The machine and disks.**
+   - If `work/` is missing, `sync_pristine.sh` creates it.
+   - If `work/` exists, its disks are kept. Only the machine files are
+     refreshed (`--machine-only`), and only when `machine.toml` or
+     pristine's machine is newer.
+   - `attach_libdisk.sh` gives a project that pins czgfx its release as
+     `B:`, and gives czgfx itself its writable build disk.
+   - `--clean` re-syncs `work/` from pristine first, discarding everything
+     on its disks.
+2. **The host build** (z88dk and zcc): `tools/z88dk/z88build.sh` or
+   `zccbuild.sh`.
+3. **The CP/M side**: `scripts/cpmsession.py` starts
+   `altairsim work/cadzilla.toml --mcp` and talks to it over JSON-RPC on
+   stdio, as a program rather than an assistant.
+   - It runs the same steps as the skills: boot, `R *.*` from `src/`, then
+     `ASM`/`LOAD`, `M80` + `SUBMIT B:CZLINK`, or `SUBMIT <NAME>`.
+   - It `W`s the outputs into `build/`, waits for `idle`, unmounts both
+     drives and runs `check_dsk.py`.
+   - A z88dk/zcc `.COM` is only `R`'d onto `A:`.
+
+Either way the program ends up on the project's `A:`. So
+`cd software/<toolchain>/<name>/work && altairsim cadzilla.toml` boots
+straight to `A0>` with it ready to run. Ctrl-E gives the monitor, `RUN`
+resumes, and `QUIT` leaves. Wait at `A0>` a moment first, so the BIOS has
+written its last track (see "Ending a session").
+
+- **Outputs.** The binary outputs are:
+  - asm: `<NAME>.COM`;
+  - m80: `<NAME>.COM`;
+  - rmac: whatever the `.SUB`'s `LINK` lines write (`.COM`, or `.PRL`
+    with `[OP]`).
+
+  The text outputs are `.HEX`/`.PRN`, or `*.PRN` and `*.SYM` for rmac.
+- **`cpmbuild.conf`.** A project the default recipe doesn't fit has a
+  tracked `cpmbuild.conf` beside `src/` (`name`, `submit`, `binary`, `text`,
+  `put`; see `cpmsession.py`). czbasic (`SUBMIT CZBBLD`), czgfx
+  (`SUBMIT CZBUILD`) and dxfview (its `dxf/` drawings go on `A:` too) have
+  one.
+- **Failure.** CP/M's tools return no exit status, so the transcript is
+  scanned instead. A build fails on:
+  - M80's `N Fatal error(s)`, L80's `?`/`%` lines and
+    `Undefined Global(s)`;
+  - ASM, M80 and RMAC error flags;
+  - LINK's `UNDEFINED SYMBOLS`, `Unsatisfied external`, the CCP's `NAME?`,
+    or a BDOS error;
+  - a named output that never arrives.
+
+  A failed build's program is `ERA`'d on `A:` and not pulled back; its
+  listings are. The exit status is 1, the error lines are printed, and the
+  whole session is in `build/<NAME>.LOG`. `--verbose` echoes it live.
+- **One machine per disk.** `work/.lock` keeps two builds apart. Don't
+  build a project whose `work/` is loaded in the MCP server at the same
+  time: both would write the same image. `UNMOUNT` there first.
+- **Reproducibility.** ASM, RMAC/LINK, z88dk and zcc outputs rebuild
+  byte for byte. An L80 `.COM` doesn't quite: L80 writes whatever is in
+  memory into `DS` (uninitialized) areas, so those bytes vary between
+  builds. The code doesn't.
 
 ## One-time setup (per machine)
 
@@ -667,13 +735,15 @@ using it.)
    filename per the naming convention above).
 3. If it draws, write `software/<toolchain>/<name>/machine.toml` pinning cad0's `mode`
    to the resolution the code programs (see "Display resolution").
-4. `tools/altairsim/scripts/sync_pristine.sh software/<toolchain>/<name>/work` — give
-   the new project its own disk (with the overlay applied).
-5. `monitor {command: "CONFIG LOAD <repo-root>/software/<toolchain>/<name>/work/cadzilla.toml"}`,
-   then drive the build/run/debug loop above through the MCP tools,
-   repointing `hb0` between the source directory (for `R`) and `build/`
-   (for `W`). The pulled-back `<NAME>.COM`/`.HEX`/`.PRN` land in `build/`
-   already named correctly — no renaming needed.
+4. Copy another project's `build.sh` into `software/<toolchain>/<name>/`. It
+   is the same three lines everywhere.
+5. Run `software/<toolchain>/<name>/build.sh`. It gives the project its own
+   `work/` disk (with the overlay applied), builds the program, and pulls
+   `<NAME>.COM`/`.HEX`/`.PRN` back into `build/`, already named correctly.
+   To do a step by hand instead, `CONFIG LOAD` the project's
+   `work/cadzilla.toml` through the MCP tools and drive the build/run/debug
+   loop above, repointing `hb0` between the source directory (for `R`) and
+   `build/` (for `W`).
 
 ## Ending a session
 

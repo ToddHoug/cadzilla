@@ -1,6 +1,6 @@
 ---
 name: cadzilla-build-m80
-description: Builds and runs CADzilla programs with the Microsoft M80/L80 toolchain and the shared czgfx graphics library -- rebuilding and releasing the czgfx library disk when its sources changed, then assembling a consumer project's <NAME>.MAC with M80, linking it against the czgfx release it pins with SUBMIT B:CZLINK, running it and pulling the .COM/.PRN back -- all by driving the altairsim MCP server. Use this whenever the user wants to build, run, test or debug a CADzilla project whose source is a .MAC file (software/m80/gfxdemo, software/m80/czgfx, anything scaffolded with --toolchain m80), change or extend the czgfx library (new primitive, new macro, new module), or asks how to share code/macros between CADzilla programs. For single-file .ASM projects (hello, firstdraw, drawdemo) use cadzilla-build-asm; for .Z88 projects (z88dk host cross-assembler, 8080/8085/Z80) use cadzilla-build-z88dk; for C (.c) projects use cadzilla-build-zcc; for DRI RMAC + LINK projects (relocatable .ASM modules with a <NAME>.SUB, e.g. software/rmac/rhello) or to make a .PRL use cadzilla-build-rmac.
+description: Builds and runs CADzilla programs with the Microsoft M80/L80 toolchain and the shared czgfx graphics library -- rebuilding and releasing the czgfx library disk when its sources changed, then assembling a consumer project's <NAME>.MAC with M80, linking it against the czgfx release it pins with SUBMIT B:CZLINK, running it and pulling the .COM/.PRN back -- built by the project's build.sh (headless altairsim) and run and debugged by driving the altairsim MCP server. Use this whenever the user wants to build, run, test or debug a CADzilla project whose source is a .MAC file (software/m80/gfxdemo, software/m80/czgfx, anything scaffolded with --toolchain m80), change or extend the czgfx library (new primitive, new macro, new module), or asks how to share code/macros between CADzilla programs. For single-file .ASM projects (hello, firstdraw, drawdemo) use cadzilla-build-asm; for .Z88 projects (z88dk host cross-assembler, 8080/8085/Z80) use cadzilla-build-z88dk; for C (.c) projects use cadzilla-build-zcc; for DRI RMAC + LINK projects (relocatable .ASM modules with a <NAME>.SUB, e.g. software/rmac/rhello) or to make a .PRL use cadzilla-build-rmac.
 ---
 
 # Build with M80/L80 and the czgfx library
@@ -38,18 +38,15 @@ prompt is printed; see step 3.
    `src/<NAME>.MAC`, uppercase and at most 8 characters. Look in `src/`
    rather than guessing.
 2. **The project must be wired to the library.**
-   - `software/m80/<name>/work/` must exist. If not, run
-     `tools/altairsim/scripts/sync_pristine.sh software/m80/<name>/work`.
    - It must have a pin, `software/m80/<name>/czgfx.version` (e.g. `1.0`, or
      `dev` for the current build disk).
-   - Its `cadzilla.toml` drive 1 must mount `CZGFXLIB-<version>.DSK`, a
-     file in `work/` itself, with `readonly = true`. If it doesn't (for
-     example after `sync_pristine.sh --machine-only`, or after a pin
-     change), run `tools/altairsim/scripts/attach_libdisk.sh software/m80/<name>/work`.
-     A `dev` pin needs that run again after every library rebuild, to
-     refresh the copy.
-   - czgfx itself uses `attach_libdisk.sh --writable software/m80/czgfx/work`
-     (its build disk, no pin).
+   - `build.sh` does the rest on every build:
+     - it creates `work/` if it's missing;
+     - it runs `attach_libdisk.sh`, which mounts the pinned release from
+       `work/` as drive 1, `readonly = true`, and refreshes a `dev` copy
+       after a library rebuild;
+     - for czgfx itself, it runs `attach_libdisk.sh --writable` instead (its
+       build disk, no pin).
    - **czgfx's work disk must have LIB80.COM.** It's on the pristine disk
      from 2026-09-24. An older `software/m80/czgfx/work` doesn't have it, and
      CZBUILD's `LIB80` lines then fail with `LIB80?`. To fix that:
@@ -57,10 +54,10 @@ prompt is printed; see step 3.
         intermediates
      2. run `attach_libdisk.sh --writable software/m80/czgfx/work` again
      Consumers need only M80 and L80, which every work disk has.
-3. **CR/LF.** Run `tools/altairsim/scripts/crlf.sh` on every source you're
-   about to `R`: the project's `src/*.MAC`, plus `software/m80/czgfx/src/*`
-   when rebuilding the library. It is idempotent. Files written on the host
-   are LF-only, and LF-only source silently assembles to nothing.
+3. **CR/LF.** `build.sh` gives LF-only `.MAC`/`.INC`/`.SUB` files CR/LF
+   itself. For a build by hand, run `tools/altairsim/scripts/crlf.sh` on
+   every source you're about to `R`. Files written on the host are LF-only,
+   and LF-only source silently assembles to nothing.
 4. **Only when working on czgfx itself (or a `dev` pin): is the build disk
    stale?** Check whether it is missing, or any czgfx source is newer:
    ```bash
@@ -73,6 +70,41 @@ prompt is printed; see step 3.
 
 **Pristine rule:** never `CONFIG LOAD` or `MOUNT` anything under
 `tools/altairsim/pristine/`. Use only a project's own `work/`.
+
+## Build: the project's `build.sh`
+
+```bash
+software/m80/czgfx/build.sh          # the library, only when it changed (step 1)
+software/m80/<name>/build.sh         # a consumer (step 2)
+```
+
+- **First, make sure the MCP server hasn't got that project's `work/`
+  loaded** (`monitor {command: "SHOW MOUNTS"}`). If it has, close that
+  session out (step 3) before building: two altairsims must never write one
+  disk.
+- Each build uses a headless altairsim on the project's own machine
+  (`tools/altairsim/scripts/cpmsession.py`, not the MCP server). It ends by
+  unmounting and checking the disks.
+- **A consumer:**
+  1. `R *.*` from `src/`;
+  2. `M80 <NAME>,<NAME>=<NAME>`;
+  3. `SUBMIT B:CZLINK <NAME>`;
+  4. pulls `<NAME>.COM` and `.PRN` into `build/`. The program stays on
+     `A:`.
+- **czgfx** (`cpmbuild.conf`: `submit = CZBUILD`) runs `SUBMIT CZBUILD` onto
+  its writable build disk, then pulls `*.REL` and `*.PRN` back.
+- **czbasic** (`submit = CZBBLD`) builds all its modules, and its `CZL.SUB`
+  `W`s `CZBASIC.SYM` into `src/`.
+- **Exit 1** means the build failed. It prints the error lines:
+  - M80's `N Fatal error(s)`, and the flagged source line;
+  - L80's `N Undefined Global(s)`, `?` and `%` lines;
+  - LIB80's `Unsatisfied external request(s)`.
+
+  The whole session is in `build/<NAME>.LOG`, and a failed program is
+  erased, not pulled back. The `.PRN`s are still pulled back, so scan them
+  as below.
+- Then run and debug over MCP: step 2's `CONFIG LOAD`, boot and run lines.
+  The `R`/`M80`/`SUBMIT`/`W` lines in steps 1 and 2 are the manual fallback.
 
 ## 1. Rebuild the library (czgfx's own machine)
 
@@ -223,8 +255,8 @@ Don't commit unless asked.
 - **Moving a consumer to the new release.** Do this only for the consumers
   the user wants moved:
   1. edit its `czgfx.version`;
-  2. run `attach_libdisk.sh` on its `work/`;
-  3. rebuild and relink it (step 2).
+  2. rebuild and relink it with its `build.sh`, which runs `attach_libdisk.sh`
+     to mount the new release.
 
   A `.COM` contains the library code it was linked with, so the other
   consumers stay on what they pinned.

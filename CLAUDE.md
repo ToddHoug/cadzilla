@@ -41,7 +41,12 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   1024x768); the code's timing (`GINIT CZM...` or its own register table)
   must match it. A z88dk or zcc project's `machine.toml` also pins its CPU (a
   `cpu0` block: 8080, 8085 or z80), which the build and the emulator both
-  follow
+  follow.
+  - Every project has a tracked `build.sh`, which runs `tools/build.sh` on
+    itself. It builds the project's `work/` machine and disks, then its
+    program, and puts the program on `A:`, with no assistant (below).
+  - A project that the default recipe doesn't fit has a tracked
+    `cpmbuild.conf`: czbasic, czgfx and dxfview.
 - `software/m80/czgfx/` — the shared czgfx graphics-primitive library (M80
   macros + relocatable modules). It is deliberately built only with period
   tools (M80/LIB80/L80 inside CP/M), as the all-vintage example; the z88dk
@@ -82,6 +87,15 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
 - `docs/` — design notes, decisions, datasheets
 - `tools/` — build/assemble/program scripts; `tools/z88dk/` is the z88dk host
   toolchain (`z88build.sh`, README)
+  - `tools/setup.sh` is the fresh-clone setup. It checks the dependencies,
+    then builds every project with `tools/build.sh`.
+  - `tools/build.sh <project>` builds one project: it syncs `work/`, does
+    the host build for z88dk/zcc, then the CP/M side.
+  - The CP/M side is `tools/altairsim/scripts/cpmsession.py`. It drives
+    `altairsim --mcp` headlessly, typing the same commands the skills do.
+    Its transcript goes to `build/<NAME>.LOG`.
+  - Never run it on a `work/` that the MCP server has loaded: both would
+    write the same disk image.
 - `tests/` — emulator test programs and expected output
 
 ## Conventions
@@ -122,8 +136,11 @@ Licensing (`LICENSE` has the full map; the texts are in `LICENSES/`):
 - Never edit a frozen release (`releases/`) or a KiCad file just to add a
   header.
 
-Software toolchains (the first three run inside CP/M 2.2 (62K) on altairsim, driven
-over its MCP server; `tools/altairsim/README.md`):
+Software toolchains (`tools/altairsim/README.md`):
+- The first three run inside CP/M 2.2 (62K) on altairsim.
+- Every toolchain builds with the project's `build.sh`, which drives
+  altairsim headlessly. The MCP server is for running and debugging, and
+  for a build step done by hand.
 - **DRI `ASM.COM` + `LOAD.COM`** — the original flow: one self-contained
   `.ASM` per program, no INCLUDE/macros/linker (`hello`, `firstdraw`,
   `drawdemo`; skill `cadzilla-build-asm`).

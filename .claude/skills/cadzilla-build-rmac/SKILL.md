@@ -1,6 +1,6 @@
 ---
 name: cadzilla-build-rmac
-description: Builds, runs and debugs a CADzilla software project that uses Digital Research's relocating toolchain -- RMAC (RMAC 1.1) + LINK-80 (LINK 1.31), plus LIB and XREF -- inside CP/M 2.2 on altairsim: relocatable .ASM modules (CSEG/DSEG, PUBLIC/EXTRN, no ORG) assembled by RMAC and linked by DRI LINK into a .COM, or with LINK's [OP] option into a .PRL (page-relocatable, the format of GSX-80 device drivers), driven by the project's own <NAME>.SUB through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla project whose src/ has a <NAME>.SUB next to its .ASM modules (software/rmac/rhello, anything scaffolded with --toolchain rmac), make a .PRL or a GSX driver, link RMAC and M80 modules together, build a LIB library, or asks about RMAC, DRI LINK, LIB or XREF on this repo's CP/M. A single self-contained .ASM with ORG 0100H and no .SUB is the ASM.COM flow (cadzilla-build-asm); .MAC is cadzilla-build-m80; .Z88 is cadzilla-build-z88dk; .c is cadzilla-build-zcc.
+description: Builds, runs and debugs a CADzilla software project that uses Digital Research's relocating toolchain -- RMAC (RMAC 1.1) + LINK-80 (LINK 1.31), plus LIB and XREF -- inside CP/M 2.2 on altairsim: relocatable .ASM modules (CSEG/DSEG, PUBLIC/EXTRN, no ORG) assembled by RMAC and linked by DRI LINK into a .COM, or with LINK's [OP] option into a .PRL (page-relocatable, the format of GSX-80 device drivers), driven by the project's own <NAME>.SUB, built by its build.sh (headless altairsim) and run and debugged through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla project whose src/ has a <NAME>.SUB next to its .ASM modules (software/rmac/rhello, anything scaffolded with --toolchain rmac), make a .PRL or a GSX driver, link RMAC and M80 modules together, build a LIB library, or asks about RMAC, DRI LINK, LIB or XREF on this repo's CP/M. A single self-contained .ASM with ORG 0100H and no .SUB is the ASM.COM flow (cadzilla-build-asm); .MAC is cadzilla-build-m80; .Z88 is cadzilla-build-z88dk; .c is cadzilla-build-zcc.
 ---
 
 # Build a CADzilla project with DRI RMAC + LINK
@@ -32,9 +32,8 @@ Background is in "The DRI RMAC/LINK toolchain" in `tools/altairsim/README.md`.
   - An LF-only `.ASM` makes RMAC print garbage `S` and `E` error lines, a
     run of `^Z` characters and `NO SPACE`.
   - An LF-only `.SUB` breaks SUBMIT.
-- **The project needs its own `work/`.** If `software/rmac/<name>/work/` is
-  missing, create it with
-  `tools/altairsim/scripts/sync_pristine.sh software/rmac/<name>/work`.
+- **The project's `work/`** is created by `build.sh` if it's missing.
+  `build.sh` also gives LF-only `.ASM`/`.SUB` files CR/LF itself.
 - **The tools must be on its disk.** RMAC, LINK, LIB and XREF were added to
   pristine on 2026-10-08. A `work/` copied before then lacks them, and
   `RMAC?` at the prompt is the symptom. Fix it without losing builds:
@@ -44,6 +43,32 @@ Background is in "The DRI RMAC/LINK toolchain" in `tools/altairsim/README.md`.
 - The altairsim MCP tools must be loaded (`mcp__altairsim__run`). If they
   aren't, point the user at the README's "Starting a session" instead of
   guessing at setup.
+
+## Build: the project's `build.sh`
+
+```bash
+software/rmac/<name>/build.sh
+```
+
+- **First, make sure the MCP server hasn't got this project's `work/`
+  loaded** (`monitor {command: "SHOW MOUNTS"}`). If it has, close that
+  session out (step 4) before building: two altairsims must never write one
+  disk.
+- What it does, with a headless altairsim
+  (`tools/altairsim/scripts/cpmsession.py`, not the MCP server):
+  1. creates or refreshes `work/` (a project that pins czgfx gets its
+     release as `B:`);
+  2. runs `R *.*` from `src/`, then `SUBMIT <NAME>`;
+  3. pulls into `build/` whatever the `.SUB`'s `LINK` lines write (`.COM`,
+     or `.PRL` for an `[OP]` link), plus `*.PRN` and `*.SYM`;
+  4. unmounts, and checks the disks.
+- **Exit 1** means the build failed. It prints the RMAC flag lines (e.g.
+  `U0000 110000 ... NOSUCH`) or LINK's `UNDEFINED SYMBOLS`. The whole session
+  is in `build/<NAME>.LOG`, and the failed program is erased, not pulled
+  back.
+
+Then run and debug it over MCP: step 1, then the run line of step 2. The
+`R`/`SUBMIT` lines and step 3 are the manual fallback.
 
 ## 1. Point the server at the project's own disk and boot
 

@@ -46,12 +46,56 @@ could never have put together on my own.
   - `rmac/` — Digital Research RMAC + LINK: rhello, ddcz (GSX-80 driver)
   - `z88dk/` — z88dk z80asm (host cross-assembler): the cz88gfx graphics
     library, zhello, z88demo
-  - `zcc/` — z88dk zcc (C): chello, cgfxdemo, cgsxdemo
+  - `zcc/` — z88dk zcc (C): chello, cgfxdemo, cgsxdemo, dxfview
 - `docs/` — design notes and reference datasheets
   - `docs/cadzilla-manual.pdf` — user reference manual
   - `docs/images/` — logo and other documentation images
 - `tools/` — build/assemble/program scripts
 - `tests/` — emulator test programs and expected output
+
+## Getting started with the software
+
+The software runs under CP/M 2.2 on altairsim, an Altair/S-100 simulator
+with a CADzilla board. Requirements:
+- altairsim, built at `~/altairsim/build/altairsim`, on `PATH`, or named
+  by `$ALTAIRSIM`;
+- bash 4.4 or later, python3 and GNU coreutils;
+- z88dk, for the z88dk and zcc projects only:
+  `sudo snap install z88dk --edge`. The snap only sees paths under `$HOME`,
+  so the clone has to be there too.
+
+After cloning, run:
+
+```bash
+tools/setup.sh
+```
+
+It checks the requirements, then builds every project. Each project gets
+its own altairsim machine and CP/M disks in `work/`, and its program on that
+disk. Nothing is installed. Without z88dk, the projects that need it are
+skipped. `tools/setup.sh --check` runs only the check.
+
+To run a program, start altairsim from the project's `work/`:
+
+```bash
+cd software/asm/hello/work
+altairsim cadzilla.toml
+A0>HELLO
+```
+
+- Ctrl-E stops the machine and gives you the `altairsim>` monitor, `RUN`
+  carries on, and `QUIT` leaves.
+- Wait a moment at `A0>` before stopping: the BIOS writes its last disk
+  track to the image only then.
+
+Each project has its own `build.sh`, which rebuilds it onto its disk, e.g.
+`software/m80/gfxdemo/build.sh`.
+- `--clean` resets the project's disks from the pristine images first.
+- A failed build exits non-zero, shows the error lines, and leaves the full
+  CP/M transcript in `build/<NAME>.LOG`.
+
+`tools/altairsim/README.md` has the details, and how an AI assistant drives
+the same machines.
 
 ## Board specification
 

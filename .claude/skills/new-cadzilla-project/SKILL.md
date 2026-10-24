@@ -1,6 +1,6 @@
 ---
 name: new-cadzilla-project
-description: Scaffolds a new 8080/8085/Z80 CP/M software project in the CADzilla repo under software/<toolchain>/<name>/, with a starter source file for any of the five toolchains -- the original DRI ASM.COM (single .ASM), DRI RMAC + LINK-80 (relocatable .ASM modules plus a <NAME>.SUB build script; LINK can also write .PRL, e.g. GSX drivers), Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:), the z88dk host cross-assembler for the 8080, 8085 or Z80 with Intel and/or Zilog mnemonics (.Z88, --cpu; pins the cz88gfx graphics library, czgfx ported to z80asm), or the z88dk zcc C compiler for the 8080, 8085 or Z80 (lowercase .c plus a .Z88 module, --cpu) -- then drives the altairsim MCP server through a first build and run to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080/8085/Z80 assembly or C program for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
+description: Scaffolds a new 8080/8085/Z80 CP/M software project in the CADzilla repo under software/<toolchain>/<name>/, with a starter source file for any of the five toolchains -- the original DRI ASM.COM (single .ASM), DRI RMAC + LINK-80 (relocatable .ASM modules plus a <NAME>.SUB build script; LINK can also write .PRL, e.g. GSX drivers), Microsoft M80/L80 with the shared czgfx graphics library (.MAC, library disk on B:), the z88dk host cross-assembler for the 8080, 8085 or Z80 with Intel and/or Zilog mnemonics (.Z88, --cpu; pins the cz88gfx graphics library, czgfx ported to z80asm), or the z88dk zcc C compiler for the 8080, 8085 or Z80 (lowercase .c plus a .Z88 module, --cpu) -- then builds it with its own build.sh and runs it through the altairsim MCP server to prove the toolchain actually works before real development starts. Use this whenever the user wants to start a new CADzilla software project, add a new program under software/, or scaffold an 8080/8085/Z80 assembly or C program for this repo -- even if they just say "make a new project called X" or "let's write a program that does Y" without mentioning CP/M, altairsim, or assembly explicitly. Also use it if the user asks how to add a new program to the repo.
 ---
 
 # New CADzilla project
@@ -123,7 +123,8 @@ changes don't touch it until its pin is moved. It writes `src/<NAME>.MAC` instea
 This creates `software/<toolchain>/<name>/{src,include,build,work}` (with `.gitkeep`
 in `include/` and `build/`, since build output itself is gitignored per
 the repo's existing `software/*/*/build/*` rule), `software/<toolchain>/<name>/machine.toml`
-(tracked), and writes
+(tracked), the project's own `build.sh` (tracked; it runs `tools/build.sh`
+on the project), and writes
 `software/<toolchain>/<name>/src/<NAME>.ASM`: a minimal BDOS-function-9 string-print
 stub, self-contained (no `INCLUDE` -- `ASM.COM` doesn't support it) and
 free of underscores in any symbol name (`ASM.COM` silently resolves an
@@ -151,100 +152,70 @@ program -- say so, and point at the file, once it's created.
 
 ## 3. Prove the toolchain works
 
-Don't stop at "the file exists". Build and run the stub through the
-altairsim MCP tools, so the user starts editing a project that is already
-known to build. Otherwise a toolchain problem turns up later, mixed in with
-their own code changes.
+Don't stop at "the file exists". Build the stub and run it, so the user
+starts editing a project that is already known to build. Otherwise a
+toolchain problem turns up later, mixed in with their own code changes.
 
-**For a `z88dk` project, follow the `cadzilla-build-z88dk` skill instead of
-the steps below:** `tools/z88dk/z88build.sh software/<toolchain>/<name>` on the host, then
-`CONFIG LOAD` and boot, `R <NAME>.COM` from `build/`, run it, and close the
-session. Its first-run check: the console shows the welcome message and
-`Built for <X>, running on <X>` with the same CPU twice, the one given to
-`--cpu`.
+**Build it with its own `build.sh`.** It is the same for every toolchain:
 
-**For an `rmac` project, follow the `cadzilla-build-rmac` skill:**
-`CONFIG LOAD` and boot, `R *.*` from `src/`, then `SUBMIT <NAME>` (no
-`until`, so the run stops when idle), run it, `W` the `.COM` back, and
-close the session. Its first-run check: both modules' assemblies end in
-`END OF ASSEMBLY` with no flagged lines, `LINK` reports `CODE SIZE` and
-`DATA SIZE` with no `UNDEFINED SYMBOLS:`, and the program prints the
-welcome message and then `Linked by DRI LINK from two RMAC modules`.
+```bash
+software/<toolchain>/<name>/build.sh
+```
 
-**For a `zcc` project, follow the `cadzilla-build-zcc` skill** in the same
-way: `tools/z88dk/zccbuild.sh software/<toolchain>/<name>`, then boot, `R`, run and
-close. The first-run check is the same `Built for <X>, running on <X>` line.
+It refreshes `work/`. A z88dk/zcc stub is built on the host; an asm, m80
+or rmac stub is assembled and linked in CP/M on the project's own disk. In
+both cases a headless altairsim (`tools/altairsim/scripts/cpmsession.py`)
+does the CP/M side, and the MCP server isn't used. The outputs land in
+`build/`, the program stays on `A:`, and the disks are unmounted and
+checked. Expect exit 0 and a last line
+`<NAME>: built on .../work (transcript build/<NAME>.LOG)`. On exit 1 it
+prints the error lines; the full CP/M session is in `build/<NAME>.LOG`.
 
-**For an `m80` project, follow the `cadzilla-build-m80` skill instead of the
-steps below.** It covers:
-- checking the project's czgfx pin and its copy of the release
-- M80, `SUBMIT B:CZLINK <NAME>`, the run, and the `W` of the `.COM`/`.PRN`
-- unmounting both drives at the end
-
-Its first-run check: the stub's message appears on the console, and
-`board_get cad0` shows `status` with CER clear and `picture` as the
-project's mode at full size `at (0,0)` (e.g. `1024x768 at (0,0)`). The steps below are the
-`asm` flow; the `cadzilla-build-asm` skill has the same steps in more depth
-for later rebuilds.
-
-First confirm the altairsim MCP tools are available (e.g. search for
-`mcp__altairsim__run`). If they're not, the MCP server likely isn't
-registered in this session yet -- stop and point the user at
-`tools/altairsim/README.md`'s "Starting a session" section rather than
+**Then run it over MCP.** First confirm the altairsim MCP tools are
+available (e.g. search for `mcp__altairsim__run`). If they're not, the MCP
+server likely isn't registered in this session yet. Stop and point the user
+at `tools/altairsim/README.md`'s "Starting a session" section rather than
 guessing at setup steps.
-
-**Point the server at this project's own disk.** Step 2 already gave
-`software/<toolchain>/<name>/` its own `work/` directory (a fresh copy of the pristine
-machine + disk, synced by the script itself), so there's nothing to reset
--- just switch the running server onto it and boot:
 
 ```
 monitor {command: "CONFIG LOAD <repo-root>/software/<toolchain>/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>"}
-```
-
-Never `CONFIG LOAD` or `MOUNT` anything under `tools/altairsim/pristine/`
--- CP/M would write this project's files straight into the master disk
-image. Pristine is read-only on the host, so a `WRITE-PROTECTED` mount or a
-CP/M write-protect error means the wrong path is loaded: fix the path, not
-the permissions.
-
-Note the prompt is `A0>`, not a plain `A>` -- this CP/M build boots off an
-8MB virtual drive and numbers logical units (`A0>`, `B0>`, ...). Match
-`until` against `A0>` for every call below; `until: "A>"` won't match it at
-all, so every call would run to its full timeout instead of stopping
-cleanly at the prompt.
-
-Then, from a freshly-booted `A0>` prompt:
-
-```
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<toolchain>/<name>/src"}
-run {input: "R <NAME>.ASM\r", until: "A0>"}
-run {input: "ASM <NAME>\r", until: "A0>", timeout_ms: 20000}
-run {input: "LOAD <NAME>\r", until: "A0>"}
 run {input: "<NAME>\r", until: "A0>"}
 ```
 
-Confirm the welcome message actually appears in that last call's output --
-that's the real proof the toolchain works, not just that each step
-returned without an error. Then pull the build artifacts back:
+The first-run check, by toolchain:
+- **asm:** the welcome message appears in the last call's output. That's
+  the real proof the toolchain works, not just that each step returned
+  without an error.
+- **z88dk and zcc:** the welcome message and `Built for <X>, running on <X>`,
+  with the same CPU twice: the one given to `--cpu`.
+- **rmac:** the welcome message, then `Linked by DRI LINK from two RMAC
+  modules`.
+- **m80:** the stub's message appears, and `board_get cad0` shows `status`
+  with CER clear and `picture` as the project's mode at full size
+  `at (0,0)` (e.g. `1024x768 at (0,0)`).
 
-```
-monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/<toolchain>/<name>/build"}
-run {input: "W <NAME>.COM\r", until: "A0>"}
-run {input: "W <NAME>.HEX T\r", until: "A0>"}
-run {input: "W <NAME>.PRN T\r", until: "A0>"}
-monitor {command: "SET hb0 HOSTDIR=<repo-root>"}
-```
+Never `CONFIG LOAD` or `MOUNT` anything under `tools/altairsim/pristine/`.
+CP/M would write this project's files straight into the master disk image.
+Pristine is read-only on the host, so a `WRITE-PROTECTED` mount or a CP/M
+write-protect error means the wrong path is loaded: fix the path, not the
+permissions. The prompt is `A0>`, not a plain `A>`. Match `until` against
+`A0>`; `until: "A>"` never matches, so every call would run to its full
+timeout.
 
-Then close the session: `run {timeout_ms: 5000}` with no input and no
-`until`, which must report `stopped: "idle"`, then
-`monitor {command: "UNMOUNT dsk0:drive0"}` and `dsk0:drive1`. Stopping on
-the `A0>` match isn't enough: the BIOS writes its last buffered track only
-after the prompt is printed, and unmounting before that finishes has left a
-half-written sector (`Bdos Err On A: Bad Sector` at the next boot).
-`tools/altairsim/scripts/check_dsk.py software/<toolchain>/<name>/work/*.DSK` should
-then say `ok`.
+Then close the session:
+1. `run {timeout_ms: 5000}` with no input and no `until`, which must report
+   `stopped: "idle"`;
+2. `monitor {command: "UNMOUNT dsk0:drive0"}` and `dsk0:drive1`.
+
+Stopping on the `A0>` match isn't enough: the BIOS writes its last buffered
+track only after the prompt is printed, and unmounting before that finishes
+has left a half-written sector (`Bdos Err On A: Bad Sector` at the next
+boot). Close the session before any rebuild, too: `build.sh` must never run
+while the MCP server has the same `work/` loaded.
+
+The toolchain's `cadzilla-build-*` skill has the build-by-hand steps over
+MCP, for looking at a single build step.
 
 ### Things that will bite you if you skip them
 

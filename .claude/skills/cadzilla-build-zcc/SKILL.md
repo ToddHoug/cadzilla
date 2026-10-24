@@ -1,6 +1,6 @@
 ---
 name: cadzilla-build-zcc
-description: Builds, runs and debugs a CADzilla software project written in C with the z88dk zcc toolchain -- lowercase src/*.c sources (plus optional .Z88 assembly modules), compiled on the HOST by z88dk's zcc (sccz80 + the classic CP/M C library) via tools/z88dk/zccbuild.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, all through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .c file (software/zcc/chello, software/zcc/cgfxdemo, anything scaffolded with --toolchain zcc), draw on the board from C with cz88gfx's C bindings (#include <cz88gfx.h>, cz_ functions), retarget a C program to another CPU, call assembly from C, or asks about writing C for the 8080, 8085, Z80 or CP/M in this repo. To change the C bindings themselves (software/z88dk/cz88gfx), use cadzilla-build-z88dk. For .Z88-only projects use cadzilla-build-z88dk; for .ASM use cadzilla-build-asm (or cadzilla-build-rmac when src/ has a <NAME>.SUB driving DRI RMAC + LINK); for .MAC use cadzilla-build-m80.
+description: Builds, runs and debugs a CADzilla software project written in C with the z88dk zcc toolchain -- lowercase src/*.c sources (plus optional .Z88 assembly modules), compiled on the HOST by z88dk's zcc (sccz80 + the classic CP/M C library) via tools/z88dk/zccbuild.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, built by the project's build.sh and run and debugged through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .c file (software/zcc/chello, software/zcc/cgfxdemo, anything scaffolded with --toolchain zcc), draw on the board from C with cz88gfx's C bindings (#include <cz88gfx.h>, cz_ functions), retarget a C program to another CPU, call assembly from C, or asks about writing C for the 8080, 8085, Z80 or CP/M in this repo. To change the C bindings themselves (software/z88dk/cz88gfx), use cadzilla-build-z88dk. For .Z88-only projects use cadzilla-build-z88dk; for .ASM use cadzilla-build-asm (or cadzilla-build-rmac when src/ has a <NAME>.SUB driving DRI RMAC + LINK); for .MAC use cadzilla-build-m80.
 ---
 
 # Build a CADzilla C project with z88dk (zcc)
@@ -23,21 +23,35 @@ reference project is `software/zcc/chello` (8080).
 - **The CPU** is the `cpu0` block in `software/zcc/<name>/machine.toml`
   (`type = "8080" | "8085" | "z80"`). The build reads it to pick zcc's C
   library (`-clib=8080`, `-clib=8085` or `-clib=default` for the Z80), and the
-  work machine gets it as its CPU card. To retarget, edit that block, then run
-  `tools/altairsim/scripts/sync_pristine.sh --machine-only software/zcc/<name>/work`
-  so the emulator follows.
-- **The project needs its own `work/`.** If it's missing, create it with
-  `tools/altairsim/scripts/sync_pristine.sh software/zcc/<name>/work`.
+  work machine gets it as its CPU card. To retarget, edit that block and
+  rebuild. `build.sh` sees that `machine.toml` is newer and refreshes
+  `work/`'s machine (`sync_pristine.sh --machine-only`), so the emulator
+  follows.
+- **The project's `work/`** is created by `build.sh` if it's missing.
 
-## 1. Build on the host
+## 1. Build: the project's `build.sh`
 
 ```bash
-tools/z88dk/zccbuild.sh software/zcc/<name>
+software/zcc/<name>/build.sh
 ```
 
-- It prints `zcc: <NAME> for <cpu> (<modules>)`, then the `.COM` size. Any
-  error exits non-zero and deletes `build/<NAME>.COM`. Fix errors here; don't
-  go near the emulator until it builds.
+- **First, make sure the MCP server hasn't got this project's `work/`
+  loaded** (`monitor {command: "SHOW MOUNTS"}`). If it has, close that
+  session out (step 4) before building: two altairsims must never write one
+  disk.
+- What it does:
+  1. creates or refreshes `work/`;
+  2. runs `tools/z88dk/zccbuild.sh` on the host;
+  3. puts `build/<NAME>.COM` on the project's `A:` with a headless altairsim
+     (`tools/altairsim/scripts/cpmsession.py`, not the MCP server), plus
+     anything its `cpmbuild.conf` names with `put` (dxfview's `dxf/`
+     drawings);
+  4. unmounts, and checks the disks.
+- `zccbuild.sh` prints `zcc: <NAME> for <cpu> (<modules>)`, then the `.COM`
+  size. Any error exits non-zero and deletes `build/<NAME>.COM`. Fix errors
+  here; don't go near the emulator until it builds.
+- `tools/z88dk/zccbuild.sh software/zcc/<name>` alone is a host-only build.
+  Its `.COM` then still needs the `R` in step 2.
 - Compiler messages name files relative to `src/` (`chello.c:12:5: ...`).
 - Its own errors and warnings:
   - `zcc only accepts lowercase .c/.h`: rename the file.
@@ -56,19 +70,27 @@ tools/z88dk/zccbuild.sh software/zcc/<name>
 - `error: ... outside $HOME`: the z88dk snap can only see non-hidden paths
   under `$HOME` (never `/tmp`).
 
-## 2. Boot the project's machine, copy the `.COM` in, run it
+## 2. Boot the project's machine and run it
 
 The altairsim MCP tools must be loaded (`mcp__altairsim__run`). If they
 aren't, point the user at `tools/altairsim/README.md`'s "Starting a
 session".
 
+`build.sh` already put the `.COM` on `A:`:
+
 ```
 monitor {command: "SHOW MOUNTS"}
 monitor {command: "CONFIG LOAD <repo-root>/software/zcc/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>", timeout_ms: 10000}
+run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
+```
+
+After a host-only `zccbuild.sh`, copy the `.COM` in by hand before running
+it:
+
+```
 monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/zcc/<name>/build"}
 run {input: "R <NAME>.COM\r", until: "A0>", timeout_ms: 15000}
-run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
 ```
 
 - **Never `CONFIG LOAD` or `MOUNT` anything under

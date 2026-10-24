@@ -1,6 +1,6 @@
 ---
 name: cadzilla-build-z88dk
-description: Builds, runs and debugs a CADzilla software project that uses the z88dk host toolchain -- a <NAME>.Z88 source in Intel (8080) and/or Zilog (Z80) mnemonics, assembled on the HOST by z88dk's z80asm via tools/z88dk/z88build.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, all through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .Z88 file (software/z88dk/zhello, software/z88dk/z88demo, anything scaffolded with --toolchain z88dk), retarget one to another CPU, draw with the cz88gfx graphics library (INCLUDE "CZ88GFX.INC", cz88gfx.version pin), change, rebuild or release cz88gfx itself (software/z88dk/cz88gfx), port czgfx/M80 drawing code to z80asm, or asks about assembling for the 8085 or Z80, mixing Intel and Zilog mnemonics, or cross-assembling on the host. For .ASM projects use cadzilla-build-asm; for .MAC projects use cadzilla-build-m80; for C (.c) projects, even ones with .Z88 modules, use cadzilla-build-zcc; for DRI RMAC + LINK projects (.ASM modules with a <NAME>.SUB) use cadzilla-build-rmac.
+description: Builds, runs and debugs a CADzilla software project that uses the z88dk host toolchain -- a <NAME>.Z88 source in Intel (8080) and/or Zilog (Z80) mnemonics, assembled on the HOST by z88dk's z80asm via tools/z88dk/z88build.sh for the 8080, 8085 or Z80 named in the project's machine.toml, then copied onto the project's own CP/M disk with R and run on an altairsim machine carrying that same CPU, built by the project's build.sh and run and debugged through the altairsim MCP server. Use this whenever the user wants to build, rebuild, run, test or debug a CADzilla program whose source is a .Z88 file (software/z88dk/zhello, software/z88dk/z88demo, anything scaffolded with --toolchain z88dk), retarget one to another CPU, draw with the cz88gfx graphics library (INCLUDE "CZ88GFX.INC", cz88gfx.version pin), change, rebuild or release cz88gfx itself (software/z88dk/cz88gfx), port czgfx/M80 drawing code to z80asm, or asks about assembling for the 8085 or Z80, mixing Intel and Zilog mnemonics, or cross-assembling on the host. For .ASM projects use cadzilla-build-asm; for .MAC projects use cadzilla-build-m80; for C (.c) projects, even ones with .Z88 modules, use cadzilla-build-zcc; for DRI RMAC + LINK projects (.ASM modules with a <NAME>.SUB) use cadzilla-build-rmac.
 ---
 
 # Build a CADzilla project with z88dk (host cross-assembler)
@@ -22,10 +22,10 @@ z80asm port of czgfx (`software/z88dk/cz88gfx/README.md`). Its reference is
 - **The CPU** is the `cpu0` block in `software/z88dk/<name>/machine.toml`
   (`type = "8080" | "8085" | "z80"`). The build reads it for z80asm's `-m`
   flag, and the work machine gets it as its CPU card. To retarget, edit that
-  block, then run `tools/altairsim/scripts/sync_pristine.sh --machine-only
-  software/z88dk/<name>/work` so the emulator follows.
-- **The project needs its own `work/`.** If it's missing, create it with
-  `tools/altairsim/scripts/sync_pristine.sh software/z88dk/<name>/work`.
+  block and rebuild. `build.sh` sees that `machine.toml` is newer and
+  refreshes `work/`'s machine (`sync_pristine.sh --machine-only`), so the
+  emulator follows.
+- **The project's `work/`** is created by `build.sh` if it's missing.
 - **The cz88gfx pin**, for a project that draws, is
   `software/z88dk/<name>/cz88gfx.version`: a release (`1.0`, from
   `software/z88dk/cz88gfx/releases/`) or `dev` (the library's own current build).
@@ -33,15 +33,27 @@ z80asm port of czgfx (`software/z88dk/cz88gfx/README.md`). Its reference is
   uses `dev` and `software/z88dk/cz88gfx/src/` changed, rebuild the library first
   (below).
 
-## 1. Build on the host
+## 1. Build: the project's `build.sh`
 
 ```bash
-tools/z88dk/z88build.sh software/z88dk/<name>
+software/z88dk/<name>/build.sh
 ```
 
-- It prints `z88dk: <NAME> for <cpu>`, then the `.COM` size. Any error exits
-  non-zero, deletes `build/<NAME>.COM`, and leaves the listings in `build/`.
-  Fix errors here; don't go near the emulator until it builds.
+- **First, make sure the MCP server hasn't got this project's `work/`
+  loaded** (`monitor {command: "SHOW MOUNTS"}`). If it has, close that
+  session out (step 4) before building: two altairsims must never write one
+  disk.
+- What it does:
+  1. creates or refreshes `work/`;
+  2. runs `tools/z88dk/z88build.sh` on the host;
+  3. puts `build/<NAME>.COM` on the project's `A:` with a headless altairsim
+     (`tools/altairsim/scripts/cpmsession.py`, not the MCP server);
+  4. unmounts, and checks the disks.
+- `z88build.sh` prints `z88dk: <NAME> for <cpu>`, then the `.COM` size. Any
+  error exits non-zero, deletes `build/<NAME>.COM`, and leaves the listings
+  in `build/`. Fix errors here; don't go near the emulator until it builds.
+- `tools/z88dk/z88build.sh software/z88dk/<name>` alone is a host-only build.
+  Its `.COM` then still needs the `R` in step 2.
 - Read the warnings:
   - `JP x is z80asm's unconditional jump` / `CP x is z80asm's compare`: the
     file uses Intel mnemonics, and z80asm gives these two their Zilog meaning.
@@ -102,19 +114,27 @@ software/z88dk/cz88gfx/tools/build.sh      # -> software/z88dk/cz88gfx/build/CZ8
 - Leave czgfx (`software/m80/czgfx/`, M80) alone: it is the separate
   period-tools library, and the two share no files.
 
-## 2. Boot the project's machine, copy the `.COM` in, run it
+## 2. Boot the project's machine and run it
 
 The altairsim MCP tools must be loaded (`mcp__altairsim__run`). If they
 aren't, point the user at `tools/altairsim/README.md`'s "Starting a
 session".
 
+`build.sh` already put the `.COM` on `A:`:
+
 ```
 monitor {command: "SHOW MOUNTS"}
 monitor {command: "CONFIG LOAD <repo-root>/software/z88dk/<name>/work/cadzilla.toml"}
 run {from: 0xFF00, until: "A0>", timeout_ms: 10000}
+run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
+```
+
+After a host-only `z88build.sh`, copy the `.COM` in by hand before running
+it:
+
+```
 monitor {command: "SET hb0 HOSTDIR=<repo-root>/software/z88dk/<name>/build"}
 run {input: "R <NAME>.COM\r", until: "A0>", timeout_ms: 15000}
-run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
 ```
 
 - **Never `CONFIG LOAD` or `MOUNT` anything under

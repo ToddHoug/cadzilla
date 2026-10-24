@@ -274,6 +274,23 @@ fi
 mkdir -p "$PROJECT_DIR/src" "$PROJECT_DIR/include" "$PROJECT_DIR/build"
 touch "$PROJECT_DIR/include/.gitkeep" "$PROJECT_DIR/build/.gitkeep"
 
+# The project's own build command, tracked: tools/build.sh run on itself
+# (work/ machine and disks, the program, the program onto A:).
+WRAPPER="$PROJECT_DIR/build.sh"
+if [ ! -e "$WRAPPER" ]; then
+  cat > "$WRAPPER" <<'EOF'
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Todd Houg
+#
+# Build this project -- its work/ machine and disks, and its program -- with
+# tools/build.sh. Options: --clean (re-sync work/ from pristine first),
+# --verbose (echo the CP/M session).
+exec "$(dirname "${BASH_SOURCE[0]}")/../../../tools/build.sh" "$(dirname "${BASH_SOURCE[0]}")" "$@"
+EOF
+  chmod +x "$WRAPPER"
+fi
+
 # The project's own board straps, tracked in git: above all the monitor
 # resolution, which the program's code has to agree with. Written before the
 # work/ sync below so the overlay goes straight into work/cadzilla.toml.
@@ -796,6 +813,7 @@ else
 fi
 echo "  include/.gitkeep"
 echo "  build/.gitkeep"
+echo "  build.sh            (tracked: builds the project -- work/ disks, program, onto A:)"
 if [ "$TOOLCHAIN" = "z88dk" ] || [ "$TOOLCHAIN" = "zcc" ]; then
   echo "  machine.toml        (tracked: cad0 mode = $MODE, cpu0 = $CPU)"
   if [ -f "$PROJECT_DIR/cz88gfx.version" ] && [ "$TOOLCHAIN" = "z88dk" ]; then
