@@ -58,7 +58,31 @@ could never have put together on my own.
 The software runs under CP/M 2.2 on altairsim, an Altair/S-100 simulator
 with a CADzilla board. Requirements:
 - altairsim, built at `~/altairsim/build/altairsim`, on `PATH`, or named
-  by `$ALTAIRSIM`;
+  by `$ALTAIRSIM`.
+  - **To see the graphics, altairsim must be built with SDL3**, with an X11
+    or Wayland backend.
+  - Without SDL3 it builds headless: everything here still builds and runs,
+    but no video window ever opens.
+  - `altairsim -n -x 'SHOW VERSION'` says which build you have. Its `video`
+    row should read `SDL3 -- windowed (...)`, not
+    `none -- headless (null display)`.
+  - To fix it, build SDL3 with altairsim's own script and link it in
+    statically. The headers are listed in altairsim's
+    `docs/building-linux.md`; `libxtst-dev` is required, and without the
+    X11/Wayland ones SDL3 gets no window backend:
+    ```bash
+    sudo apt-get install -y build-essential cmake git ninja-build pkg-config \
+      libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
+      libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev wayland-protocols \
+      libdecor-0-dev libasound2-dev libpulse-dev
+    cd ~/altairsim
+    tools/build-sdl3-static.sh           # SDL3, pinned version, into ~/opt/sdl3-static
+    cmake -S . -B build -DCMAKE_PREFIX_PATH=$HOME/opt/sdl3-static
+    cmake --build build
+    ```
+    The configure step should report
+    `SDL3 found -- video boards enabled (windowed)`;
+- a desktop session, for the window: it can't open over plain ssh;
 - bash 4.4 or later, python3 and GNU coreutils;
 - z88dk, for the z88dk and zcc projects only:
   `sudo snap install z88dk --edge`. The snap only sees paths under `$HOME`,

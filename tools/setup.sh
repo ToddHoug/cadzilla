@@ -82,6 +82,22 @@ if [ -x "$ALTAIRSIM_BIN" ]; then
   else
     miss altairsim "$ALTAIRSIM_BIN is too old (no cadzilla board with draw_rate): rebuild it"
   fi
+  # The CADzilla video window needs an altairsim built with SDL3 and a real
+  # windowing backend (X11/Wayland). Without one it builds headless: every
+  # build here still works, but a program's graphics are never shown.
+  # SHOW VERSION's video row says which (altairsim's docs/devguide/building.md).
+  video="$("$ALTAIRSIM_BIN" -n -x 'SHOW VERSION' 2>/dev/null | sed -n 's/^[[:space:]]*video[[:space:]]*//p')"
+  case "$video" in
+    *windowed*)
+      ok video "$video"
+      if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        opt video "no DISPLAY or WAYLAND_DISPLAY here (ssh?): the window opens only in a desktop session"
+      fi
+      ;;
+    *)
+      printf '  %-10s warning  %s\n' video "${video:-unknown} -- builds work, but no graphics window. Build SDL3 with altairsim's tools/build-sdl3-static.sh (needs the X11/Wayland dev packages in its docs/building-linux.md), then rebuild altairsim with -DCMAKE_PREFIX_PATH=\$HOME/opt/sdl3-static; README.md, \"Getting started\", has the steps"
+      ;;
+  esac
 else
   miss altairsim "not found: build it at ~/altairsim/build/altairsim, put it on PATH, or set \$ALTAIRSIM"
 fi
