@@ -1,0 +1,546 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; REPORT.Z88 -- czdiag: PASS/FAIL reporting, and 32-bit arithmetic
+;
+; A test is TBEGIN (its name), any number of TMISM/TMSG (each one an
+; error), then TEND, which prints one line:
+;
+;   PASS <name>
+;   FAIL <name> (<n> errors)
+;
+; The first few errors are printed above it, one line each:
+;
+;   ! <name> at <addr>: wrote <w> read <r> diff <w xor r> [note]
+;
+; so a run's output can be grepped (PASS/FAIL/INFO at a line's start).
+;
+        INCLUDE "CZDIAG.INC"
+;
+        PUBLIC  TBEGIN,TBEGB,TMISM,TMSG,TEND,PINFO,TSUMRY,TSTAT
+        PUBLIC  TEXP,TGOT,TAT,TATW,TNOTE,NPASS,NFAIL,SFAIL,TERRN
+        PUBLIC  ACC32,OP32,REM32,SET32,ADD32,SUB32,CPY32,MUL16,DIV32
+        PUBLIC  PDEC32,PFIX3,LDOP
+        EXTERN  PCHR,PSTR,PMSG,CRLF,PSPC,PHEX2,PHEX4,PDEC
+        EXTERN  TOFLG,TOSR,ABORT
+;
+MAXSHOW EQU     4               ;errors printed per test
+;
+; TBEGIN -- start the test named by the $-string at DE: 16-bit values,
+; 4-digit addresses, no note. TBEGB is the same for 8-bit values.
+;
+TBEGB:  PUSH    PSW
+        MVI     A,2
+        JMP     TBEG1
+TBEGIN: PUSH    PSW
+        MVI     A,4
+TBEG1:  STA     TWID
+        MVI     A,4
+        STA     TATW
+        PUSH    H
+        XCHG
+        SHLD    TNAME
+        XCHG
+        LXI     H,0
+        SHLD    TERRN
+        SHLD    TNOTE
+        SHLD    TAT
+        XRA     A
+        STA     TAT+2
+        STA     TOFLG
+        POP     H
+        POP     PSW
+        RET
+;
+; TMISM -- one error: wrote TEXP, read TGOT, at TAT (TATW digits);
+; TNOTE, if not 0, is called to print more about it (TAT etc. in hand).
+; Preserves all registers.
+;
+TMISM:  PUSH    PSW
+        PUSH    B
+        PUSH    D
+        PUSH    H
+        CALL    TCOUNT
+        JNC     TMISMX
+        CALL    TBANG
+        CALL    PMSG
+        DB      " at $"
+        LDA     TATW
+        CPI     5
+        JC      TMIS4
+        LDA     TAT+2
+        CALL    PHEX1X
+TMIS4:  LHLD    TAT
+        LDA     TATW
+        CPI     2
+        JNZ     TMIS4B
+        MOV     A,L
+        CALL    PHEX2
+        JMP     TMIS5
+TMIS4B: CALL    PHEX4
+TMIS5:  CALL    PMSG
+        DB      ": wrote $"
+        LHLD    TEXP
+        CALL    PVAL
+        CALL    PMSG
+        DB      " read $"
+        LHLD    TGOT
+        CALL    PVAL
+        CALL    PMSG
+        DB      " diff $"
+        LDA     TEXP
+        MOV     B,A
+        LDA     TGOT
+        XRA     B
+        MOV     L,A
+        LDA     TEXP+1
+        MOV     B,A
+        LDA     TGOT+1
+        XRA     B
+        MOV     H,A
+        CALL    PVAL
+        LHLD    TNOTE
+        MOV     A,H
+        ORA     L
+        JZ      TMISNL
+        CALL    PSPC
+        LXI     D,TMISNL        ;call the note, returning to TMISNL
+        PUSH    D
+        PCHL
+TMISNL: CALL    CRLF
+TMISMX: POP     H
+        POP     D
+        POP     B
+        POP     PSW
+        RET
+;
+PHEX1X: PUSH    PSW             ;one hex digit (an address's bits 19-16)
+        ANI     0FH
+        ADI     '0'
+        CPI     '9'+1
+        JC      PHX1
+        ADI     7
+PHX1:   CALL    PCHR
+        POP     PSW
+        RET
+;
+; PVAL -- HL as 2 or 4 hex digits, as the test's width says
+;
+PVAL:   LDA     TWID
+        CPI     2
+        JNZ     PHEX4
+        MOV     A,L
+        JMP     PHEX2
+;
+; TMSG -- one error, described by the $-string at DE. Preserves all.
+;
+TMSG:   PUSH    PSW
+        PUSH    B
+        PUSH    D
+        PUSH    H
+        CALL    TCOUNT
+        JNC     TMISMX
+        PUSH    D
+        CALL    TBANG
+        CALL    PMSG
+        DB      ": $"
+        POP     D
+        CALL    PSTR
+        CALL    CRLF
+        JMP     TMISMX
+;
+; TCOUNT -- count an error: CY if it is to be printed. On the first
+; one past MAXSHOW, says the rest won't be.
+;
+TCOUNT: LHLD    TERRN
+        INX     H
+        MOV     A,H
+        ORA     L
+        JNZ     TCNT1
+        DCX     H               ;(stays at FFFFH)
+TCNT1:  SHLD    TERRN
+        MOV     A,H
+        ORA     A
+        RNZ                     ;NC: past MAXSHOW
+        MOV     A,L
+        CPI     MAXSHOW+1
+        RC
+        RNZ
+        CALL    TBANG
+        CALL    PMSG
+        DB      ": further errors not shown",CR,LF,"$"
+        ORA     A
+        RET
+;
+TBANG:  CALL    PMSG
+        DB      "  ! $"
+        LHLD    TNAME
+        XCHG
+        JMP     PSTR
+;
+; TEND -- end the test: a hardware timeout counts as one more error
+; (and aborts the ACRTC). Prints PASS or FAIL and counts it.
+; Returns Z for PASS, NZ for FAIL. Preserves BC, DE, HL.
+;
+TEND:   PUSH    B
+        PUSH    D
+        PUSH    H
+        LDA     TOFLG
+        ORA     A
+        JZ      TEND1
+        LXI     D,TOMSG
+        CALL    TMSG
+        CALL    PMSG            ;(the SR when it gave up)
+        DB      "    SR was $"
+        LDA     TOSR
+        CALL    PHEX2
+        CALL    CRLF
+        CALL    ABORT
+        XRA     A
+        STA     TOFLG
+TEND1:  LHLD    TERRN
+        MOV     A,H
+        ORA     L
+        JNZ     TENDF
+        CALL    PMSG
+        DB      "PASS $"
+        LHLD    TNAME
+        XCHG
+        CALL    PSTR
+        CALL    CRLF
+        LHLD    NPASS
+        INX     H
+        SHLD    NPASS
+        XRA     A               ;Z
+        JMP     TENDX
+TENDF:  CALL    PMSG
+        DB      "FAIL $"
+        LHLD    TNAME
+        XCHG
+        CALL    PSTR
+        CALL    PMSG
+        DB      " ($"
+        LHLD    TERRN
+        CALL    PDEC
+        CALL    PMSG
+        DB      " error$"
+        DCX     H
+        MOV     A,H
+        ORA     L
+        JZ      TENDF1
+        MVI     A,'s'
+        CALL    PCHR
+TENDF1: MVI     A,')'
+        CALL    PCHR
+        CALL    CRLF
+        LHLD    NFAIL
+        INX     H
+        SHLD    NFAIL
+        LHLD    SFAIL
+        INX     H
+        SHLD    SFAIL
+        ORI     1               ;NZ
+TENDX:  POP     H
+        POP     D
+        POP     B
+        RET
+;
+TOMSG:  DB      "ACRTC timeout -- it stopped answering$"
+;
+; PINFO -- print "  INFO " and the $-string after the CALL, then a new
+; line:   CALL PINFO / DB "text$"
+;
+PINFO:  XTHL
+        PUSH    PSW
+        CALL    PMSG
+        DB      "INFO $"
+PINFL:  MOV     A,M
+        INX     H
+        CPI     '$'
+        JZ      PINFX
+        CALL    PCHR
+        JMP     PINFL
+PINFX:  CALL    CRLF
+        POP     PSW
+        XTHL
+        RET
+;
+; TSUMRY -- the totals line
+;
+TSUMRY: CALL    PMSG
+        DB      "czdiag: $"
+        LHLD    NPASS
+        CALL    PDEC
+        CALL    PMSG
+        DB      " passed, $"
+        LHLD    NFAIL
+        CALL    PDEC
+        CALL    PMSG
+        DB      " failed",CR,LF,"$"
+        RET
+;
+; TSTAT -- A = 0 if this test has no error yet, else NZ (TERRN or a
+; timeout). Preserves BC, DE, HL.
+;
+TSTAT:  PUSH    H
+        LHLD    TERRN
+        MOV     A,H
+        ORA     L
+        POP     H
+        RNZ
+        LDA     TOFLG
+        ORA     A
+        RET
+;
+TNAME:  DW      0
+TERRN:  DW      0               ;errors in this test
+TWID:   DB      4               ;value digits: 2 or 4
+TATW:   DB      4               ;address digits: 2, 4 or 5
+TNOTE:  DW      0               ;routine printing more about an error
+TEXP:   DW      0
+TGOT:   DW      0
+TAT:    DB      0,0,0           ;the address, up to 20 bits
+NPASS:  DW      0
+NFAIL:  DW      0
+SFAIL:  DW      0               ;failures in the current stage
+;
+; ---- 32-bit arithmetic: little-endian 4-byte operands in memory ----
+;
+; SET32 -- (HL) = DE, zero-extended
+;
+SET32:  PUSH    H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        MVI     M,0
+        INX     H
+        MVI     M,0
+        POP     H
+        RET
+;
+; LDOP -- OP32 = DE
+;
+LDOP:   PUSH    H
+        LXI     H,OP32
+        CALL    SET32
+        POP     H
+        RET
+;
+; CPY32 -- (HL) = (DE)
+;
+CPY32:  PUSH    B
+        PUSH    D
+        PUSH    H
+        MVI     B,4
+CPY32L: LDAX    D
+        MOV     M,A
+        INX     D
+        INX     H
+        DCR     B
+        JNZ     CPY32L
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; ADD32 -- (HL) += (DE); CY out
+;
+ADD32:  PUSH    B
+        PUSH    D
+        PUSH    H
+        MVI     B,4
+        ORA     A
+ADD32L: LDAX    D
+        ADC     M
+        MOV     M,A
+        INX     D
+        INX     H
+        DCR     B
+        JNZ     ADD32L
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; SUB32 -- (HL) -= (DE); CY = borrow
+;
+SUB32:  PUSH    B
+        PUSH    D
+        PUSH    H
+        MVI     B,4
+        ORA     A
+SUB32L: LDAX    D
+        MOV     C,A
+        MOV     A,M
+        SBB     C
+        MOV     M,A
+        INX     D
+        INX     H
+        DCR     B
+        JNZ     SUB32L
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; RL32 -- (HL) = (HL) * 2 + CY; CY = the bit shifted out
+;
+RL32:   PUSH    B
+        PUSH    H
+        MVI     B,4
+RL32L:  MOV     A,M
+        RAL
+        MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     RL32L
+        POP     H
+        POP     B
+        RET
+;
+; MUL16 -- ACC32 = ACC32 * DE (the low 32 bits). Preserves BC, DE, HL.
+;
+MUL16:  PUSH    B
+        PUSH    D
+        PUSH    H
+        LXI     H,MTMP          ;MTMP = 0
+        PUSH    D
+        LXI     D,0
+        CALL    SET32
+        POP     D
+        MVI     B,16
+MULL:   LXI     H,MTMP          ;MTMP *= 2
+        ORA     A
+        CALL    RL32
+        XCHG                    ;next bit of DE, from the top
+        DAD     H
+        XCHG
+        JNC     MULN
+        LXI     H,MTMP
+        PUSH    D
+        LXI     D,ACC32
+        CALL    ADD32
+        POP     D
+MULN:   DCR     B
+        JNZ     MULL
+        LXI     H,ACC32
+        LXI     D,MTMP
+        CALL    CPY32
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; DIV32 -- ACC32 = ACC32 / OP32, REM32 = the remainder (OP32 <> 0).
+; Preserves BC, DE, HL.
+;
+DIV32:  PUSH    B
+        PUSH    D
+        PUSH    H
+        LXI     H,REM32
+        LXI     D,0
+        CALL    SET32
+        MVI     B,32
+DIVL:   LXI     H,ACC32         ;REM:ACC shifted left one
+        ORA     A
+        CALL    RL32
+        LXI     H,REM32
+        CALL    RL32
+        LXI     H,MTMP          ;REM >= OP?
+        LXI     D,REM32
+        CALL    CPY32
+        LXI     D,OP32
+        CALL    SUB32
+        JC      DIVN
+        LXI     H,REM32         ;yes: REM -= OP, quotient bit 1
+        LXI     D,MTMP
+        CALL    CPY32
+        LDA     ACC32
+        ORI     1
+        STA     ACC32
+DIVN:   DCR     B
+        JNZ     DIVL
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; PDEC32 -- print ACC32 in decimal (ACC32 is destroyed)
+;
+PDEC32: PUSH    B
+        PUSH    D
+        PUSH    H
+        LXI     D,10
+        CALL    LDOP
+        MVI     B,0
+PD32L:  CALL    DIV32
+        LDA     REM32
+        PUSH    PSW
+        INR     B
+        LXI     H,ACC32         ;until the quotient is 0
+        MOV     A,M
+        INX     H
+        ORA     M
+        INX     H
+        ORA     M
+        INX     H
+        ORA     M
+        JNZ     PD32L
+PD32O:  POP     PSW
+        ADI     '0'
+        CALL    PCHR
+        DCR     B
+        JNZ     PD32O
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; PFIX3 -- print ACC32 / 1000 with three decimals, e.g. 65000 as
+; 65.000 (ACC32 is destroyed)
+;
+PFIX3:  PUSH    B
+        PUSH    D
+        LXI     D,1000
+        CALL    LDOP
+        CALL    DIV32
+        LHLD    REM32           ;(< 1000: 16 bits)
+        PUSH    H
+        CALL    PDEC32
+        MVI     A,'.'
+        CALL    PCHR
+        POP     H
+        LXI     D,100           ;three digits, zeros kept
+        CALL    PDIG
+        LXI     D,10
+        CALL    PDIG
+        MOV     A,L
+        ADI     '0'
+        CALL    PCHR
+        POP     D
+        POP     B
+        RET
+;
+; PDIG -- print HL / DE (one digit), HL = the remainder
+;
+PDIG:   MVI     A,'0'
+PDIGL:  PUSH    PSW
+        MOV     A,L
+        SUB     E
+        MOV     C,A
+        MOV     A,H
+        SBB     D
+        JC      PDIGX
+        MOV     H,A
+        MOV     L,C
+        POP     PSW
+        INR     A
+        JMP     PDIGL
+PDIGX:  POP     PSW
+        JMP     PCHR
+;
+ACC32:  DB      0,0,0,0
+OP32:   DB      0,0,0,0
+REM32:  DB      0,0,0,0
+MTMP:   DB      0,0,0,0

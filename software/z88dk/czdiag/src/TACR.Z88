@@ -1,0 +1,744 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; TACR.Z88 -- czdiag stages ACRTC and FIFO: the HD63484's host interface
+;
+; ACRTC: AR and the control registers, read back directly. With the
+; display stopped (STR=0), every bit of the timing and display-control
+; RAM is walked, which also walks D0-D7 of the 8-bit host bus through
+; both halves of each register. Then the real mode is loaded and read
+; back.
+;
+; FIFO: the drawing parameter registers and pattern RAM, written and
+; read through the FIFOs with WPR/RPR and WPTN/RPTN; command end; the
+; FIFO status flags, by filling both FIFOs; and a command error.
+;
+        INCLUDE "CZDIAG.INC"
+;
+        PUBLIC  SACR,SFIFO,ACRGO,ENSURE,PAT16,NPAT16
+        EXTERN  TBEGIN,TBEGB,TMISM,TMSG,TEND,TSTAT,PINFO,TEXP,TGOT,TAT,TATW
+        EXTERN  PMSG,PSTR,PHEX2,PHEX4,PDEC,CRLF
+        EXTERN  WREG,RREG,WRTAB,PUTW,GETW,WAITB,WCED,WCEDS,ABORT,DRAIN
+        EXTERN  WPR,RPR,TOFLG,LSR,CCRSH
+        EXTERN  LDMODE,LDDPAR,CLS,MDWORD,MODELD,RPRE,RPOST
+;
+NPAT16  EQU     36              ;walking 1s, walking 0s, 0, FFFF, 5555, AAAA
+;
+; ACRGO -- before the first ACRTC access: the warning, then the status
+; register as found
+;
+ACRGO:  LDA     WARNED
+        ORA     A
+        RNZ
+        INR     A
+        STA     WARNED
+        CALL    PMSG
+        DB      "INFO first ACRTC access. If the machine hangs here, the ACRTC",CR,LF
+        DB      "INFO never answered (~DTACK holds S-100 RDY): no 2CLK -- check",CR,LF
+        DB      "INFO Y1, U48 (2CLK), U45 (CS, RDY) and SW1 (base address)",CR,LF,"$"
+        IN      ACRSR
+        CPI     0FFH            ;every flag at once can't be: nobody drove
+        JZ      ACRFLT          ;  the bus
+        PUSH    PSW
+        CALL    PMSG
+        DB      "INFO it answered: 2CLK is running, and so is Y1. SR = $"
+        POP     PSW
+        CALL    PHEX2
+        JMP     CRLF
+ACRFLT: CALL    PINFO
+        DB      "SR reads FF: the bus floats -- no ACRTC at this base? (SW1)$"
+        RET
+;
+; ENSURE -- the mode loaded, for a stage run on its own
+;
+ENSURE: CALL    ACRGO
+        LDA     MODELD
+        ORA     A
+        RNZ
+        CALL    LDMODE
+        JMP     CLS
+;
+; ======== stage ACRTC ========
+;
+SACR:   CALL    PMSG
+        DB      "-- ACRTC host interface (the display is stopped for it)",CR,LF,"$"
+        CALL    ACRGO
+        CALL    TIDLE
+        LXI     H,RPRE          ;abort; stopped; screens off
+        CALL    WRTAB
+        XRA     A
+        STA     MODELD
+        LXI     D,NTIM          ;timing RAM r82-r9C
+        LXI     H,TIMREG
+        CALL    TWALK
+        LXI     D,NDSP          ;display-control RAM rC0-rEA
+        LXI     H,DSPREG
+        CALL    TWALK
+        CALL    TUNIQ
+        CALL    TAUTO
+        CALL    TCTRL
+        JMP     TMODE
+;
+; TIDLE -- abort, then the SR must be 23H (LPD aside: the board has no
+; light pen, so it is reported apart)
+;
+TIDLE:  LXI     D,NIDLE
+        CALL    TBEGB
+        CALL    ABORT
+        CALL    DRAIN
+        IN      ACRSR
+        MOV     B,A
+        ANI     SRLPD
+        JZ      TIDLE1
+        CALL    PINFO
+        DB      "LPD is set: is LPSTB (U1) tied inactive?$"
+TIDLE1: MOV     A,B
+        ANI     0FFH-SRLPD
+        MOV     L,A
+        MVI     H,0
+        SHLD    TGOT
+        MVI     L,SRIDLE
+        SHLD    TEXP
+        MVI     L,0
+        SHLD    TAT
+        MVI     A,2
+        STA     TATW
+        MOV     A,B
+        ANI     0FFH-SRLPD
+        CPI     SRIDLE
+        CNZ     TMISM
+        JMP     TEND
+;
+; TWALK -- the test named at DE: every register in the 0FFH-ended list
+; at HL gets each of the NPAT16 patterns, written and read back
+;
+TWALK:  CALL    TBEGIN
+        MVI     A,2
+        STA     TATW
+TWALKR: MOV     A,M
+        CPI     0FFH
+        JZ      TEND
+        MOV     B,A             ;B = the register
+        PUSH    H
+        LXI     D,PAT16
+        MVI     C,NPAT16
+TWALKP: XCHG                    ;HL = the pattern
+        MOV     A,M
+        INX     H
+        PUSH    H
+        MOV     H,M
+        MOV     L,A
+        SHLD    TEXP
+        CALL    WREG
+        CALL    RREG
+        CALL    CHKREG
+        POP     H
+        INX     H
+        XCHG
+        DCR     C
+        JNZ     TWALKP
+        POP     H
+        INX     H
+        JMP     TWALKR
+;
+; CHKREG -- HL (read) against TEXP, register B. Preserves all.
+;
+CHKREG: PUSH    PSW
+        PUSH    D
+        PUSH    H
+        SHLD    TGOT
+        XCHG
+        LHLD    TEXP
+        MOV     A,L
+        CMP     E
+        JNZ     CHKRE
+        MOV     A,H
+        CMP     D
+        JZ      CHKRX
+CHKRE:  MOV     L,B
+        MVI     H,0
+        SHLD    TAT
+        CALL    TMISM
+CHKRX:  POP     H
+        POP     D
+        POP     PSW
+        RET
+;
+; TUNIQ -- a different value in every register first, then all read:
+; a register that answers for another (an AR decode fault) shows here
+;
+TUNIQ:  LXI     D,NUNIQ
+        CALL    TBEGIN
+        MVI     A,2
+        STA     TATW
+        LXI     H,TIMREG
+        CALL    UNIQW
+        LXI     H,DSPREG
+        CALL    UNIQW
+        LXI     H,TIMREG
+        CALL    UNIQR
+        LXI     H,DSPREG
+        CALL    UNIQR
+        JMP     TEND
+;
+UNIQW:  MOV     A,M
+        CPI     0FFH
+        RZ
+        MOV     B,A
+        PUSH    H
+        CALL    UNIQV
+        CALL    WREG
+        POP     H
+        INX     H
+        JMP     UNIQW
+UNIQR:  MOV     A,M
+        CPI     0FFH
+        RZ
+        MOV     B,A
+        PUSH    H
+        CALL    UNIQV
+        SHLD    TEXP
+        CALL    RREG
+        CALL    CHKREG
+        POP     H
+        INX     H
+        JMP     UNIQR
+;
+UNIQV:  MOV     H,B             ;HL = register B's own value: B, NOT B
+        MOV     A,B
+        CMA
+        MOV     L,A
+        RET
+;
+; TAUTO -- AR steps by itself through r80-rFF, on writes and reads,
+; and stays put below r80
+;
+TAUTO:  LXI     D,NAUTO
+        CALL    TBEGIN
+        MVI     A,2
+        STA     TATW
+        MVI     A,82H           ;four bytes from r82, one AR write
+        OUT     ACRSR
+        MVI     A,12H
+        OUT     ACRDAT
+        MVI     A,34H
+        OUT     ACRDAT
+        MVI     A,56H
+        OUT     ACRDAT
+        MVI     A,78H
+        OUT     ACRDAT
+        MVI     B,82H
+        LXI     H,1234H
+        SHLD    TEXP
+        CALL    RREG
+        CALL    CHKREG
+        MVI     B,84H
+        LXI     H,5678H
+        SHLD    TEXP
+        CALL    RREG
+        CALL    CHKREG
+        MVI     B,88H           ;and four read back from r88 the same way
+        LXI     H,9ABCH
+        CALL    WREG
+        MVI     B,8AH
+        LXI     H,0DEF0H
+        CALL    WREG
+        MVI     A,88H
+        OUT     ACRSR
+        IN      ACRDAT
+        MOV     H,A
+        IN      ACRDAT
+        MOV     L,A
+        MVI     B,88H
+        PUSH    H
+        LXI     H,9ABCH
+        SHLD    TEXP
+        POP     H
+        CALL    CHKREG
+        IN      ACRDAT
+        MOV     H,A
+        IN      ACRDAT
+        MOV     L,A
+        MVI     B,8AH
+        PUSH    H
+        LXI     H,0DEF0H
+        SHLD    TEXP
+        POP     H
+        CALL    CHKREG
+        MVI     B,RDCR          ;r07 twice: no step, so r07 gets both
+        LXI     H,0000H
+        CALL    WREG
+        MVI     A,RDCR+1
+        OUT     ACRSR
+        MVI     A,11H
+        OUT     ACRDAT
+        MVI     A,22H
+        OUT     ACRDAT
+        XRA     A
+        OUT     ACRSR
+        LXI     H,0022H
+        SHLD    TEXP
+        CALL    RREG
+        CALL    CHKREG
+        JMP     TEND
+;
+; TCTRL -- the low control registers, with only safe values: DCR's
+; ATR byte (free: the board uses no attributes) walked, its screen
+; enables off; CCR's GBM through 0-4, interrupts never enabled (SW1-8
+; may connect them to the bus); OMR's bits 13-0 walked, M/S kept 1,
+; STR kept 0.
+;
+TCTRL:  LXI     D,NCTRL
+        CALL    TBEGIN
+        MVI     A,2
+        STA     TATW
+        MVI     B,RDCR
+        LXI     D,PAT16         ;the patterns' low bytes
+        MVI     C,NPAT16
+TCTRLD: LDAX    D
+        MOV     L,A
+        MVI     H,0
+        INX     D
+        INX     D
+        CALL    TRW
+        DCR     C
+        JNZ     TCTRLD
+        LXI     H,0000H
+        CALL    WREG
+        MVI     B,RCCR
+        LXI     H,0000H         ;GBM 0..4
+TCTRLC: CALL    TRW
+        INR     H
+        MOV     A,H
+        CPI     5
+        JNZ     TCTRLC
+        LXI     H,CCR8BP
+        CALL    WREG
+        MVI     B,ROMR
+        LXI     D,0001H         ;one bit at a time, 0-13
+TCTRLO: MOV     A,D
+        ORI     80H             ;M/S
+        MOV     H,A
+        MOV     L,E
+        CALL    TRW
+        XCHG
+        DAD     H
+        XCHG
+        MOV     A,D
+        CPI     40H             ;up to bit 13
+        JNZ     TCTRLO
+        LXI     H,OMRSTP
+        CALL    TRW
+        JMP     TEND
+;
+; TRW -- write HL to register B and read it back. Preserves all.
+;
+TRW:    PUSH    H
+        SHLD    TEXP
+        CALL    WREG
+        CALL    RREG
+        CALL    CHKREG
+        POP     H
+        RET
+;
+; TMODE -- load the mode and read every register back
+;
+TMODE:  LXI     D,NMODE
+        CALL    TBEGIN
+        MVI     A,2
+        STA     TATW
+        CALL    LDMODE
+        MVI     A,MDRTAB
+        CALL    MDWORD
+        CALL    VFTAB
+        LXI     H,RPOST
+        CALL    VFTAB
+        CALL    TEND
+        JMP     CLS
+;
+; VFTAB -- read back each register of the table at HL
+;
+VFTAB:  MOV     A,M
+        INX     H
+        CPI     0FFH
+        RZ
+        MOV     B,A
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        INX     H
+        XCHG
+        SHLD    TEXP
+        CALL    RREG
+        CALL    CHKREG
+        XCHG
+        JMP     VFTAB
+;
+; ======== stage FIFO ========
+;
+SFIFO:  CALL    PMSG
+        DB      "-- ACRTC FIFOs and command interface",CR,LF,"$"
+        CALL    ENSURE
+        CALL    TIDLE
+        CALL    TPREG
+        CALL    TPRAM
+        CALL    TCMD
+        CALL    TFILL
+        CALL    TCER
+        CALL    ABORT           ;the drawing parameters as LDMODE left them
+        JMP     LDDPAR
+;
+; TPREG -- Pr00-Pr0D (colors, edge, mask, pattern control, area, RWP),
+; all patterns, WPR then RPR. Some bits always read 0 (manual Figure
+; 5.25): PRMASK has each register's readable ones.
+;
+TPREG:  LXI     D,NPREG
+        CALL    TBEGIN
+        MVI     A,2
+        STA     TATW
+        MVI     B,0             ;B = the parameter register
+TPREGR: LXI     D,PAT16
+        MVI     C,NPAT16
+TPREGP: XCHG
+        MOV     A,M
+        INX     H
+        PUSH    H
+        MOV     H,M
+        MOV     L,A
+        MOV     A,B
+        CALL    WPR
+        CALL    PRMSK           ;expected: the pattern, masked
+        SHLD    TEXP
+        MOV     A,B
+        CALL    RPR
+        CALL    CHKREG
+        POP     H
+        INX     H
+        XCHG
+        LDA     TOFLG           ;a dead FIFO: one timeout is enough
+        ORA     A
+        JNZ     TEND
+        DCR     C
+        JNZ     TPREGP
+        INR     B
+        MOV     A,B
+        CPI     0EH
+        JNZ     TPREGR
+        JMP     TEND
+;
+; PRMSK -- HL AND register B's PRMASK. Preserves BC, DE.
+;
+PRMSK:  PUSH    D
+        XCHG                    ;DE = the value
+        MOV     A,B
+        ADD     A
+        MOV     L,A
+        MVI     H,0
+        PUSH    D
+        LXI     D,PRMASK
+        DAD     D
+        POP     D
+        MOV     A,M
+        ANA     E
+        MOV     E,A
+        INX     H
+        MOV     A,M
+        ANA     D
+        MOV     D,A
+        XCHG
+        POP     D
+        RET
+;
+PRMASK: DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH,0FFFFH      ;CL0 CL1 CCMP EDG MASK
+        DW      0FFFFH,0F0F0H,0FFFFH                    ;PRC
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH             ;ADR
+        DW      0C0FFH,0FFF0H                           ;RWP
+;
+; TPRAM -- the 16-word pattern RAM: walking 1s, walking 0s, and a
+; value per word, each written with WPTN and read with RPTN
+;
+TPRAM:  LXI     D,NPRAM
+        CALL    TBEGIN
+        MVI     A,2
+        STA     TATW
+        MVI     B,0             ;B = the pass
+TPRAMP: LXI     H,OPWPTN
+        CALL    PUTW
+        LXI     H,32            ;(8-bit bus: n counts bytes)
+        CALL    PUTW
+        MVI     C,0             ;C = the word
+TPRAMW: CALL    PRAMV
+        CALL    PUTW
+        INR     C
+        MOV     A,C
+        CPI     16
+        JNZ     TPRAMW
+        CALL    WCEDS
+        LXI     H,OPRPTN
+        CALL    PUTW
+        LXI     H,16            ;(n counts words)
+        CALL    PUTW
+        MVI     C,0
+TPRAMR: CALL    PRAMV
+        SHLD    TEXP
+        CALL    GETW
+        PUSH    B
+        MOV     B,C             ;(the word, as the "register")
+        CALL    CHKREG
+        POP     B
+        INR     C
+        MOV     A,C
+        CPI     16
+        JNZ     TPRAMR
+        CALL    WCEDS
+        LDA     TOFLG
+        ORA     A
+        JNZ     TEND
+        INR     B
+        MOV     A,B
+        CPI     3
+        JNZ     TPRAMP
+        JMP     TEND
+;
+; PRAMV -- HL = pass B's word C: 1 << C, NOT (1 << C), or C * 1111H
+; XOR 0A5C3H. Preserves BC, DE.
+;
+PRAMV:  MOV     A,B
+        CPI     2
+        JZ      PRAMU
+        LXI     H,1
+        MOV     A,C
+PRAML:  ORA     A
+        JZ      PRAMX
+        DAD     H
+        DCR     A
+        JMP     PRAML
+PRAMX:  MOV     A,B
+        ORA     A
+        RZ
+        MOV     A,H
+        CMA
+        MOV     H,A
+        MOV     A,L
+        CMA
+        MOV     L,A
+        RET
+PRAMU:  MOV     A,C
+        RLC
+        RLC
+        RLC
+        RLC
+        ORA     C               ;C * 11H
+        MOV     L,A
+        MOV     H,A
+        MOV     A,H
+        XRI     0A5H
+        MOV     H,A
+        MOV     A,L
+        XRI     0C3H
+        MOV     L,A
+        RET
+;
+; TCMD -- a command half sent has not ended (CED clear); sent whole it
+; has; and AMOVE moves CP, read back with RPR CPX/CPY
+;
+TCMD:   LXI     D,NCMD
+        CALL    TBEGIN
+        MVI     A,2
+        STA     TATW
+        LXI     H,OPAMOV
+        CALL    PUTW
+        IN      ACRSR
+        ANI     SRCED
+        LXI     D,MCEDH
+        CNZ     TMSG
+        LXI     H,0123H
+        CALL    PUTW
+        LXI     H,00ABH
+        CALL    PUTW
+        CALL    WCEDS
+        LXI     H,0123H
+        LXI     D,00ABH
+        CALL    CHKCP
+        LXI     H,OPAMOV        ;and a negative one
+        CALL    PUTW
+        LXI     H,0FFFBH
+        CALL    PUTW
+        LXI     H,0FFF9H
+        CALL    PUTW
+        CALL    WCEDS
+        LXI     H,0FFFBH
+        LXI     D,0FFF9H
+        CALL    CHKCP
+        LXI     H,OPAMOV        ;CP back home
+        CALL    PUTW
+        LXI     H,0
+        CALL    PUTW
+        CALL    PUTW
+        CALL    WCEDS
+        JMP     TEND
+;
+; CHKCP -- CP must be HL, DE (RPR Pr12, Pr13)
+;
+CHKCP:  PUSH    D
+        SHLD    TEXP
+        MVI     A,12H
+        CALL    RPR
+        MVI     B,12H
+        CALL    CHKREG
+        POP     H
+        SHLD    TEXP
+        MVI     A,13H
+        CALL    RPR
+        MVI     B,13H
+        JMP     CHKREG
+;
+; TFILL -- the FIFO flags. RPTN of 16 words fills the 8-word read
+; FIFO and stalls with the rest, so RFF and RFR must set. Words then
+; written can't be taken, so the write FIFO fills: WFE and WFR must
+; clear. Reading the 16 words lets it all run: CED and WFE set, RFR
+; clears. The fillers are DOTs, one-word commands (a pixel at CP).
+;
+TFILL:  LXI     D,NFILL
+        CALL    TBEGIN
+        MVI     A,2
+        STA     TATW
+        CALL    ABORT
+        MVI     B,2             ;the pattern RAM: pass 2's words
+        LXI     H,OPWPTN
+        CALL    PUTW
+        LXI     H,32
+        CALL    PUTW
+        MVI     C,0
+TFILLW: CALL    PRAMV
+        CALL    PUTW
+        INR     C
+        MOV     A,C
+        CPI     16
+        JNZ     TFILLW
+        CALL    WCEDS
+        LXI     H,OPRPTN
+        CALL    PUTW
+        LXI     H,16
+        CALL    PUTW
+        MVI     B,SRRFF         ;the read FIFO fills
+        MVI     C,1
+        CALL    WAITB
+        JNC     TFILL1
+        XRA     A
+        STA     TOFLG
+        LXI     D,MRFF
+        CALL    TMSG
+TFILL1: IN      ACRSR
+        ANI     SRRFR
+        LXI     D,MRFR
+        CZ      TMSG
+        MVI     C,0             ;C = words written before WFR clears
+TFILLF: IN      ACRSR
+        ANI     SRWFR
+        JZ      TFILLX
+        LXI     H,0CC00H        ;DOT
+        CALL    PUTW
+        INR     C
+        MOV     A,C
+        CPI     24
+        JNZ     TFILLF
+        LXI     D,MWFR
+        CALL    TMSG
+        JMP     TFILLR
+TFILLX: IN      ACRSR
+        ANI     SRWFE
+        LXI     D,MWFE
+        CNZ     TMSG
+        CALL    PMSG
+        DB      "INFO write FIFO full after $"
+        MOV     L,C
+        MVI     H,0
+        CALL    PDEC
+        CALL    PMSG
+        DB      " words (8 expected, 9 if the ACRTC holds one)",CR,LF,"$"
+TFILLR: MVI     B,2             ;now read the 16 words
+        MVI     C,0
+TFILLD: CALL    PRAMV
+        SHLD    TEXP
+        CALL    GETW
+        PUSH    B
+        MOV     B,C
+        CALL    CHKREG
+        POP     B
+        INR     C
+        MOV     A,C
+        CPI     16
+        JNZ     TFILLD
+        CALL    WCEDS           ;everything runs: CED, WFE
+        IN      ACRSR
+        ANI     SRRFR
+        LXI     D,MRFRC
+        CNZ     TMSG
+        JMP     TEND
+;
+; TCER -- an undefined command sets CER; abort clears it
+;
+TCER:   LXI     D,NCER
+        CALL    TBEGB
+        MVI     A,2
+        STA     TATW
+        LXI     H,OPBAD
+        CALL    PUTW
+        MVI     B,SRCER
+        MVI     C,1
+        CALL    WAITB
+        JNC     TCER1
+        XRA     A
+        STA     TOFLG
+        LXI     D,MCER
+        CALL    TMSG
+TCER1:  CALL    ABORT
+        IN      ACRSR
+        ANI     0FFH-SRLPD
+        MOV     L,A
+        MVI     H,0
+        SHLD    TGOT
+        MVI     L,SRIDLE
+        SHLD    TEXP
+        MVI     L,0
+        SHLD    TAT
+        CPI     SRIDLE
+        CNZ     TMISM
+        JMP     TEND
+;
+; ---- data ----
+;
+WARNED: DB      0
+;
+TIMREG: DB      82H,84H,86H,88H,8AH,8CH,8EH,90H,92H,94H,96H,98H,9AH,9CH
+        DB      0FFH            ;(r9E is the ACRTC's own work area)
+DSPREG: DB      0C0H,0C2H,0C4H,0C6H,0C8H,0CAH,0CCH,0CEH
+        DB      0D0H,0D2H,0D4H,0D6H,0D8H,0DAH,0DCH,0DEH
+        DB      0E0H,0E2H,0E4H,0E6H,0E8H,0EAH,0FFH
+;
+PAT16:  DW      0001H,0002H,0004H,0008H,0010H,0020H,0040H,0080H
+        DW      0100H,0200H,0400H,0800H,1000H,2000H,4000H,8000H
+        DW      0FFFEH,0FFFDH,0FFFBH,0FFF7H,0FFEFH,0FFDFH,0FFBFH,0FF7FH
+        DW      0FEFFH,0FDFFH,0FBFFH,0F7FFH,0EFFFH,0DFFFH,0BFFFH,7FFFH
+        DW      0000H,0FFFFH,5555H,0AAAAH
+;
+NIDLE:  DB      "ACRTC status after abort = 23H$"
+NTIM:   DB      "ACRTC timing RAM r82-r9C, all bits$"
+NDSP:   DB      "ACRTC display-control RAM rC0-rEA, all bits$"
+NUNIQ:  DB      "ACRTC register decode (a value per register)$"
+NAUTO:  DB      "ACRTC AR auto-increment (r80 up only)$"
+NCTRL:  DB      "ACRTC DCR ATR, CCR GBM, OMR bits$"
+NMODE:  DB      "ACRTC mode registers loaded$"
+NPREG:  DB      "FIFO WPR/RPR drawing parameters Pr00-Pr0D$"
+NPRAM:  DB      "FIFO WPTN/RPTN pattern RAM$"
+NCMD:   DB      "FIFO command end, AMOVE and CP$"
+NFILL:  DB      "FIFO status flags RFR RFF WFR WFE$"
+NCER:   DB      "FIFO undefined command sets CER$"
+MCEDH:  DB      "CED set with a command half sent$"
+MRFF:   DB      "RFF never set with 16 words queued$"
+MRFR:   DB      "RFR clear with the read FIFO full$"
+MWFE:   DB      "WFE set with the write FIFO full$"
+MRFRC:  DB      "RFR still set after reading everything$"
+MCER:   DB      "CER did not set$"
+MWFR:   DB      "write FIFO never filled: WFR stayed set with RPTN stalled$"

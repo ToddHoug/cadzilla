@@ -1,0 +1,896 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; CZDIAG.Z88 -- CADzilla board diagnostics, z88dk toolchain (8080)
+;
+; Tests the board from the bottom up, each layer only with what the
+; layers under it have shown to work:
+;
+;   DAC    the Bt453: address register, palette RAM, overlay colors
+;   MODE   the MODE register (write only: written, and explained)
+;   ACRTC  the HD63484's control registers, through AR and the data port
+;   FIFO   its FIFOs and command interface: WPR/RPR, WPTN/RPTN, flags
+;   CLOCK  2CLK and the display time base (RCR), and their rates
+;   FRAME  the frame buffer, U11-U18, through RWP + WT/RD and DWT/DRD
+;   OVL    the overlay, U19, through the CHR screen, both OLSEL halves
+;
+; Run with no arguments for a menu. On the command line:
+;
+;   CZDIAG ALL [FULL] [GO] [MHZ=n] [RES=640|800|1024]
+;   CZDIAG DAC MODE ACRTC FIFO CLOCK FRAME OVL   (any of them, in order)
+;
+; FULL marches over all of video memory (minutes, not seconds). If the
+; ACRTC or FIFO stage fails, the stages after it are skipped unless GO
+; is given. MHZ is the CPU clock, for the clock measurement (2 MHz is
+; assumed). RES picks the display mode (default 1024x768); it must be
+; the monitor's, i.e. machine.toml's cad0 mode in altairsim.
+;
+; Each check prints one PASS or FAIL line; the run ends with a totals
+; line. Built on the host by z80asm (tools/z88dk/z88build.sh) from these
+; modules, standalone: it links neither czgfx nor cz88gfx.
+;
+        ORG     0100H           ;a CP/M .COM
+;
+        INCLUDE "CZDIAG.INC"
+;
+        EXTERN  PCHR,PSTR,PMSG,CRLF,PSPC,PHEX2,PHEX4,PDEC
+        EXTERN  GETKEY,GETLN,SKIPSP,PARHEX,PARKHZ,UCASE
+        EXTERN  TSUMRY,NPASS,NFAIL,SFAIL,PINFO
+        EXTERN  SDAC,SMODE,SACR,SFIFO,SCLK,SFRAME,SOVL
+        EXTERN  CPUID,PCPU,PKHZ,CPUKHZ,MHZSET,LONGT,ACRGO,ENSURE
+        EXTERN  WREG,RREG,PUTW,GETW,WCED,ABORT,SETMODE,MODESH,CCRSH
+        EXTERN  LDMODE,CLS,SENDW,MDWORD,CURMD,MODES,MODELD
+;
+VERS    EQU     10H             ;1.0
+;
+START:  LXI     H,0
+        DAD     SP
+        SHLD    OLDSP
+        LXI     SP,STACK
+        CALL    CPUID
+        CALL    ARGS
+        JC      EXIT
+        CALL    BANNER
+        LDA     RUNSET
+        ORA     A
+        JZ      MENU
+        CALL    RUN
+EXIT:   LHLD    OLDSP           ;back to the CCP
+        SPHL
+        RET
+;
+; ---- the command line ----
+;
+; ARGS -- read the tail at 80H into RUNSET (stage bits) and the
+; options. CY (after a message) if something isn't understood.
+;
+ARGS:   LXI     H,CTAIL         ;make the tail a 0-ended string
+        MOV     E,M
+        MVI     D,0
+        INX     H
+        PUSH    H
+        DAD     D
+        MVI     M,0
+        POP     H
+ARGSL:  CALL    SKIPSP
+        ORA     A
+        RZ                      ;(NC)
+        LXI     D,KWTAB         ;a stage?
+ARGSK:  LDAX    D
+        ORA     A
+        JZ      ARGSO
+        CALL    MATCH
+        JZ      ARGSS
+ARGSKN: LDAX    D               ;the next keyword
+        INX     D
+        ORA     A
+        JNZ     ARGSKN
+        INX     D               ;(and its bits)
+        JMP     ARGSK
+ARGSS:  INX     D               ;past the 0: the bits
+        LDAX    D
+        MOV     B,A
+        LDA     RUNSET
+        ORA     B
+        STA     RUNSET
+        JMP     ARGSL
+ARGSO:  LXI     D,KFULL         ;an option?
+        CALL    MATCH
+        JNZ     ARGS2
+        MVI     A,1
+        STA     LONGT
+        JMP     ARGSL
+ARGS2:  LXI     D,KGO
+        CALL    MATCH
+        JNZ     ARGS3
+        MVI     A,1
+        STA     GOFLG
+        JMP     ARGSL
+ARGS3:  LXI     D,KMHZ
+        CALL    MATCH
+        JNZ     ARGS4
+        CALL    SETKHZ
+        RC
+        JMP     ARGSL
+ARGS4:  LXI     D,KRES
+        CALL    MATCH
+        JNZ     ARGS5
+        CALL    PARDE           ;RES=640, 800 or 1024
+        JC      ARGS5
+        PUSH    H
+        CALL    SETRES
+        POP     H
+        RC
+        JMP     ARGSL
+ARGS5:  CALL    PMSG
+        DB      "czdiag: not understood: $"
+ARGSE:  MOV     A,M
+        ORA     A
+        JZ      USAGE
+        CPI     ' '
+        JZ      USAGE
+        CALL    PCHR
+        INX     H
+        JMP     ARGSE
+;
+USAGE:  CALL    PMSG
+        DB      CR,LF
+        DB      "usage: CZDIAG [ALL] [DAC MODE ACRTC FIFO CLOCK FRAME OVL]",CR,LF
+        DB      "              [FULL] [GO] [MHZ=n.nnn] [RES=640|800|1024]",CR,LF
+        DB      "(no stage: the menu)",CR,LF,"$"
+        STC
+        RET
+;
+; MATCH -- Z if the keyword at DE (0-ended) is at HL, followed by a
+; blank, a comma, '=' or the end: then HL is past it (and an '='), DE
+; on its 0. NZ otherwise, HL unchanged.
+;
+MATCH:  PUSH    H
+MATCHL: LDAX    D
+        ORA     A
+        JZ      MATCHE
+        CMP     M
+        JNZ     MATCHN
+        INX     D
+        INX     H
+        JMP     MATCHL
+MATCHE: MOV     A,M
+        CPI     '='
+        JZ      MATCHQ
+        ORA     A
+        JZ      MATCHY
+        CPI     ' '
+        JZ      MATCHY
+        CPI     ','
+        JNZ     MATCHN
+MATCHY: INX     SP              ;(drop the saved HL)
+        INX     SP
+        XRA     A               ;Z
+        RET
+MATCHQ: INX     H
+        JMP     MATCHY
+MATCHN: POP     H
+        ORI     1               ;NZ (A is never 0 here)
+        RET
+;
+; SETKHZ -- CPUKHZ from the MHz at HL. CY (after a message) if it
+; isn't a clock from 0.001 to 10 MHz.
+;
+SETKHZ: CALL    PARKHZ
+        JC      SETKB
+        MOV     A,D
+        ORA     E
+        JZ      SETKB
+        PUSH    H
+        LXI     H,10000         ;at most 10 MHz (the 32-bit arithmetic)
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        POP     H
+        JC      SETKB
+        XCHG
+        SHLD    CPUKHZ
+        XCHG
+        MVI     A,1
+        STA     MHZSET
+        ORA     A
+        RET
+SETKB:  CALL    PMSG
+        DB      "czdiag: MHZ must be 0.001 to 10.000",CR,LF,"$"
+        STC
+        RET
+;
+; PARDE -- DE = the decimal number at HL. CY if there isn't one.
+;
+PARDE:  CALL    SKIPSP
+        LXI     D,0
+        MOV     A,M
+        SUI     '0'
+        RC
+        CPI     10
+        CMC
+        RC
+PARDL:  MOV     A,M
+        SUI     '0'
+        JC      PARDX
+        CPI     10
+        JNC     PARDX
+        PUSH    H
+        MOV     H,D
+        MOV     L,E
+        DAD     H
+        DAD     H
+        DAD     D
+        DAD     H
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        XCHG
+        POP     H
+        INX     H
+        JMP     PARDL
+PARDX:  ORA     A
+        RET
+;
+; SETRES -- the mode whose width is DE (640, 800 or 1024). CY if none.
+;
+SETRES: LXI     H,MODES
+        MVI     B,3
+SETRL:  PUSH    H
+        MOV     A,M
+        INX     H
+        MOV     H,M
+        MOV     L,A             ;HL = a descriptor
+        PUSH    H
+        INX     H               ;its X max + 1
+        INX     H
+        INX     H
+        INX     H
+        INX     H
+        MOV     A,M
+        INX     H
+        MOV     H,M
+        MOV     L,A
+        INX     H
+        MOV     A,L
+        CMP     E
+        JNZ     SETRN
+        MOV     A,H
+        CMP     D
+        JNZ     SETRN
+        POP     H
+        SHLD    CURMD
+        POP     H
+        XRA     A
+        STA     MODELD
+        RET                     ;(NC)
+SETRN:  POP     H
+        POP     H
+        INX     H
+        INX     H
+        DCR     B
+        JNZ     SETRL
+        CALL    PMSG
+        DB      "czdiag: RES must be 640, 800 or 1024",CR,LF,"$"
+        STC
+        RET
+;
+; ---- running stages ----
+;
+; RUN -- the stages in RUNSET, in order; then the totals
+;
+RUN:    LXI     H,0
+        SHLD    NPASS
+        SHLD    NFAIL
+        LXI     H,STAGES
+        MVI     B,01H           ;B = this stage's bit
+RUNL:   LDA     RUNSET
+        ANA     B
+        JZ      RUNN
+        PUSH    B
+        PUSH    H
+        LXI     D,0
+        XCHG
+        SHLD    SFAIL
+        XCHG
+        MOV     E,M             ;call the stage
+        INX     H
+        MOV     D,M
+        LXI     H,RUNR
+        PUSH    H
+        XCHG
+        PCHL
+RUNR:   POP     H
+        POP     B
+        MOV     A,B             ;ACRTC or FIFO failed: stop here?
+        ANI     04H+08H
+        JZ      RUNN
+        LDA     SFAIL           ;(HL is the stage table pointer)
+        MOV     C,A
+        LDA     SFAIL+1
+        ORA     C
+        JZ      RUNN
+        LDA     GOFLG
+        ORA     A
+        JNZ     RUNN
+        MOV     A,B             ;any stage after this one asked for?
+        DCR     A
+        CMA
+        ADD     A               ;(the bits above B)
+        MOV     C,A
+        LDA     RUNSET
+        ANA     C
+        JZ      RUNN
+        CALL    PINFO
+        DB      "the stages after this need it: skipped (GO runs them anyway)$"
+        JMP     RUNX
+RUNN:   INX     H
+        INX     H
+        MOV     A,B
+        ADD     A
+        MOV     B,A
+        CPI     80H
+        JNZ     RUNL
+RUNX:   JMP     TSUMRY
+;
+STAGES: DW      SDAC,SMODE,SACR,SFIFO,SCLK,SFRAME,SOVL
+;
+; ---- the banner ----
+;
+BANNER: CALL    PMSG
+        DB      "CZDIAG $"
+        MVI     A,VERS/16
+        ADI     '0'
+        CALL    PCHR
+        MVI     A,'.'
+        CALL    PCHR
+        MVI     A,VERS & 0FH
+        ADI     '0'
+        CALL    PCHR
+        CALL    PMSG
+        DB      " -- CADzilla board diagnostics",CR,LF,"$"
+SETUP:  CALL    PMSG
+        DB      "board at $"
+        MVI     A,CZBASE
+        CALL    PHEX2
+        CALL    PMSG
+        DB      "H, mode $"
+        MVI     A,MDNAME
+        CALL    MDWORD
+        XCHG
+        CALL    PSTR
+        CALL    PMSG
+        DB      ", CPU $"
+        CALL    PCPU
+        CALL    PMSG
+        DB      " at $"
+        CALL    PKHZ
+        CALL    PMSG
+        DB      " MHz$"
+        LDA     MHZSET
+        ORA     A
+        JNZ     SETUP1
+        CALL    PMSG
+        DB      " (assumed)$"
+SETUP1: LDA     LONGT
+        ORA     A
+        JZ      SETUP2
+        CALL    PMSG
+        DB      ", FULL memory tests$"
+SETUP2: JMP     CRLF
+;
+; ---- the menu ----
+;
+MENU:   CALL    PMSG
+        DB      CR,LF
+        DB      " 1 Bt453 DAC           5 clocks, time base     A all of 1-7",CR,LF
+        DB      " 2 MODE register       6 frame buffer memory   V visual check",CR,LF
+        DB      " 3 ACRTC registers     7 overlay memory        P peek/poke",CR,LF
+        DB      " 4 ACRTC FIFOs         L full memory tests on/off",CR,LF
+        DB      " C CPU clock  R display mode  X exit",CR,LF,"$"
+        CALL    SETUP
+        CALL    PMSG
+        DB      "> $"
+        CALL    GETKEY
+        CALL    CRLF
+        CPI     '1'
+        JC      MENU2
+        CPI     '8'
+        JNC     MENU2
+        SUI     '1'             ;a stage: its bit
+        MOV     B,A
+        MVI     A,1
+MENU1:  DCR     B
+        JM      MENU1X
+        ADD     A
+        JMP     MENU1
+MENU1X: STA     RUNSET
+        CALL    RUN
+        JMP     MENU
+MENU2:  CPI     'A'
+        JNZ     MENU3
+        MVI     A,7FH
+        STA     RUNSET
+        CALL    RUN
+        JMP     MENU
+MENU3:  CPI     'L'
+        JNZ     MENU4
+        LDA     LONGT
+        XRI     1
+        STA     LONGT
+        JMP     MENU
+MENU4:  CPI     'C'
+        JNZ     MENU5
+        CALL    PMSG
+        DB      "CPU clock, MHz (e.g. 2 or 3.58): $"
+        CALL    GETLN
+        CALL    SETKHZ
+        JMP     MENU
+MENU5:  CPI     'R'
+        JNZ     MENU6
+        CALL    PMSG
+        DB      "width (640, 800, 1024; the monitor's): $"
+        CALL    GETLN
+        CALL    PARDE
+        JC      MENU
+        CALL    SETRES
+        JMP     MENU
+MENU6:  CPI     'V'
+        JNZ     MENU7
+        CALL    VISUAL
+        JMP     MENU
+MENU7:  CPI     'P'
+        JNZ     MENU8
+        CALL    PEEK
+        JMP     MENU
+MENU8:  CPI     'X'
+        JZ      EXIT
+        CPI     ESC
+        JZ      EXIT
+        CPI     CTLC
+        JZ      EXIT
+        JMP     MENU
+;
+; ======== V: a picture for the eye ========
+;
+; What the host can't check: the pixel clock through the shift
+; registers and the Bt453, the syncs (MODE HSPOL/VSPOL), and OLEN.
+; testpat (software/m80/testpat) has the thorough picture tests.
+;
+VISUAL: CALL    ACRGO
+        CALL    LDMODE
+        CALL    CLS
+        MVI     A,MDXMAX        ;BARW = width / 8, STEPW = width / 32
+        CALL    MDWORD
+        INX     H
+        MVI     B,3
+        CALL    SHRHL
+        SHLD    BARW
+        MVI     B,2
+        CALL    SHRHL
+        SHLD    STEPW
+        MVI     A,MDYMAX        ;the bars' rows: Y max/2 + 8 .. Y max - 8
+        CALL    MDWORD
+        PUSH    H
+        MVI     B,1
+        CALL    SHRHL
+        SHLD    YMID
+        POP     H
+        LXI     D,-8
+        DAD     D
+        SHLD    YTOP
+        MVI     C,0             ;eight hues, brightest: index hue*32+31
+        LXI     H,0
+        SHLD    XPOS
+VBAR:   MOV     A,C
+        RRC
+        RRC
+        RRC
+        ORI     1FH
+        CALL    SETCLA
+        LHLD    BARW
+        CALL    VRECT
+        INR     C
+        MOV     A,C
+        CPI     8
+        JNZ     VBAR
+        LHLD    YMID            ;the gray ramp: Y 8 .. Y max/2 - 8
+        LXI     D,-8
+        DAD     D
+        SHLD    YTOP
+        LXI     H,8-8
+        SHLD    YMID
+        MVI     C,0
+        LXI     H,0
+        SHLD    XPOS
+VRAMP:  MOV     A,C
+        ORI     0E0H            ;white, level C
+        CALL    SETCLA
+        LHLD    STEPW
+        CALL    VRECT
+        INR     C
+        MOV     A,C
+        CPI     32
+        JNZ     VRAMP
+        LXI     H,0FFFFH        ;a white frame round the screen, last
+        CALL    SETCL1
+        LXI     H,0
+        LXI     D,0
+        CALL    AMOVE
+        MVI     A,MDXMAX
+        CALL    MDWORD
+        PUSH    H
+        MVI     A,MDYMAX
+        CALL    MDWORD
+        XCHG
+        POP     H
+        LXI     B,OPARCT
+        CALL    CMDXY
+        CALL    WCED
+        CALL    VGRID           ;the overlay: a grid every 64 pixels
+        LDA     MODESH          ;shown
+        ORI     MDOLEN
+        CALL    SETMODE
+        CALL    PMSG
+        DB      "Expect a white frame at the screen's edge; eight bars, orange blue",CR,LF
+        DB      "green cyan red magenta yellow white; a gray ramp of 32 steps; and a",CR,LF
+        DB      "white grid every 64 pixels (the overlay). A picture shifted or",CR,LF
+        DB      "rolling means the syncs (MODE polarity, U60) or the mode; a missing",CR,LF
+        DB      "color, a DAC channel. O turns the overlay off and on (OLEN), any",CR,LF
+        DB      "other key ends.",CR,LF,"$"
+VKEY:   CALL    GETKEY
+        CALL    UCASE
+        CPI     'O'
+        JNZ     VEND
+        CALL    CRLF
+        LDA     MODESH
+        XRI     MDOLEN
+        CALL    SETMODE
+        JMP     VKEY
+VEND:   CALL    CRLF
+        LDA     MODESH          ;overlay hidden; the picture stays
+        ANI     0FFH-MDOLEN
+        JMP     SETMODE
+;
+; VRECT -- a filled rectangle HL wide at XPOS, rows YMID+8..YTOP; XPOS
+; moves on by HL. Preserves BC.
+;
+VRECT:  PUSH    B
+        PUSH    H
+        LHLD    YMID
+        LXI     D,8
+        DAD     D
+        XCHG
+        LHLD    XPOS
+        CALL    AMOVE
+        POP     D               ;X end = XPOS + width - 1
+        LHLD    XPOS
+        DAD     D
+        SHLD    XPOS
+        DCX     H
+        PUSH    H
+        LHLD    YTOP
+        XCHG
+        POP     H
+        LXI     B,OPAFRC
+        CALL    CMDXY
+        POP     B
+        RET
+;
+; VGRID -- grid lines every 64 pixels in the overlay: drawing switched
+; to it (CCR 1 bpp, the CHR screen's ORG) and back
+;
+VGRID:  CALL    WCED
+        MVI     B,RCCR          ;1 bpp
+        LXI     H,0000H
+        CALL    WREG
+        XRA     A
+        STA     CCRSH
+        MVI     A,MDDTAB        ;the overlay's ORG
+        CALL    MDWORD
+        LXI     D,14
+        DAD     D
+        LXI     B,3
+        CALL    SENDW
+        LXI     H,0FFFFH
+        CALL    SETCL1
+        LXI     H,0             ;verticals: X = 0, 64, ...
+VGV:    PUSH    H
+        LXI     D,0
+        CALL    AMOVE
+        PUSH    H
+        MVI     A,MDYMAX
+        CALL    MDWORD
+        XCHG
+        POP     H
+        LXI     B,OPALIN
+        CALL    CMDXY
+        POP     H
+        LXI     D,64
+        DAD     D
+        XCHG
+        MVI     A,MDXMAX
+        CALL    MDWORD
+        CALL    CMPDH           ;past X max?
+        XCHG
+        JNC     VGV
+        LXI     H,0             ;horizontals: Y = 0, 64, ...
+VGH:    PUSH    H
+        XCHG
+        LXI     H,0
+        CALL    AMOVE
+        PUSH    D
+        MVI     A,MDXMAX
+        CALL    MDWORD
+        POP     D
+        LXI     B,OPALIN
+        CALL    CMDXY
+        POP     H
+        LXI     D,64
+        DAD     D
+        XCHG
+        MVI     A,MDYMAX
+        CALL    MDWORD
+        CALL    CMPDH
+        XCHG
+        JNC     VGH
+        CALL    WCED            ;back to the frame: 8 bpp, its ORG
+        MVI     B,RCCR
+        LXI     H,CCR8BP
+        CALL    WREG
+        MVI     A,3
+        STA     CCRSH
+        MVI     A,MDDTAB
+        CALL    MDWORD
+        LXI     D,8
+        DAD     D
+        LXI     B,3
+        CALL    SENDW
+        JMP     WCED
+;
+; CMPDH -- NC if DE <= HL (unsigned), CY if DE > HL
+;
+CMPDH:  MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        RET
+;
+; SHRHL -- HL >>= B
+;
+SHRHL:  ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        DCR     B
+        JNZ     SHRHL
+        RET
+;
+; AMOVE -- CP = HL, DE. CMDXY -- command BC with X = HL, Y = DE.
+; SETCL1 -- CL1 = HL. SETCLA -- CL1 = color A in both pixels.
+; All preserve BC, DE, HL.
+;
+AMOVE:  PUSH    B
+        LXI     B,OPAMOV
+        CALL    CMDXY
+        POP     B
+        RET
+CMDXY:  PUSH    H
+        MOV     H,B
+        MOV     L,C
+        CALL    PUTW
+        POP     H
+        CALL    PUTW
+        XCHG
+        CALL    PUTW
+        XCHG
+        RET
+SETCLA: PUSH    H
+        MOV     H,A
+        MOV     L,A
+        CALL    SETCL1
+        POP     H
+        RET
+SETCL1: PUSH    H
+        LXI     H,OPWPR+1       ;WPR CL1
+        CALL    PUTW
+        POP     H
+        JMP     PUTW
+;
+; ======== P: peek and poke ========
+;
+PEEK:   CALL    ACRGO
+        CALL    PMSG
+        DB      "R rr  read register     W rr vvvv  write it    S  status",CR,LF
+        DB      "F vvvv ..  write FIFO   G [n]  read FIFO words A  abort",CR,LF
+        DB      "M vv  write MODE        D aa  palette entry    O  overlay colors",CR,LF
+        DB      "Q  back (all numbers hex)",CR,LF,"$"
+PEEKL:  CALL    PMSG
+        DB      "peek> $"
+        CALL    GETLN
+        CALL    SKIPSP
+        ORA     A
+        RZ
+        INX     H
+        CPI     'Q'
+        RZ
+        CPI     'R'
+        JZ      PKR
+        CPI     'W'
+        JZ      PKW
+        CPI     'S'
+        JZ      PKS
+        CPI     'F'
+        JZ      PKF
+        CPI     'G'
+        JZ      PKG
+        CPI     'A'
+        JZ      PKA
+        CPI     'M'
+        JZ      PKM
+        CPI     'D'
+        JZ      PKD
+        CPI     'O'
+        JZ      PKO
+PKBAD:  CALL    PMSG
+        DB      "?",CR,LF,"$"
+        JMP     PEEKL
+;
+PKR:    CALL    PARHEX          ;R rr
+        JC      PKBAD
+        MOV     B,E
+        CALL    RREG
+        MVI     A,'r'
+        CALL    PCHR
+        MOV     A,B
+        CALL    PHEX2
+        CALL    PMSG
+        DB      " = $"
+        CALL    PHEX4
+        CALL    CRLF
+        JMP     PEEKL
+PKW:    CALL    PARHEX          ;W rr vvvv
+        JC      PKBAD
+        MOV     B,E
+        CALL    PARHEX
+        JC      PKBAD
+        XCHG
+        CALL    WREG
+        JMP     PEEKL
+PKS:    IN      ACRSR           ;S
+        PUSH    PSW
+        CALL    PMSG
+        DB      "SR = $"
+        POP     PSW
+        CALL    PHEX2
+        LXI     H,SRNAME
+        MVI     B,8
+PKSL:   RLC                     ;bit 7 first
+        JNC     PKSN
+        PUSH    PSW
+        CALL    PSPC
+        PUSH    H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        CALL    PSTR
+        POP     H
+        POP     PSW
+PKSN:   INX     H
+        INX     H
+        DCR     B
+        JNZ     PKSL
+        CALL    CRLF
+        JMP     PEEKL
+PKF:    CALL    PARHEX          ;F vvvv ...
+        JC      PEEKL
+        PUSH    H
+        XCHG
+        CALL    PUTW
+        POP     H
+        JMP     PKF
+PKG:    CALL    PARHEX          ;G [n]
+        JNC     PKG1
+        LXI     D,1
+PKG1:   MOV     A,D
+        ORA     E
+        JZ      PKGX
+        IN      ACRSR
+        ANI     SRRFR
+        JZ      PKGE
+        CALL    GETW
+        CALL    PHEX4
+        CALL    PSPC
+        DCX     D
+        JMP     PKG1
+PKGE:   CALL    PMSG
+        DB      "(read FIFO empty)$"
+PKGX:   CALL    CRLF
+        JMP     PEEKL
+PKA:    CALL    ABORT           ;A
+        JMP     PEEKL
+PKM:    CALL    PARHEX          ;M vv
+        JC      PKBAD
+        MOV     A,E
+        CALL    SETMODE
+        CALL    PMSG
+        DB      "MODE = $"
+        LDA     MODESH
+        CALL    PHEX2
+        CALL    PMSG
+        DB      " (AMODE is never set)",CR,LF,"$"
+        JMP     PEEKL
+PKD:    CALL    PARHEX          ;D aa
+        JC      PKBAD
+        MOV     A,E
+        OUT     DACADR
+        CALL    PMSG
+        DB      "RGB $"
+        IN      DACPAL
+        CALL    PHEX2
+        CALL    PSPC
+        IN      DACPAL
+        CALL    PHEX2
+        CALL    PSPC
+        IN      DACPAL
+        CALL    PHEX2
+        CALL    CRLF
+        JMP     PEEKL
+PKO:    MVI     A,1             ;O
+        OUT     DACADR
+        MVI     B,3
+PKOL:   CALL    PMSG
+        DB      "RGB $"
+        IN      DACOVL
+        CALL    PHEX2
+        CALL    PSPC
+        IN      DACOVL
+        CALL    PHEX2
+        CALL    PSPC
+        IN      DACOVL
+        CALL    PHEX2
+        CALL    CRLF
+        DCR     B
+        JNZ     PKOL
+        JMP     PEEKL
+;
+SRNAME: DW      SCER,SARD,SCED,SLPD,SRFF,SRFR,SWFR,SWFE
+SCER:   DB      "CER$"
+SARD:   DB      "ARD$"
+SCED:   DB      "CED$"
+SLPD:   DB      "LPD$"
+SRFF:   DB      "RFF$"
+SRFR:   DB      "RFR$"
+SWFR:   DB      "WFR$"
+SWFE:   DB      "WFE$"
+;
+; ---- data ----
+;
+KWTAB:  DB      "ALL",0,7FH
+        DB      "DAC",0,01H
+        DB      "MODE",0,02H
+        DB      "ACRTC",0,04H
+        DB      "FIFO",0,08H
+        DB      "CLOCK",0,10H
+        DB      "FRAME",0,20H
+        DB      "OVL",0,40H
+        DB      0
+KFULL:  DB      "FULL",0
+KGO:    DB      "GO",0
+KMHZ:   DB      "MHZ",0
+KRES:   DB      "RES",0
+;
+RUNSET: DB      0               ;the stages asked for
+GOFLG:  DB      0               ;GO: run on past a failed ACRTC/FIFO
+OLDSP:  DW      0
+BARW:   DW      0
+STEPW:  DW      0
+YMID:   DW      0
+YTOP:   DW      0
+XPOS:   DW      0
+        DS      128
+STACK:

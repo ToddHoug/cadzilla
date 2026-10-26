@@ -1,0 +1,465 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; TDAC.Z88 -- czdiag stage DAC: the Bt453, and the MODE register
+;
+; The Bt453 is reached without the ACRTC, and without S-100 RDY (U45
+; holds RDY only for the ACRTC), so it is tested first: these tests
+; work on a board whose ACRTC or clock is dead. Its MPU port is
+; asynchronous to the video, so passing them says nothing about the
+; pixel clock. Every access selects the chip, which blanks its output
+; for that moment: black specks on the screen while this runs.
+;
+        INCLUDE "CZDIAG.INC"
+;
+        PUBLIC  SDAC,SMODE,PALDEF
+        EXTERN  TBEGIN,TBEGB,TMISM,TMSG,TEND,PINFO,TEXP,TGOT,TAT,TATW,TNOTE
+        EXTERN  PMSG,PSTR,PHEX2,CRLF,SETMODE,CURMD
+;
+NPASS8  EQU     22              ;patterns: 20 fixed, 2 by address
+;
+; SDAC -- the DAC stage
+;
+SDAC:   CALL    PMSG
+        DB      "-- Bt453 DAC (black specks on the screen are normal)",CR,LF,"$"
+        CALL    TADR
+        CALL    TINC
+        CALL    TPAL
+        CALL    TPHASE
+        CALL    TOVL
+        CALL    TXTALK
+        JMP     PALDEF
+;
+; ---- the address register, through both of its decodes ----
+;
+TADR:   LXI     D,NADR
+        CALL    TBEGB
+        MVI     A,2
+        STA     TATW
+        LXI     H,PAT8
+        MVI     B,20
+TADRL:  MOV     C,M             ;C = the pattern
+        MOV     A,C             ;write at +4, read at +4 and +6
+        OUT     DACADR
+        IN      DACADR
+        MVI     E,DACADR-CZBASE
+        CALL    CHK8
+        IN      DACAD2
+        MVI     E,DACAD2-CZBASE
+        CALL    CHK8
+        MOV     A,C             ;write at +6, read at +4
+        CMA                     ;(the complement, so the value changes)
+        MOV     C,A
+        OUT     DACAD2
+        IN      DACADR
+        MVI     E,DACADR-CZBASE
+        CALL    CHK8
+        INX     H
+        DCR     B
+        JNZ     TADRL
+        JMP     TEND
+;
+; CHK8 -- read A against expected C; an error at E. Preserves all.
+;
+CHK8:   CMP     C
+        RZ
+        PUSH    H
+        MOV     L,A
+        MVI     H,0
+        SHLD    TGOT
+        MOV     L,C
+        SHLD    TEXP
+        MOV     L,E
+        SHLD    TAT
+        POP     H
+        JMP     TMISM
+;
+; ---- the address steps on after blue, and wraps from 0FFH to 0 ----
+;
+TINC:   LXI     D,NINC
+        CALL    TBEGB
+        MVI     A,10H           ;reading an entry steps it
+        OUT     DACADR
+        IN      DACPAL
+        IN      DACPAL
+        IN      DACPAL
+        IN      DACADR
+        MVI     C,11H
+        LXI     D,MINCR
+        CALL    CHKM
+        MVI     A,20H           ;so does writing one
+        OUT     DACADR
+        OUT     DACPAL
+        OUT     DACPAL
+        OUT     DACPAL
+        IN      DACADR
+        MVI     C,21H
+        LXI     D,MINCW
+        CALL    CHKM
+        MVI     A,0FFH          ;0FFH, then 0
+        OUT     DACADR
+        MVI     A,12H
+        OUT     DACPAL
+        OUT     DACPAL
+        OUT     DACPAL
+        MVI     A,34H
+        OUT     DACPAL
+        OUT     DACPAL
+        OUT     DACPAL
+        IN      DACADR
+        MVI     C,01H
+        LXI     D,MWRAP
+        CALL    CHKM
+        XRA     A
+        OUT     DACADR
+        IN      DACPAL
+        MVI     C,34H
+        LXI     D,MWRAP0
+        CALL    CHKM
+        JMP     TEND
+;
+; CHKM -- A against expected C, or the error message at DE
+;
+CHKM:   CMP     C
+        RZ
+        JMP     TMSG
+;
+; ---- every palette entry and component, 22 patterns ----
+;
+TPAL:   LXI     D,NPAL
+        CALL    TBEGB
+        MVI     A,2
+        STA     TATW
+        LXI     H,PCOMP         ;errors name the component
+        SHLD    TNOTE
+        MVI     B,0             ;B = the pass
+TPALP:  XRA     A
+        OUT     DACADR
+        MVI     D,0             ;D = the entry
+TPW:    MVI     E,0             ;E = the component
+TPWC:   CALL    PATV
+        OUT     DACPAL
+        INR     E
+        MOV     A,E
+        CPI     3
+        JNZ     TPWC
+        INR     D
+        JNZ     TPW
+        XRA     A
+        OUT     DACADR
+TPR:    MVI     E,0
+TPRC:   CALL    PATV
+        MOV     C,A
+        IN      DACPAL
+        CALL    PALCK
+        INR     E
+        MOV     A,E
+        CPI     3
+        JNZ     TPRC
+        INR     D
+        JNZ     TPR
+        INR     B
+        MOV     A,B
+        CPI     NPASS8
+        JC      TPALP
+        JMP     TEND
+;
+; PALCK -- read A against expected C, at entry D, component E
+;
+PALCK:  CMP     C
+        RZ
+        PUSH    H
+        MOV     L,A
+        MVI     H,0
+        SHLD    TGOT
+        MOV     L,C
+        SHLD    TEXP
+        MOV     L,D
+        SHLD    TAT
+        MOV     A,E
+        STA     COMP
+        POP     H
+        JMP     TMISM
+;
+PCOMP:  LDA     COMP            ;the note: which component
+        ORA     A
+        LXI     D,MRED
+        JZ      PSTR
+        DCR     A
+        LXI     D,MGRN
+        JZ      PSTR
+        LXI     D,MBLU
+        JMP     PSTR
+;
+; PATV -- A = pass B's value for entry D, component E: one of PAT8,
+; or (passes 20, 21) entry + 85 * component, then its complement.
+; Preserves BC, DE, HL.
+;
+PATV:   MOV     A,B
+        CPI     20
+        JNC     PATVA
+        PUSH    H
+        PUSH    D
+        LXI     H,PAT8
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        MOV     A,M
+        POP     D
+        POP     H
+        RET
+PATVA:  PUSH    B
+        MOV     C,E
+        MOV     A,D
+PATVL:  DCR     C
+        JM      PATVE
+        ADI     85
+        JMP     PATVL
+PATVE:  POP     B
+        PUSH    PSW
+        MOV     A,B
+        CPI     21
+        JZ      PATVN
+        POP     PSW
+        RET
+PATVN:  POP     PSW
+        CMA
+        RET
+;
+; ---- writing the address resets the R,G,B phase ----
+;
+TPHASE: LXI     D,NPHASE
+        CALL    TBEGB
+        MVI     A,40H
+        OUT     DACADR
+        MVI     A,11H           ;red only
+        OUT     DACPAL
+        MVI     A,40H           ;again: back to red
+        OUT     DACADR
+        MVI     A,22H
+        OUT     DACPAL
+        MVI     A,33H
+        OUT     DACPAL
+        MVI     A,44H
+        OUT     DACPAL
+        MVI     A,40H
+        OUT     DACADR
+        LXI     D,MPHASE
+        IN      DACPAL
+        MVI     C,22H
+        CALL    CHKM
+        IN      DACPAL
+        MVI     C,33H
+        CALL    CHKM
+        IN      DACPAL
+        MVI     C,44H
+        CALL    CHKM
+        JMP     TEND
+;
+; ---- overlay colors 1-3 (0 is reserved), 22 patterns ----
+;
+TOVL:   LXI     D,NOVL
+        CALL    TBEGB
+        MVI     A,2
+        STA     TATW
+        LXI     H,PCOMP
+        SHLD    TNOTE
+        MVI     B,0
+TOVLP:  MVI     A,1
+        OUT     DACADR
+        MVI     D,1
+TOW:    MVI     E,0
+TOWC:   CALL    PATV
+        OUT     DACOVL
+        INR     E
+        MOV     A,E
+        CPI     3
+        JNZ     TOWC
+        INR     D
+        MOV     A,D
+        CPI     4
+        JNZ     TOW
+        MVI     A,1
+        OUT     DACADR
+        MVI     D,1
+TOR:    MVI     E,0
+TORC:   CALL    PATV
+        MOV     C,A
+        IN      DACOVL
+        CALL    PALCK
+        INR     E
+        MOV     A,E
+        CPI     3
+        JNZ     TORC
+        INR     D
+        MOV     A,D
+        CPI     4
+        JNZ     TOR
+        INR     B
+        MOV     A,B
+        CPI     NPASS8
+        JC      TOVLP
+        JMP     TEND
+;
+; ---- palette entries 1-3 and overlay colors 1-3 are separate ----
+;
+TXTALK: LXI     D,NXTALK
+        CALL    TBEGB
+        MVI     A,1             ;palette 1-3: 0A1H..0A9H
+        OUT     DACADR
+        MVI     A,0A1H
+        MVI     B,9
+TXP:    OUT     DACPAL
+        INR     A
+        DCR     B
+        JNZ     TXP
+        MVI     A,1             ;overlay 1-3: 5B1H..5B9H
+        OUT     DACADR
+        MVI     A,5BH
+        MVI     B,9
+TXO:    OUT     DACOVL
+        INR     A
+        DCR     B
+        JNZ     TXO
+        MVI     A,1
+        OUT     DACADR
+        MVI     C,0A1H
+        MVI     B,9
+        LXI     D,MXPAL
+TXPR:   IN      DACPAL
+        CALL    CHKM
+        INR     C
+        DCR     B
+        JNZ     TXPR
+        MVI     A,1
+        OUT     DACADR
+        MVI     C,5BH
+        MVI     B,9
+        LXI     D,MXOVL
+TXOR:   IN      DACOVL
+        CALL    CHKM
+        INR     C
+        DCR     B
+        JNZ     TXOR
+        JMP     TEND
+;
+; ---- MODE ----
+;
+; SMODE -- write the mode's MODE value. MODE can't be read back: its
+; bits are checked later, OLSEL by the overlay memory stage, and OLEN
+; and the sync polarities only by eye (V). Base+1 and +3 aren't
+; readable, so what they give is the bus floating -- shown, not judged.
+;
+SMODE:  CALL    PMSG
+        DB      "-- MODE register (write only)",CR,LF,"$"
+        LHLD    CURMD
+        MOV     A,M
+        CALL    SETMODE
+        CALL    PMSG
+        DB      "INFO MODE = $"
+        LHLD    CURMD
+        MOV     A,M
+        CALL    PHEX2
+        CALL    PMSG
+        DB      " written (OLSEL is checked by OVL, OLEN and syncs by V)",CR,LF
+        DB      "INFO reads of Base+1 = $"
+        IN      MODEREG
+        CALL    PHEX2
+        CALL    PMSG
+        DB      ", Base+3 = $"
+        IN      NODEC
+        CALL    PHEX2
+        CALL    PMSG
+        DB      " (no chip drives them: the bus floats)",CR,LF,"$"
+        RET
+;
+; ---- the default palette ----
+;
+; PALDEF -- czgfx's default palette (8 hues x 32 levels, index = hue *
+; 32 + level), overlay color 2 white and 1, 3 black. Clobbers BC, DE,
+; HL.
+;
+PALDEF: XRA     A
+        OUT     DACADR
+        LXI     H,HUETAB
+        MVI     C,8             ;hues
+PALH:   LXI     D,LEVTAB
+        MVI     B,32            ;levels
+PALL:   LDAX    D
+        STA     LEVEL
+        PUSH    H
+        CALL    CHAN            ;red
+        CALL    CHAN            ;green
+        CALL    CHAN            ;blue
+        POP     H
+        INX     D
+        DCR     B
+        JNZ     PALL
+        INX     H
+        INX     H
+        INX     H
+        DCR     C
+        JNZ     PALH
+        MVI     A,1             ;overlay colors 1, 2, 3
+        OUT     DACADR
+        XRA     A
+        OUT     DACOVL
+        OUT     DACOVL
+        OUT     DACOVL
+        MVI     A,0FFH
+        OUT     DACOVL
+        OUT     DACOVL
+        OUT     DACOVL
+        XRA     A
+        OUT     DACOVL
+        OUT     DACOVL
+        OUT     DACOVL
+        RET
+;
+CHAN:   MOV     A,M             ;(HL): 0 off, 1 full, 2 half
+        INX     H
+        ORA     A
+        JZ      CHOUT
+        CPI     2
+        LDA     LEVEL
+        JNZ     CHOUT
+        ORA     A
+        RAR
+CHOUT:  OUT     DACPAL
+        RET
+;
+HUETAB: DB      1,2,0           ;orange
+        DB      0,0,1           ;blue
+        DB      0,1,0           ;green
+        DB      0,1,1           ;cyan
+        DB      1,0,0           ;red
+        DB      1,0,1           ;magenta
+        DB      1,1,0           ;yellow
+        DB      1,1,1           ;white
+LEVTAB: DB      0,8,16,25,33,41,49,58
+        DB      66,74,82,90,99,107,115,123
+        DB      132,140,148,156,165,173,181,189
+        DB      197,206,214,222,230,239,247,255
+LEVEL:  DB      0
+COMP:   DB      0
+;
+PAT8:   DB      01H,02H,04H,08H,10H,20H,40H,80H
+        DB      0FEH,0FDH,0FBH,0F7H,0EFH,0DFH,0BFH,7FH
+        DB      00H,0FFH,55H,0AAH
+;
+NADR:   DB      "DAC address register (+4, +6)$"
+NINC:   DB      "DAC address increment and wrap$"
+NPAL:   DB      "DAC palette RAM (256 x RGB, 22 patterns)$"
+NPHASE: DB      "DAC address write resets RGB phase$"
+NOVL:   DB      "DAC overlay colors 1-3$"
+NXTALK: DB      "DAC palette and overlay decode apart$"
+MINCR:  DB      "address did not step after reading blue$"
+MINCW:  DB      "address did not step after writing blue$"
+MWRAP:  DB      "address did not wrap 0FFH -> 00H -> 01H$"
+MWRAP0: DB      "entry 0FFH's successor is not entry 0$"
+MPHASE: DB      "a new address did not restart at red$"
+MXPAL:  DB      "palette 1-3 changed by overlay writes$"
+MXOVL:  DB      "overlay 1-3 changed by palette writes$"
+MRED:   DB      "(red)$"
+MGRN:   DB      "(green)$"
+MBLU:   DB      "(blue)$"

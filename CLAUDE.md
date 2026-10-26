@@ -29,7 +29,8 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   - `asm/`: hello, firstdraw, drawdemo
   - `m80/`: czgfx, gfxdemo, czbasic, testpat
   - `rmac/`: rhello, ddcz
-  - `z88dk/`: cz88gfx, zhello, z88demo
+  - `z88dk/`: cz88gfx, zhello, z88demo, czdiag (the standalone board
+    diagnostic: Bt453, ACRTC registers/FIFOs, clocks, video memory)
   - `zcc/`: chello, cgfxdemo, cgsxdemo, dxfview
 
   Each shared library lives with the toolchain that builds it. `rmac/ddcz`

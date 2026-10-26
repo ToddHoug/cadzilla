@@ -1,0 +1,275 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; HW.Z88 -- czdiag: ACRTC and MODE register access, every wait timed out
+;
+; Unlike czgfx's loops, no wait here can hang on a dead chip: each one
+; gives up after a while, sets TOFLG (the test then reports a timeout,
+; with the SR it gave up on in TOSR) and returns CY. While TOFLG is set
+; every wait gives up at once, so a dead ACRTC fails a test quickly
+; instead of timing out word by word.
+;
+; One thing no software can catch: the ACRTC answers a bus access with
+; ~DTACK, which U45 turns into S-100 RDY. With no 2CLK there is no
+; ~DTACK, and the first IN or OUT to Base+0 or Base+2 stops the CPU in
+; a wait state for good.
+;
+; AR is left at r00 (the FIFOs) by everything here.
+;
+        INCLUDE "CZDIAG.INC"
+;
+        PUBLIC  WREG,RREG,WRTAB,PUTW,GETW,GETB,WAITB,WCED,WCEDS
+        PUBLIC  ABORT,DRAIN,WPR,RPR,SETRWP,SETMODE,MODESH,CCRSH
+        PUBLIC  TOFLG,TOSR,LSR
+;
+; WREG -- write HL to the control register at B (even): high byte to
+; B, low byte to B+1. AR is set for both, so r00-r7F (no auto-
+; increment) and r80-rFF are alike. Preserves all but A.
+;
+WREG:   MOV     A,B
+        OUT     ACRSR
+        MOV     A,H
+        OUT     ACRDAT
+        MOV     A,B
+        INR     A
+        OUT     ACRSR
+        MOV     A,L
+        OUT     ACRDAT
+        XRA     A
+        OUT     ACRSR
+        RET
+;
+; RREG -- HL = the control register at B (even). Preserves BC, DE.
+;
+RREG:   MOV     A,B
+        OUT     ACRSR
+        IN      ACRDAT
+        MOV     H,A
+        MOV     A,B
+        INR     A
+        OUT     ACRSR
+        IN      ACRDAT
+        MOV     L,A
+        XRA     A
+        OUT     ACRSR
+        RET
+;
+; WRTAB -- write the control register table at HL: DB register / DW
+; value entries, 0FFH ends it. Returns HL past it. Preserves BC, DE.
+;
+WRTAB:  PUSH    B
+        PUSH    D
+WRTABL: MOV     A,M
+        INX     H
+        CPI     0FFH
+        JZ      WRTABX
+        MOV     B,A
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        INX     H
+        XCHG
+        CALL    WREG
+        XCHG
+        MOV     A,B             ;CCR: keep its GBM for ABORT
+        CPI     RCCR
+        JNZ     WRTABL
+        MOV     A,D
+        ANI     07H
+        STA     CCRSH
+        JMP     WRTABL
+WRTABX: POP     D
+        POP     B
+        RET
+;
+; WAITB -- wait until every SR bit in B is set: A = the SR, NC. C is
+; how long: about 64K polls each (2 s at 2 MHz). CY on a timeout.
+; Preserves B, DE, HL.
+;
+WAITB:  LDA     TOFLG
+        ORA     A
+        JNZ     WAITF
+        PUSH    D
+WAITO:  LXI     D,0
+WAITL:  IN      ACRSR
+        STA     LSR
+        ANA     B
+        CMP     B
+        JZ      WAITOK
+        DCX     D
+        MOV     A,D
+        ORA     E
+        JNZ     WAITL
+        DCR     C
+        JNZ     WAITO
+        POP     D
+        LDA     LSR             ;timed out
+        STA     TOSR
+        MVI     A,1
+        STA     TOFLG
+WAITF:  LDA     LSR
+        STC
+        RET
+WAITOK: POP     D
+        LDA     LSR
+        ORA     A               ;NC
+        RET
+;
+; WCED -- wait until the write FIFO is empty and the command has ended
+; (WFE and CED), for a long time: about 30 s at 2 MHz, for the biggest
+; fill. WCEDS waits about 2 s. A = the SR, NC; or CY on a timeout.
+; Preserves BC, DE, HL.
+;
+WCED:   PUSH    B
+        MVI     C,16
+        JMP     WCED1
+WCEDS:  PUSH    B
+        MVI     C,1
+WCED1:  MVI     B,SRWFE+SRCED
+        CALL    WAITB
+        POP     B
+        RET
+;
+; PUTW -- write HL to the write FIFO, high byte first, once WFR says
+; there is room. CY on a timeout (the word is dropped). Preserves BC,
+; DE, HL.
+;
+PUTW:   IN      ACRSR           ;room now? (the quick way, for bulk data)
+        ANI     SRWFR
+        JZ      PUTWS
+PUTWO:  MOV     A,H
+        OUT     ACRDAT
+        MOV     A,L
+        OUT     ACRDAT
+        RET
+PUTWS:  PUSH    B
+        MVI     B,SRWFR
+        MVI     C,1
+        CALL    WAITB
+        POP     B
+        JNC     PUTWO
+        RET
+;
+; GETB -- A = the next byte of the read FIFO, once RFR says there is
+; data. CY on a timeout (A = 0FFH). Preserves BC, DE, HL.
+; GETW -- HL = the next word, high byte first. RFR means at least a
+; whole word is there (manual 5.3), so it is polled once per word.
+;
+GETW:   CALL    GETB
+        MOV     H,A
+        IN      ACRDAT
+        MOV     L,A
+        RET
+GETB:   IN      ACRSR
+        ANI     SRRFR
+        JZ      GETBS
+        IN      ACRDAT
+        RET
+GETBS:  PUSH    B
+        MVI     B,SRRFR
+        MVI     C,1
+        CALL    WAITB
+        POP     B
+        JC      GETBT
+        IN      ACRDAT
+        RET
+GETBT:  MVI     A,0FFH
+        RET
+;
+; ABORT -- CCR ABT: stop any command, flush both FIFOs, clear CER and
+; ARD (the SR becomes 23H). Then CCR as it was, with no interrupts.
+; Preserves all but A.
+;
+ABORT:  PUSH    B
+        PUSH    H
+        MVI     B,RCCR
+        LDA     CCRSH
+        ORI     80H             ;ABT
+        MOV     H,A
+        MVI     L,0
+        CALL    WREG
+        LDA     CCRSH
+        MOV     H,A
+        CALL    WREG
+        POP     H
+        POP     B
+        RET
+;
+; DRAIN -- read and drop what is in the read FIFO (at most 64 bytes)
+;
+DRAIN:  PUSH    B
+        MVI     B,64
+DRAINL: IN      ACRSR
+        ANI     SRRFR
+        JZ      DRAINX
+        IN      ACRDAT
+        DCR     B
+        JNZ     DRAINL
+DRAINX: POP     B
+        RET
+;
+; WPR -- drawing parameter register A = HL (WPR command). CY on a
+; timeout. Preserves BC, DE, HL.
+; RPR -- HL = drawing parameter register A (RPR, the read FIFO).
+;
+WPR:    PUSH    H
+        MVI     H,OPWPR/100H
+        MOV     L,A
+        CALL    PUTW
+        POP     H
+        JMP     PUTW
+RPR:    MVI     H,OPRPR/100H
+        MOV     L,A
+        CALL    PUTW
+        JMP     GETW
+;
+; SETRWP -- RWP = word address C:HL (C = bits 19-16) on screen A (the
+; Pr0C screen field: DNBASE or DNUPR). Pr0C = screen + bits 19-12,
+; Pr0D = bits 11-0 shifted left 4. Preserves BC, DE, HL.
+;
+SETRWP: PUSH    D
+        PUSH    H
+        MOV     D,A
+        MOV     A,C
+        RLC
+        RLC
+        RLC
+        RLC
+        ANI     0F0H
+        MOV     E,A
+        MOV     A,H
+        RRC
+        RRC
+        RRC
+        RRC
+        ANI     0FH
+        ORA     E
+        MOV     E,A
+        XCHG
+        MVI     A,0CH
+        CALL    WPR
+        XCHG
+        DAD     H
+        DAD     H
+        DAD     H
+        DAD     H
+        MVI     A,0DH
+        CALL    WPR
+        POP     H
+        POP     D
+        RET
+;
+; SETMODE -- MODE register = A, kept in MODESH (MODE can't be read).
+; AMODE is never set: it would make 2CLK pixel clock / 4, about 16 MHz
+; from a 65 MHz oscillator, twice the HD63484-8's rating.
+;
+SETMODE: ANI    1FH-MDAMOD
+        STA     MODESH
+        OUT     MODEREG
+        RET
+;
+MODESH: DB      0               ;the MODE register (reset clears it)
+CCRSH:  DB      03H             ;CCR's high byte less ABT: GBM
+TOFLG:  DB      0               ;a wait timed out
+TOSR:   DB      0               ;the SR when it did
+LSR:    DB      0               ;the last SR a wait read

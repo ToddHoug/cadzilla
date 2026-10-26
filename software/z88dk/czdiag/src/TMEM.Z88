@@ -1,0 +1,743 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; TMEM.Z88 -- czdiag stages FRAME and OVL: video memory through the ACRTC
+;
+; The host can't reach video memory directly. These tests write it and
+; read it back through the ACRTC's command interface: single words
+; with RWP + WT/RD, bulk with DWT/DRD under program control (DRD never
+; ends by itself, so each read burst ends with an abort). They are
+; destructive, and what they write shows on the screen.
+;
+; The frame buffer is 1M words (20-bit word address) in eight banks,
+; U11-U18, 128K x 16 each: word address bits 2-0 pick the bank (U56),
+; bits 19-3 are the chips' A16-A0. Bank n holds pixels 2n (low byte)
+; and 2n+1 (high byte) of each 16.
+;
+; The overlay, U19 (128K x 16), is reached through the ACRTC's CHR
+; screen (DN 0): its word address is the chip's A15-A0, and MODE OLSEL
+; is A16. Errors give overlay addresses as 5 digits, OLSEL first.
+;
+        INCLUDE "CZDIAG.INC"
+;
+        PUBLIC  SFRAME,SOVL,LONGT
+        EXTERN  TBEGIN,TMISM,TMSG,TEND,PINFO,TEXP,TGOT,TAT,TATW,TNOTE,TERRN
+        EXTERN  PMSG,PCHR,PDEC,CRLF,CHKBRK
+        EXTERN  PUTW,GETW,WCED,ABORT,DRAIN,SETRWP,SETMODE,MODESH,TOFLG
+        EXTERN  ENSURE,CLS,PAT16
+;
+NPAT16  EQU     36
+QBLKS   EQU     64              ;quick march: 64 x 256 words at each end
+QOBLKS  EQU     16              ;the overlay's: 16 x 256 per half's end
+MAXERR  EQU     256             ;a march gives up after this many errors
+;
+; ======== stage FRAME ========
+;
+SFRAME: CALL    PMSG
+        DB      "-- frame buffer memory, U11-U18 (destructive)",CR,LF,"$"
+        CALL    ENSURE
+        CALL    ABORT
+        MVI     A,DNBASE
+        STA     MSCR
+        CALL    TFDATA
+        CALL    TFBANK
+        CALL    TFADDR
+        CALL    TFMARCH
+        JMP     CLS
+;
+; MBEGIN -- TBEGIN for these tests: 5-digit addresses, the bank note
+;
+MBEGIN: CALL    TBEGIN
+        MVI     A,5
+        STA     TATW
+        PUSH    H
+        LXI     H,MNOTE
+        SHLD    TNOTE
+        POP     H
+        RET
+;
+; ---- every data bit of every bank ----
+;
+TFDATA: LXI     D,NFDATA
+        CALL    MBEGIN
+        XRA     A               ;A = the bank
+TFDB:   STA     MADDR
+        XRA     A
+        STA     MADDR+1
+        STA     MADDR+2
+        CALL    DWALK
+        LDA     TOFLG
+        ORA     A
+        JNZ     TEND
+        LDA     MADDR
+        INR     A
+        CPI     8
+        JNZ     TFDB
+        JMP     TEND
+;
+; DWALK -- every PAT16 pattern written to MADDR and read back
+;
+DWALK:  LXI     D,PAT16
+        MVI     B,NPAT16
+DWALKL: XCHG
+        MOV     A,M
+        INX     H
+        PUSH    H
+        MOV     H,M
+        MOV     L,A
+        SHLD    TEXP
+        CALL    MWT1
+        CALL    MRD1
+        CALL    MCHK
+        POP     H
+        INX     H
+        XCHG
+        DCR     B
+        JNZ     DWALKL
+        RET
+;
+; ---- each bank answers only for its own addresses ----
+;
+TFBANK: LXI     D,NFBANK
+        CALL    MBEGIN
+        XRA     A
+        STA     PMASK
+        CALL    TFBK
+        MVI     A,0FFH          ;and again, complemented
+        STA     PMASK
+        CALL    TFBK
+        JMP     TEND
+;
+TFBK:   XRA     A               ;words 0-15: two of each bank
+        STA     MADDR+1
+        STA     MADDR+2
+TFBKW:  STA     MADDR
+        CALL    BKVAL
+        CALL    MWT1
+        LDA     MADDR
+        INR     A
+        CPI     16
+        JNZ     TFBKW
+        XRA     A
+TFBKR:  STA     MADDR
+        CALL    BKVAL
+        SHLD    TEXP
+        CALL    MRD1
+        CALL    MCHK
+        LDA     MADDR
+        INR     A
+        CPI     16
+        JNZ     TFBKR
+        RET
+;
+BKVAL:  LDA     MADDR           ;HL = word n's: n * 1111H XOR 0C35AH,
+        MOV     B,A             ;  complemented if PMASK
+        RLC
+        RLC
+        RLC
+        RLC
+        ORA     B
+        MOV     H,A
+        MOV     L,A
+        MOV     A,H
+        XRI     0C3H
+        MOV     H,A
+        MOV     A,L
+        XRI     5AH
+        MOV     L,A
+        LDA     PMASK
+        XRA     H
+        MOV     H,A
+        LDA     PMASK
+        XRA     L
+        MOV     L,A
+        RET
+;
+; ---- every address line, in every bank ----
+;
+; In bank b: word b, and b + 2^k for k = 3..19 (the chips' A0-A16),
+; each a different value, all written first and then all read: a line
+; stuck, open or shorted makes two of them one word.
+;
+TFADDR: LXI     D,NFADDR
+        CALL    MBEGIN
+        MVI     C,0             ;C = the bank
+TFAB:   MVI     B,0             ;B = which address, 0..17
+TFAW:   CALL    FAADR
+        CALL    AVAL
+        CALL    MWT1
+        INR     B
+        MOV     A,B
+        CPI     18
+        JNZ     TFAW
+        MVI     B,0
+TFAR:   CALL    FAADR
+        CALL    AVAL
+        SHLD    TEXP
+        CALL    MRD1
+        CALL    MCHK
+        INR     B
+        MOV     A,B
+        CPI     18
+        JNZ     TFAR
+        LDA     TOFLG
+        ORA     A
+        JNZ     TEND
+        INR     C
+        MOV     A,C
+        CPI     8
+        JNZ     TFAB
+        JMP     TEND
+;
+; FAADR -- MADDR = bank C's address B: C, or C + 2^(B+2)
+;
+FAADR:  CALL    ONEBIT          ;MADDR = 2^(B+2), or 0 for B = 0
+        LDA     MADDR
+        ORA     C
+        STA     MADDR
+        RET
+;
+; ONEBIT -- MADDR = 0 if B = 0, else 1 shifted left B-1+D0 times,
+; where D0 = SHIFT0 (3 for the frame, 0 for the overlay). Preserves BC.
+;
+ONEBIT: XRA     A
+        STA     MADDR
+        STA     MADDR+1
+        STA     MADDR+2
+        ORA     B
+        RZ
+        PUSH    B
+        LXI     H,1             ;A:HL = 1, then shifted
+        MVI     C,0
+        LDA     SHIFT0
+        ADD     B
+        DCR     A
+        MOV     B,A
+ONEBL:  MOV     A,B
+        ORA     A
+        JZ      ONEBX
+        DAD     H
+        MOV     A,C
+        RAL
+        MOV     C,A
+        DCR     B
+        JMP     ONEBL
+ONEBX:  SHLD    MADDR
+        MOV     A,C
+        STA     MADDR+2
+        POP     B
+        RET
+;
+; AVAL -- HL = address B's value in bank/half C: a different one for
+; every (C, B). Preserves BC, DE.
+;
+AVAL:   MOV     A,C
+        RLC
+        RLC
+        RLC
+        RLC
+        ORI     05H
+        MOV     H,A
+        MOV     A,B
+        RLC
+        RLC
+        RLC
+        ORI     06H
+        MOV     L,A
+        RET
+;
+; ---- the march: every word, its own address as its value ----
+;
+TFMARCH: LDA    LONGT
+        ORA     A
+        JNZ     TFFULL
+        LXI     D,NFQUIK
+        CALL    MBEGIN
+        LXI     H,0             ;the first 16K words
+        MVI     A,0
+        LXI     B,QBLKS
+        CALL    MARCH
+        LXI     H,0C000H        ;the last 16K: 0FC000H-0FFFFFH
+        MVI     A,0FH
+        LXI     B,QBLKS
+        CALL    MARCH
+        JMP     TEND
+TFFULL: LXI     D,NFFULL
+        CALL    MBEGIN
+        CALL    PMSG
+        DB      "INFO two passes over 1M words, a dot per 64K; ESC stops",CR,LF,"$"
+        LXI     H,0
+        MVI     A,0
+        LXI     B,4096
+        CALL    MARCH
+        CALL    CRLF
+        JMP     TEND
+;
+; MARCH -- BC blocks of 256 words from A:HL, two passes: written with
+; DWT, then read with DRD, each word its address (bits 15-0 XOR bits
+; 19-16 x 1111H), then all of it again complemented. A dot every 256
+; blocks for a long one. Stops early on ESC, a timeout or MAXERR
+; errors.
+;
+MARCH:  STA     MSTART+2
+        SHLD    MSTART
+        MOV     H,B
+        MOV     L,C
+        SHLD    MBLKS
+        XRA     A
+        STA     PMASK
+        CALL    MPASS
+        RC
+        MVI     A,0FFH
+        STA     PMASK
+        CALL    MPASS
+        RET
+;
+; MPASS -- one pass: write the blocks, then read them. CY to stop.
+;
+MPASS:  XRA     A               ;the writes
+        STA     MREAD
+        CALL    MBLKL
+        RC
+        MVI     A,1             ;the reads
+        STA     MREAD
+        JMP     MBLKL
+;
+MBLKL:  LHLD    MSTART
+        SHLD    MADDR
+        LDA     MSTART+2
+        STA     MADDR+2
+        LHLD    MBLKS
+MBLKN:  PUSH    H
+        LDA     MREAD
+        ORA     A
+        JNZ     MBR
+        CALL    BWRITE
+        JMP     MBNX
+MBR:    CALL    BREAD
+MBNX:   POP     H
+        LDA     TOFLG           ;stop?
+        ORA     A
+        JNZ     MBSTOP
+        PUSH    H
+        LHLD    TERRN
+        LXI     D,MAXERR
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        POP     H
+        JNC     MBMAX
+        LDA     MADDR+1         ;next block: + 256 words
+        INR     A
+        STA     MADDR+1
+        JNZ     MBDOT
+        LDA     MADDR+2
+        INR     A
+        STA     MADDR+2
+MBDOT:  LDA     MADDR+1         ;every 64K words: a dot, and ESC?
+        ORA     A
+        JNZ     MBNXT
+        LDA     MBLKS+1         ;(only in a march of 64K words or more)
+        ORA     A
+        JZ      MBNXT
+        LDA     MREAD
+        ORA     A
+        MVI     A,'w'
+        JZ      MBDOT1
+        MVI     A,'r'
+MBDOT1: CALL    PCHR
+        CALL    CHKBRK
+        JC      MBESC
+MBNXT:  DCX     H
+        MOV     A,H
+        ORA     L
+        JNZ     MBLKN
+        ORA     A               ;NC
+        RET
+MBMAX:  LXI     D,MMAX
+        CALL    TMSG
+        STC
+        RET
+MBESC:  LXI     D,MESC
+        CALL    TMSG
+MBSTOP: STC
+        RET
+;
+; BWRITE -- DWT 256 words at MADDR, each its pattern value
+;
+BWRITE: CALL    MKMASK
+        CALL    MRWP
+        LXI     H,OPDWT
+        CALL    PUTW
+        LXI     H,255           ;AX: the words - 1
+        CALL    PUTW
+        LXI     H,0             ;AY: one row
+        CALL    PUTW
+        LHLD    MADDR           ;DE = the address
+        XCHG
+        MVI     B,0             ;256
+BWRL:   LHLD    KMASK
+        MOV     A,L
+        XRA     E
+        MOV     L,A
+        MOV     A,H
+        XRA     D
+        MOV     H,A
+        CALL    PUTW
+        INX     D
+        DCR     B
+        JNZ     BWRL
+        JMP     WCED
+;
+; BREAD -- DRD 256 words at MADDR, each checked, then abort the DRD
+;
+BREAD:  CALL    MKMASK
+        CALL    WCED
+        CALL    DRAIN
+        CALL    MRWP
+        LXI     H,OPDRD
+        CALL    PUTW
+        LXI     H,255
+        CALL    PUTW
+        LXI     H,0
+        CALL    PUTW
+        LHLD    MADDR
+        XCHG
+        MVI     B,0
+BRDL:   LHLD    KMASK
+        MOV     A,L
+        XRA     E
+        MOV     L,A
+        MOV     A,H
+        XRA     D
+        MOV     H,A
+        SHLD    TEXP
+        CALL    GETW
+        LDA     TEXP
+        CMP     L
+        JNZ     BRDE
+        LDA     TEXP+1
+        CMP     H
+        JNZ     BRDE
+BRDN:   INX     D
+        DCR     B
+        JNZ     BRDL
+        JMP     ABORT           ;DRD then waits for ever
+BRDE:   SHLD    TGOT            ;an error at MADDR+2:DE
+        XCHG
+        SHLD    TAT
+        XCHG
+        LDA     MADDR+2
+        STA     TAT+2
+        CALL    TMISM
+        LDA     TOFLG           ;a dead FIFO: stop the burst
+        ORA     A
+        JZ      BRDN
+        JMP     ABORT
+;
+; MKMASK -- KMASK = MADDR+2 x 1111H XOR PMASK x 0101H
+;
+MKMASK: LDA     MADDR+2
+        ANI     0FH
+        MOV     B,A
+        RLC
+        RLC
+        RLC
+        RLC
+        ORA     B
+        MOV     B,A
+        LDA     PMASK
+        XRA     B
+        MOV     L,A
+        MOV     H,A
+        SHLD    KMASK
+        RET
+;
+; ---- single words ----
+;
+; MRWP -- RWP = MADDR on screen MSCR. For the overlay, MADDR+2 is the
+; half: OLSEL is changed to it first (once the ACRTC is idle, so no
+; queued access lands in the wrong half), and RWP gets bits 15-0.
+;
+MRWP:   PUSH    B
+        PUSH    H
+        LDA     MSCR
+        CPI     DNUPR
+        JNZ     MRWPF
+        LDA     MADDR+2         ;the half wanted
+        ANI     1
+        RRC                     ;(bit 0 to bit 4)
+        RRC
+        RRC
+        RRC
+        MOV     B,A
+        LDA     MODESH
+        ANI     MDOLSL
+        CMP     B
+        JZ      MRWPO
+        CALL    WCED
+        LDA     MODESH
+        ANI     0FFH-MDOLSL
+        ORA     B
+        CALL    SETMODE
+MRWPO:  MVI     C,0
+        JMP     MRWPS
+MRWPF:  LDA     MADDR+2
+        MOV     C,A
+MRWPS:  LHLD    MADDR
+        LDA     MSCR
+        CALL    SETRWP
+        POP     H
+        POP     B
+        RET
+;
+; MWT1 -- write HL to MADDR (WT). Preserves BC, DE, HL.
+; MRD1 -- HL = the word at MADDR (RD). Preserves BC, DE.
+;
+MWT1:   CALL    MRWP
+        PUSH    H
+        LXI     H,OPWT
+        CALL    PUTW
+        POP     H
+        JMP     PUTW
+MRD1:   CALL    MRWP
+        LXI     H,OPRD
+        CALL    PUTW
+        JMP     GETW
+;
+; MCHK -- HL (read) against TEXP, at MADDR. Preserves all.
+;
+MCHK:   PUSH    PSW
+        PUSH    H
+        LDA     TEXP
+        CMP     L
+        JNZ     MCHKE
+        LDA     TEXP+1
+        CMP     H
+        JZ      MCHKX
+MCHKE:  SHLD    TGOT
+        LHLD    MADDR
+        SHLD    TAT
+        LDA     MADDR+2
+        STA     TAT+2
+        CALL    TMISM
+MCHKX:  POP     H
+        POP     PSW
+        RET
+;
+; MNOTE -- an error's chip: the frame's bank and U-number, or U19
+;
+MNOTE:  LDA     MSCR
+        CPI     DNUPR
+        JZ      MNOTEO
+        CALL    PMSG
+        DB      "bank $"
+        LDA     TAT
+        ANI     07H
+        PUSH    PSW
+        ADI     '0'
+        CALL    PCHR
+        CALL    PMSG
+        DB      " U$"
+        POP     PSW
+        LXI     H,BANKU
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        MOV     L,M
+        MVI     H,0
+        CALL    PDEC
+        LDA     TEXP            ;which pixel(s)
+        MOV     B,A
+        LDA     TGOT
+        XRA     B
+        MOV     C,A             ;C = low-byte difference
+        LDA     TEXP+1
+        MOV     B,A
+        LDA     TGOT+1
+        XRA     B               ;A = high-byte difference
+        ORA     A
+        JZ      MNLOW
+        MOV     A,C
+        ORA     A
+        RNZ                     ;both bytes
+        CALL    PMSG
+        DB      " high byte$"
+        RET
+MNLOW:  CALL    PMSG
+        DB      " low byte$"
+        RET
+MNOTEO: CALL    PMSG
+        DB      "U19 OLSEL=$"
+        LDA     TAT+2
+        ANI     1
+        ADI     '0'
+        JMP     PCHR
+;
+; ======== stage OVL ========
+;
+SOVL:   CALL    PMSG
+        DB      "-- overlay memory, U19, both OLSEL halves (destructive)",CR,LF,"$"
+        CALL    ENSURE
+        CALL    ABORT
+        MVI     A,DNUPR
+        STA     MSCR
+        CALL    TODATA
+        CALL    TOLSEL
+        CALL    TOADDR
+        CALL    TOMARCH
+        XRA     A               ;back to the lower half, cleared
+        STA     MADDR+2
+        CALL    MRWP
+        MVI     A,DNBASE
+        STA     MSCR
+        JMP     CLS
+;
+TODATA: LXI     D,NODATA
+        CALL    MBEGIN
+        XRA     A
+        STA     MADDR
+        STA     MADDR+1
+        STA     MADDR+2
+        CALL    DWALK
+        JMP     TEND
+;
+; TOLSEL -- word 0 of each half different: OLSEL must pick them
+;
+TOLSEL: LXI     D,NOLSEL
+        CALL    MBEGIN
+        LXI     H,0
+        SHLD    MADDR
+        XRA     A
+        STA     MADDR+2
+        LXI     H,1234H
+        CALL    MWT1
+        MVI     A,1
+        STA     MADDR+2
+        LXI     H,0EDCBH
+        CALL    MWT1
+        XRA     A
+        STA     MADDR+2
+        LXI     H,1234H
+        SHLD    TEXP
+        CALL    MRD1
+        CALL    MCHK
+        MVI     A,1
+        STA     MADDR+2
+        LXI     H,0EDCBH
+        SHLD    TEXP
+        CALL    MRD1
+        CALL    MCHK
+        CALL    TSTATE          ;both read the same word: say why
+        JZ      TEND
+        CALL    PINFO
+        DB      "OLSEL (MODE bit 4: U41, U55) drives U19 A16$"
+        JMP     TEND
+;
+TSTATE: LHLD    TERRN
+        MOV     A,H
+        ORA     L
+        RET
+;
+; TOADDR -- in each half: word 0 and 2^k, k = 0..15 (U19 A0-A15)
+;
+TOADDR: LXI     D,NOADDR
+        CALL    MBEGIN
+        XRA     A
+        STA     SHIFT0
+        MVI     C,0             ;C = the half
+TOAH:   MVI     B,0
+TOAW:   CALL    ONEBIT
+        MOV     A,C
+        STA     MADDR+2
+        CALL    AVAL
+        CALL    MWT1
+        INR     B
+        MOV     A,B
+        CPI     17
+        JNZ     TOAW
+        MVI     B,0
+TOAR:   CALL    ONEBIT
+        MOV     A,C
+        STA     MADDR+2
+        CALL    AVAL
+        SHLD    TEXP
+        CALL    MRD1
+        CALL    MCHK
+        INR     B
+        MOV     A,B
+        CPI     17
+        JNZ     TOAR
+        INR     C
+        MOV     A,C
+        CPI     2
+        JNZ     TOAH
+        MVI     A,3             ;(the frame's again)
+        STA     SHIFT0
+        JMP     TEND
+;
+TOMARCH: LDA    LONGT
+        ORA     A
+        JNZ     TOFULL
+        LXI     D,NOQUIK
+        CALL    MBEGIN
+        MVI     C,0             ;each half: its first and last 4K words
+TOMQ:   PUSH    B
+        LXI     H,0
+        MOV     A,C
+        LXI     B,QOBLKS
+        CALL    MARCH
+        POP     B
+        JC      TEND
+        PUSH    B
+        LXI     H,0F000H
+        MOV     A,C
+        LXI     B,QOBLKS
+        CALL    MARCH
+        POP     B
+        JC      TEND
+        INR     C
+        MOV     A,C
+        CPI     2
+        JNZ     TOMQ
+        JMP     TEND
+TOFULL: LXI     D,NOFULL
+        CALL    MBEGIN
+        LXI     H,0
+        MVI     A,0
+        LXI     B,256
+        CALL    MARCH
+        JC      TOFX
+        LXI     H,0
+        MVI     A,1
+        LXI     B,256
+        CALL    MARCH
+TOFX:   CALL    CRLF
+        JMP     TEND
+;
+; ---- data ----
+;
+LONGT:  DB      0               ;FULL: march over all of the memory
+MSCR:   DB      DNBASE          ;the screen: DNBASE frame, DNUPR overlay
+MADDR:  DB      0,0,0           ;the word address (overlay: +2 = OLSEL)
+MSTART: DB      0,0,0
+MBLKS:  DW      0
+MREAD:  DB      0
+PMASK:  DB      0               ;0 or 0FFH: a pass's complement
+KMASK:  DW      0               ;a block's pattern mask
+SHIFT0: DB      3               ;the lowest address bit ONEBIT walks
+BANKU:  DB      11,13,15,17,12,14,16,18 ;bank 0-7 chips (U56)
+;
+NFDATA: DB      "FRAME data bits D15-D0, each bank$"
+NFBANK: DB      "FRAME bank select, banks 0-7$"
+NFADDR: DB      "FRAME address lines A16-A0, each bank$"
+NFQUIK: DB      "FRAME march, first and last 16K words$"
+NFFULL: DB      "FRAME march, all 1M words$"
+NODATA: DB      "OVL data bits D15-D0$"
+NOLSEL: DB      "OVL OLSEL picks the half (U19 A16)$"
+NOADDR: DB      "OVL address lines A15-A0, both halves$"
+NOQUIK: DB      "OVL march, first and last 4K words of each half$"
+NOFULL: DB      "OVL march, all 128K words$"
+MMAX:   DB      "too many errors: stopped$"
+MESC:   DB      "stopped by the operator$"

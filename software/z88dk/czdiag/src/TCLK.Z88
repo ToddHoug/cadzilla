@@ -1,0 +1,690 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; TCLK.Z88 -- czdiag stage CLOCK: is the board's clock running, and how fast?
+;
+; The board has one oscillator, Y1 (the pixel clock, PCLK). U48 divides
+; it by 8 into the ACRTC's 2CLK (MODE AMODE=0). So:
+;
+; - Any ACRTC access that completes proves 2CLK, and Y1, run: with no
+;   2CLK the ACRTC never answers, and the CPU hangs on the access.
+; - The raster counter RCR (r80) counting up proves the display time
+;   base runs (STR=1). altairsim doesn't model RCR: it always reads 0.
+; - Timing RCR's wrap, once a frame, against a CPU loop of known cycle
+;   count measures the frame rate, given the CPU clock (MHZ=, or the C
+;   menu item). Then, the mode's rasters per frame (VC) and memory
+;   cycles per raster (HC+1) give 2CLK, and 8 x 2CLK the pixel clock.
+;
+; What can't be seen from the host: PCLK at the Bt453 and shift
+; registers, and the syncs. The V menu item's picture shows those.
+;
+        INCLUDE "CZDIAG.INC"
+;
+        PUBLIC  SCLK,CPUID,CPUTYP,CPUKHZ,MHZSET,PCPU,PKHZ
+        EXTERN  TBEGIN,TMSG,TEND,TSTAT,PINFO,TERRN
+        EXTERN  PMSG,PSTR,PHEX4,PDEC,CRLF
+        EXTERN  ACC32,OP32,SET32,MUL16,DIV32,PDEC32,PFIX3,LDOP
+        EXTERN  WREG,PUTW,WCEDS,ABORT,SETRWP,TOFLG,LSR
+        EXTERN  ENSURE,MDWORD
+;
+NFR     EQU     4               ;frames timed
+PAD     EQU     12              ;the timing loop's delay count
+NSAMP   EQU     512             ;RCR reads in the first test
+;
+; Cycles per pass of the timing loop (FRLOOP), by CPU: see the counts
+; there. Instruction fetches with memory wait states, and wait states
+; on the ACRTC's three accesses, would make it slower than this.
+;
+CYC80   EQU     78+PAD*15+32            ;8080: 290
+CYC85   EQU     73+PAD*4+(PAD-1)*10+7+30 ;8085: 268
+CYCZ80  EQU     79+PAD*14+30            ;Z80: 277
+;
+; CPUID -- CPUTYP = 0 for the 8080, 1 for the 8085, 2 for the Z80.
+; 7FH+1 overflows: the Z80 sets P/V for that; the 8080 and 8085 set P
+; for parity, and 80H has odd parity. The 8085's ANA always sets AC;
+; the 8080's sets it from bit 3 of the operands, 0 here.
+;
+CPUID:  MVI     A,7FH
+        INR     A
+        MVI     A,2
+        JPE     CPUIDX
+        XRA     A
+        ANA     A
+        PUSH    PSW
+        POP     H
+        MOV     A,L
+        ANI     10H
+        MVI     A,1
+        JNZ     CPUIDX
+        XRA     A
+CPUIDX: STA     CPUTYP
+        RET
+;
+; PCPU -- print the CPU's name
+;
+PCPU:   LDA     CPUTYP
+        LXI     D,N8080
+        ORA     A
+        JZ      PSTR
+        LXI     D,N8085
+        DCR     A
+        JZ      PSTR
+        LXI     D,NZ80
+        JMP     PSTR
+;
+; PKHZ -- print the CPU clock as MHz, e.g. 2.000
+;
+PKHZ:   LHLD    CPUKHZ
+        XCHG
+        LXI     H,ACC32
+        CALL    SET32
+        JMP     PFIX3
+;
+; ======== stage CLOCK ========
+;
+SCLK:   CALL    PMSG
+        DB      "-- clocks and display time base",CR,LF,"$"
+        CALL    ENSURE
+        CALL    PINFO
+        DB      "ACRTC accesses complete: 2CLK runs, and so Y1 (PCLK = 8 x 2CLK)$"
+        CALL    TRCR
+        JNZ     SCLK1           ;RCR is no use: skip the timing
+        CALL    TFRAME
+SCLK1:  JMP     TSTR
+;
+; ---- RCR counts, within 0..VC-1 ----
+;
+TRCR:   LXI     D,NRCR
+        CALL    TBEGIN
+        LXI     H,0FFFFH
+        SHLD    RMIN
+        INX     H
+        SHLD    RMAX
+        SHLD    RCHG
+        SHLD    RBAD
+        SHLD    RHIGH
+        CALL    RCRRD
+        SHLD    RPREV
+        LXI     B,NSAMP
+TRCRL:  CALL    RCRRD
+        JNC     TRCR1
+        LHLD    RBAD            ;two reads disagreed: drop it
+        INX     H
+        SHLD    RBAD
+        JMP     TRCRN
+TRCR1:  MOV     A,H             ;bits 15-12 are always 0
+        ANI     0F0H
+        JZ      TRCR2
+        PUSH    H
+        LHLD    RHIGH
+        INX     H
+        SHLD    RHIGH
+        POP     H
+TRCR2:  XCHG                    ;DE = the count
+        LHLD    RMIN            ;the smallest
+        CALL    CMPHD
+        JC      TRCR3
+        XCHG
+        SHLD    RMIN
+        XCHG
+TRCR3:  LHLD    RMAX            ;the largest
+        CALL    CMPHD
+        JNC     TRCR4
+        XCHG
+        SHLD    RMAX
+        XCHG
+TRCR4:  LHLD    RPREV           ;changes
+        MOV     A,L
+        CMP     E
+        JNZ     TRCR5
+        MOV     A,H
+        CMP     D
+        JZ      TRCR6
+TRCR5:  LHLD    RCHG
+        INX     H
+        SHLD    RCHG
+TRCR6:  XCHG
+        SHLD    RPREV
+TRCRN:  MVI     A,32            ;spread the reads over a few frames
+TRCRD:  DCR     A
+        JNZ     TRCRD
+        DCX     B
+        MOV     A,B
+        ORA     C
+        JNZ     TRCRL
+        CALL    PMSG            ;what was seen
+        DB      "INFO RCR read $"
+        LHLD    RMIN
+        CALL    PHEX4
+        CALL    PMSG
+        DB      "..$"
+        LHLD    RMAX
+        CALL    PHEX4
+        CALL    PMSG
+        DB      " (hex), $"
+        LHLD    RCHG
+        CALL    PDEC
+        CALL    PMSG
+        DB      " changes in 512 reads, $"
+        LHLD    RBAD
+        CALL    PDEC
+        CALL    PMSG
+        DB      " dropped as torn",CR,LF,"$"
+        LHLD    RCHG
+        MOV     A,H
+        ORA     L
+        JNZ     TRCR7
+        LXI     D,MSTAT
+        CALL    TMSG
+        LHLD    RMIN
+        MOV     A,H
+        ORA     L
+        JNZ     TEND
+        CALL    PINFO
+        DB      "(altairsim doesn't model RCR: there it always reads 0)$"
+        JMP     TEND
+TRCR7:  LHLD    RHIGH
+        MOV     A,H
+        ORA     L
+        LXI     D,MHIGH
+        CNZ     TMSG
+        MVI     A,MDVC          ;RMAX < VC?
+        CALL    MDWORD
+        XCHG
+        LHLD    RMAX
+        CALL    CMPHD
+        LXI     D,MOVER
+        CNC     TMSG
+        JMP     TEND
+;
+; CMPHD -- CY if HL < DE (unsigned). Preserves BC, DE, HL.
+;
+CMPHD:  MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        RET
+;
+; RCRRD -- HL = RCR, NC; or CY if it changed under the read (RCR's
+; two bytes aren't latched together, and a read during HSYNC low is
+; not reliable, manual 5.8.1). Reads high, low, then high again.
+; Preserves BC, DE.
+;
+RCRRD:  MVI     A,RRCR
+        OUT     ACRSR
+        IN      ACRDAT          ;high (AR steps on to r81)
+        MOV     H,A
+        IN      ACRDAT          ;low
+        MOV     L,A
+        MVI     A,RRCR
+        OUT     ACRSR
+        IN      ACRDAT          ;high again
+        PUSH    PSW
+        XRA     A
+        OUT     ACRSR
+        POP     PSW
+        CMP     H
+        RZ                      ;(NC)
+        STC
+        RET
+;
+; ---- time NFR frames by RCR's wrap ----
+;
+TFRAME: LXI     D,NFRAME
+        CALL    TBEGIN
+        MVI     A,MDVC          ;a wrap drops RCR by over VC/2
+        CALL    MDWORD
+        ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        SHLD    VCH
+        XRA     A
+        STA     FRCNT
+TFRST:  CALL    RCRRD           ;a good first value
+        JC      TFRST
+        XCHG                    ;DE = the last RCR
+        LXI     B,1             ;BC = passes (0 again: a timeout)
+;
+; The loop. Its cycles per pass (8080/8085/Z80) are CYC80/85/Z80,
+; the same every pass that doesn't see a wrap.
+;
+FRLOOP: MVI     A,RRCR          ;7/7/7
+        OUT     ACRSR           ;10/10/11
+        IN      ACRDAT          ;10/10/11   high
+        MOV     H,A             ;5/4/4
+        IN      ACRDAT          ;10/10/11   low
+        MOV     L,A             ;5/4/4
+        INX     B               ;5/6/6
+        MOV     A,B             ;5/4/4
+        ORA     C               ;4/4/4
+        JZ      FRTO            ;10/7/10    (not taken)
+        MVI     A,PAD           ;7/7/7      = 78/73/79
+FRDLY:  DCR     A               ;5/4/4      PAD times
+        JNZ     FRDLY           ;10/10/10   (the 8085's last: 7)
+        MOV     A,L             ;5/4/4
+        SUB     E               ;4/4/4
+        MOV     A,H             ;5/4/4
+        SBB     D               ;4/4/4
+        XCHG                    ;4/4/4      DE = this RCR, HL = the last
+        JNC     FRLOOP          ;10/10/10   = 32/30/30
+;
+; RCR went down: a wrap, if it fell by more than VC/2 to below VC/4,
+; else a misread (then the last value is kept)
+;
+        PUSH    H               ;the last
+        MOV     A,L
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A             ;HL = the drop
+        PUSH    D
+        XCHG
+        LHLD    VCH
+        XCHG                    ;HL = the drop, DE = VC/2
+        CALL    CMPHD           ;CY: the drop < VC/2
+        POP     D
+        POP     H
+        JC      FRMISS
+        PUSH    H               ;and the new value < VC/4?
+        LHLD    VCH
+        ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        CALL    CMPHD           ;CY: VC/4 < DE
+        POP     H
+        JC      FRMISS
+        LDA     FRCNT           ;a wrap
+        INR     A
+        STA     FRCNT
+        CPI     1
+        JNZ     FRW2
+        LXI     B,1             ;the first: start counting
+        JMP     FRLOOP
+FRW2:   PUSH    H               ;the next ones: note the count
+        PUSH    D
+        LXI     H,FRT-4
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        DAD     D               ;FRT + 2 * (FRCNT - 2)
+        MOV     M,C
+        INX     H
+        MOV     M,B
+        POP     D
+        POP     H
+        LDA     FRCNT
+        CPI     NFR+1
+        JNZ     FRLOOP
+        JMP     FRDONE
+FRMISS: XCHG                    ;DE = the last value again
+        JMP     FRLOOP
+;
+FRTO:   XRA     A               ;(AR stepped on to r82)
+        OUT     ACRSR
+        LXI     D,MFRTO
+        CALL    TMSG
+        JMP     TEND
+;
+; NFR frames timed: FRT holds the passes at each wrap after the first
+;
+FRDONE: XRA     A               ;(no ACRTC access after FRLOOP's)
+        OUT     ACRSR
+        CALL    PMSG
+        DB      "INFO timing loop passes per frame:$"
+        LXI     H,FRT
+        LXI     D,1             ;(the first count is from pass 1)
+        MVI     B,NFR
+        MVI     C,0             ;C = 1: they disagree by over 1/32
+FRDL:   PUSH    B
+        MOV     A,M
+        INX     H
+        PUSH    H
+        MOV     H,M
+        MOV     L,A
+        PUSH    H
+        MOV     A,L             ;this frame's: count - the last count
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        CALL    PMSG
+        DB      " $"
+        CALL    PDEC
+        XCHG                    ;DE = this frame's
+        LHLD    FRT1            ;vs the first frame's
+        MOV     A,H
+        ORA     L
+        JNZ     FRDC
+        XCHG
+        SHLD    FRT1
+        XCHG
+FRDC:   CALL    FRDIFF
+        POP     D               ;DE = this wrap's count
+        POP     H
+        INX     H
+        POP     B
+        ORA     A
+        JZ      FRDN
+        MVI     C,1
+FRDN:   DCR     B
+        JNZ     FRDL
+        CALL    CRLF
+        MOV     A,C
+        ORA     A
+        LXI     D,MUNST
+        CNZ     TMSG
+        LHLD    FRT+2*(NFR-1)   ;the passes in NFR frames
+        DCX     H
+        XCHG
+        LXI     H,ACC32
+        CALL    SET32
+        LDA     CPUTYP          ;x cycles per pass = CPU cycles
+        LXI     D,CYC80
+        ORA     A
+        JZ      FRCY
+        LXI     D,CYC85
+        DCR     A
+        JZ      FRCY
+        LXI     D,CYCZ80
+FRCY:   CALL    MUL16
+        LXI     H,OP32          ;the divisor
+        LXI     D,ACC32
+        CALL    CPY32L
+        LHLD    CPUKHZ          ;fps x 100 = kHz * 1000 * NFR * 100 / cycles
+        XCHG
+        LXI     H,ACC32
+        CALL    SET32
+        LXI     D,NFR*1000
+        CALL    MUL16
+        LXI     D,100
+        CALL    MUL16
+        CALL    DIV32
+        LXI     H,FPS
+        LXI     D,ACC32
+        CALL    CPY32L
+        CALL    PMSG
+        DB      "INFO with the CPU at $"
+        CALL    PKHZ
+        CALL    PMSG
+        DB      " MHz: frame $"
+        LXI     H,ACC32
+        LXI     D,FPS
+        CALL    CPY32L
+        LXI     D,10            ;(x 10: PFIX3 prints 3 decimals)
+        CALL    MUL16
+        CALL    PFIX3
+        CALL    PMSG
+        DB      " Hz, raster $"
+        LXI     H,ACC32         ;raster Hz = fps x 100 x VC / 100
+        LXI     D,FPS
+        CALL    CPY32L
+        MVI     A,MDVC
+        CALL    MDWORD
+        XCHG
+        CALL    MUL16
+        LXI     D,100
+        CALL    LDOP
+        CALL    DIV32
+        CALL    PFIX3           ;(Hz / 1000: kHz)
+        CALL    PMSG
+        DB      " kHz",CR,LF,"INFO 2CLK $"
+        LXI     H,ACC32         ;2CLK kHz = fps x 100 x VC x (HC+1) x 2
+        LXI     D,FPS           ;   / 100000: a memory cycle is two 2CLKs
+        CALL    CPY32L
+        MVI     A,MDVC
+        CALL    MDWORD
+        XCHG
+        CALL    MUL16
+        MVI     A,MDHCYC
+        CALL    MDWORD
+        XCHG
+        CALL    MUL16
+        LXI     D,50000
+        CALL    LDOP
+        CALL    DIV32
+        LHLD    ACC32           ;(kHz: 16 bits)
+        SHLD    CLK2
+        XCHG
+        LXI     H,ACC32
+        CALL    SET32
+        CALL    PFIX3
+        CALL    PMSG
+        DB      " MHz, pixel clock $"
+        LHLD    CLK2            ;PCLK = 8 x 2CLK
+        XCHG
+        LXI     H,ACC32
+        CALL    SET32
+        LXI     D,8
+        CALL    MUL16
+        LHLD    ACC32+2         ;PCLK, kHz: 0FFFFH if over 16 bits
+        MOV     A,H
+        ORA     L
+        LHLD    ACC32
+        JZ      FRPK
+        LXI     H,0FFFFH
+FRPK:   SHLD    PCLK
+        CALL    PFIX3
+        CALL    PMSG
+        DB      " MHz",CR,LF,"$"
+        CALL    NEARST
+        MVI     A,MDPCLK        ;is it this mode's?
+        CALL    MDWORD
+        XCHG
+        CALL    NEAR3           ;Z: within 3%
+        JZ      TEND
+        LDA     MHZSET
+        ORA     A
+        JZ      FRGUES
+        LXI     D,MWRONG
+        CALL    TMSG
+        JMP     TEND
+FRGUES: CALL    PINFO
+        DB      "not this mode's -- but the CPU clock was assumed: give MHZ=$"
+        JMP     TEND
+;
+; FRDIFF -- A <> 0 if DE and FRT1 differ by more than FRT1 / 32
+;
+FRDIFF: PUSH    B
+        PUSH    D
+        PUSH    H
+        LHLD    FRT1
+        MOV     A,L             ;HL = |FRT1 - DE|
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        JNC     FRDF1
+        MOV     A,L
+        CMA
+        MOV     L,A
+        MOV     A,H
+        CMA
+        MOV     H,A
+        INX     H
+FRDF1:  XCHG                    ;DE = the difference
+        LHLD    FRT1            ;HL = FRT1 / 32
+        MVI     B,5
+FRDF2:  ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        DCR     B
+        JNZ     FRDF2
+        CALL    CMPHD           ;CY: HL < DE, too far apart
+        SBB     A
+        POP     H
+        POP     D
+        POP     B
+        RET
+;
+; NEAR3 -- Z if PCLK is within 3% (1/32) of DE kHz
+;
+NEAR3:  LHLD    PCLK
+        MOV     A,L
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        JNC     NEAR3A
+        MOV     A,L
+        CMA
+        MOV     L,A
+        MOV     A,H
+        CMA
+        MOV     H,A
+        INX     H
+NEAR3A: PUSH    H               ;the difference
+        XCHG
+        MVI     B,5             ;DE / 32
+NEAR3B: ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        DCR     B
+        JNZ     NEAR3B
+        POP     D
+        CALL    CMPHD           ;CY: the limit < the difference
+        SBB     A               ;0 (Z) within, FF beyond
+        RET
+;
+; NEARST -- say which oscillator, if any, the pixel clock is
+;
+NEARST: LXI     H,OSCTAB
+NEARL:  MOV     E,M
+        INX     H
+        MOV     D,M
+        INX     H
+        MOV     A,D
+        ORA     E
+        JZ      NEARN
+        PUSH    H
+        PUSH    D
+        CALL    NEAR3
+        POP     D
+        POP     H
+        JNZ     NEARL
+        CALL    PMSG
+        DB      "INFO that is a $"
+        XCHG
+        SHLD    ACC32           ;(the kHz, 16 bits)
+        LXI     H,0
+        SHLD    ACC32+2
+        CALL    PFIX3
+        CALL    PMSG
+        DB      " MHz oscillator$"
+        MVI     A,MDPCLK
+        CALL    MDWORD
+        XCHG
+        CALL    NEAR3
+        JNZ     NEARX
+        CALL    PMSG
+        DB      ", the one this mode needs$"
+NEARX:  JMP     CRLF
+NEARN:  CALL    PINFO
+        DB      "that matches none of 25.175, 40 or 65 MHz$"
+        RET
+;
+CPY32L: PUSH    B               ;(HL) = (DE), 4 bytes
+        MVI     B,4
+CPYL:   LDAX    D
+        MOV     M,A
+        INX     D
+        INX     H
+        DCR     B
+        JNZ     CPYL
+        POP     B
+        RET
+;
+; ---- STR starts and stops drawing ----
+;
+; With STR=0 the ACRTC holds drawing (manual 5.6, OMR), so a CLR must
+; not end; STR=1 lets it run. Done on one word past the picture, at
+; 0F0000H.
+;
+TSTR:   LXI     D,NSTR
+        CALL    TBEGIN
+        CALL    ABORT
+        MVI     A,DNBASE
+        MVI     C,0FH
+        LXI     H,0000H
+        CALL    SETRWP
+        CALL    WCEDS
+        MVI     B,ROMR          ;stop
+        LXI     H,OMRSTP
+        CALL    WREG
+        LXI     H,OPCLR
+        CALL    PUTW
+        LXI     H,0
+        CALL    PUTW
+        CALL    PUTW
+        CALL    PUTW
+        LXI     D,4096          ;CED must stay clear a while
+TSTRW:  IN      ACRSR
+        ANI     SRCED
+        JNZ     TSTRR
+        DCX     D
+        MOV     A,D
+        ORA     E
+        JNZ     TSTRW
+        CALL    PINFO
+        DB      "STR=0 held the CLR, as it should$"
+        JMP     TSTRS
+TSTRR:  CALL    PINFO
+        DB      "the CLR ran with STR=0 (altairsim doesn't hold drawing)$"
+TSTRS:  MVI     B,ROMR          ;start: it must end now
+        LXI     H,OMRRUN
+        CALL    WREG
+        CALL    WCEDS
+        JMP     TEND
+;
+; ---- data ----
+;
+CPUTYP: DB      0               ;0 8080, 1 8085, 2 Z80
+CPUKHZ: DW      2000            ;the CPU clock, kHz
+MHZSET: DB      0               ;CPUKHZ was given, not assumed
+;
+RMIN:   DW      0
+RMAX:   DW      0
+RCHG:   DW      0
+RBAD:   DW      0
+RHIGH:  DW      0
+RPREV:  DW      0
+VCH:    DW      0               ;VC / 2
+FRCNT:  DB      0               ;wraps seen
+FRT:    DS      2*NFR           ;the passes at each wrap after the first
+FRT1:   DW      0               ;the first frame's passes
+FPS:    DB      0,0,0,0         ;frames per second x 100
+CLK2:   DW      0               ;2CLK, kHz
+PCLK:   DW      0               ;PCLK, kHz
+OSCTAB: DW      25175,40000,65000,0
+;
+N8080:  DB      "8080$"
+N8085:  DB      "8085$"
+NZ80:   DB      "Z80$"
+NRCR:   DB      "CLOCK raster counter RCR runs$"
+NFRAME: DB      "CLOCK frame timing matches the mode$"
+NSTR:   DB      "CLOCK STR=1 runs drawing$"
+MSTAT:  DB      "RCR never changed: the display time base isn't running$"
+MHIGH:  DB      "RCR bits 15-12 not 0$"
+MOVER:  DB      "RCR went past VC-1$"
+MFRTO:  DB      "no frame wrap seen in 65535 passes$"
+MUNST:  DB      "frames disagree by over 3% -- RCR misreads?$"
+MWRONG: DB      "pixel clock is not this mode's$"

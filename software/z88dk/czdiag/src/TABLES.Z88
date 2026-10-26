@@ -1,0 +1,308 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; TABLES.Z88 -- czdiag: the display modes, and loading one
+;
+; The register tables are czgfx's own (software/m80/czgfx/src/CZINIT.MAC),
+; copied rather than linked so that czdiag owns every write it makes.
+; LDMODE sets the board up as CZINIT does; CLS then clears what shows.
+;
+        INCLUDE "CZDIAG.INC"
+;
+        PUBLIC  LDMODE,CLS,SENDW,CURMD,MDWORD,MODELD,MODES,NMODES
+        PUBLIC  RPRE,RPOST,LDDPAR
+        EXTERN  WRTAB,PUTW,WCED,SETMODE,SETRWP,ABORT,PALDEF
+;
+;
+; MDWORD -- HL = the word at offset A of the current mode descriptor.
+; Preserves BC, DE.
+;
+MDWORD: PUSH    D
+        LHLD    CURMD
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        XCHG
+        POP     D
+        RET
+;
+; LDMODE -- set the board up for the current mode: MODE, every ACRTC
+; control register, the default palette and overlay colors, and the
+; drawing parameters (pattern RAM all ones, colors 0/FF, area the
+; screen, origin bottom left, RWP at word 0). Clears nothing. CY if
+; the ACRTC timed out. Clobbers all registers.
+;
+LDMODE: LHLD    CURMD
+        MOV     A,M
+        CALL    SETMODE
+        LXI     H,RPRE          ;abort, 8 bpp, stopped, screens off
+        CALL    WRTAB
+        MVI     A,MDRTAB
+        CALL    MDWORD
+        CALL    WRTAB           ;this mode's timing
+        LXI     H,RPOST         ;the rest, then started
+        CALL    WRTAB
+        CALL    PALDEF
+        CALL    LDDPAR
+        RC
+        MVI     A,1
+        STA     MODELD
+        ORA     A
+        RET
+;
+; LDDPAR -- the drawing parameters as LDMODE sets them, and wait for
+; the end. CY on a timeout.
+;
+LDDPAR: LXI     H,DPCOM
+        LXI     B,DPCLEN
+        CALL    SENDW
+        MVI     A,MDDTAB
+        CALL    MDWORD
+        LXI     B,DPMLEN
+        CALL    SENDW
+        JMP     WCED
+;
+; SENDW -- send BC words from HL to the write FIFO (BC > 0). Returns
+; HL past them. CY on a timeout.
+;
+SENDW:  PUSH    D
+SENDWL: MOV     E,M
+        INX     H
+        MOV     D,M
+        INX     H
+        XCHG
+        CALL    PUTW
+        XCHG
+        JC      SENDWX
+        DCX     B
+        MOV     A,B
+        ORA     C
+        JNZ     SENDWL
+SENDWX: POP     D
+        RET
+;
+; CLS -- clear what shows: the base screen to color 0, and the
+; overlay's lower half (the part the display reads) to 0. Waits for
+; the end. CY on a timeout.
+;
+CLS:    MVI     A,MDWMAX        ;the frame: CLR from the top raster
+        CALL    MDWORD
+        PUSH    H
+        MVI     A,DNBASE
+        CALL    CLRSCR
+        POP     H
+        INX     H               ;the overlay: words per raster / 8
+        MVI     B,3
+CLSOV:  ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        DCR     B
+        JNZ     CLSOV
+        DCX     H
+        MVI     A,DNUPR
+        CALL    CLRSCR
+        JMP     WCED
+;
+; CLRSCR -- CLR the whole height of screen A from word 0, HL words
+; per raster - 1 wide, with 0
+;
+CLRSCR: PUSH    H
+        LXI     H,0
+        MVI     C,0
+        CALL    SETRWP
+        LXI     H,OPCLR
+        CALL    PUTW
+        LXI     H,0
+        CALL    PUTW
+        POP     H
+        CALL    PUTW            ;AX
+        MVI     A,MDYMAX        ;AY = -(height - 1): downward
+        CALL    MDWORD
+        MOV     A,L
+        CMA
+        MOV     L,A
+        MOV     A,H
+        CMA
+        MOV     H,A
+        INX     H
+        JMP     PUTW
+;
+CURMD:  DW      M1K             ;the mode in use
+MODELD: DB      0               ;LDMODE has run
+;
+; ---- the modes ----
+;
+MODES:  DW      M640,M800,M1K
+NMODES  EQU     3
+;
+M640:   DB      MDHSP+MDVSP     ;negative syncs, single access
+        DW      R640,D640
+        DW      639,479,319
+        DW      50,525          ;HC+1, VC
+        DW      25175           ;VESA 640x480@60
+        DW      N640
+M800:   DB      0               ;positive syncs, single access
+        DW      R800,D800
+        DW      799,599,399
+        DW      66,628
+        DW      40000           ;VESA 800x600@60
+        DW      N800
+M1K:    DB      MDHSP+MDVSP
+        DW      R1K,D1K
+        DW      1023,767,511
+        DW      84,806
+        DW      65000           ;VESA 1024x768@60
+        DW      N1K
+;
+N640:   DB      "640x480$"
+N800:   DB      "800x600$"
+N1K:    DB      "1024x768$"
+;
+; ---- control registers: DB register / DW value, 0FFH ends ----
+;
+RPRE:   DB      RCCR            ;ABT: abort, flush the FIFOs
+        DW      CCRABT
+        DB      RCCR            ;GBM=011 8 bpp, no interrupts
+        DW      CCR8BP
+        DB      ROMR            ;M/S=1, STR=0 (stopped), static RAM,
+        DW      OMRSTP          ;  GAI=011 +8, single access
+        DB      RDCR            ;all screens off
+        DW      0000H
+        DB      0FFH
+;
+; Timing, 16 pixels per memory cycle (8 words, GAI +8)
+;
+R640:   DB      82H             ;HSR: HC=49, HSW=6
+        DW      3106H
+        DB      84H             ;HDR: HDS=2, HDW=39
+        DW      0227H
+        DB      86H             ;VSR: VC=525
+        DW      020DH
+        DB      88H             ;VDR: VDS=32, VSW=2
+        DW      2002H
+        DB      8AH             ;SP1: base screen 480 rasters
+        DW      01E0H
+        DB      0CAH            ;MWR1: graphic, 320 words
+        DW      0140H
+        DB      0C2H            ;MWR0: the overlay's CHR screen, 40 words
+        DW      8028H
+        DB      0FFH
+;
+R800:   DB      82H             ;HSR: HC=65, HSW=8
+        DW      4108H
+        DB      84H             ;HDR: HDS=5, HDW=49
+        DW      0531H
+        DB      86H             ;VSR: VC=628
+        DW      0274H
+        DB      88H             ;VDR: VDS=22, VSW=4
+        DW      1604H
+        DB      8AH             ;SP1: 600 rasters
+        DW      0258H
+        DB      0CAH            ;MWR1: 400 words
+        DW      0190H
+        DB      0C2H            ;MWR0: CHR, 50 words
+        DW      8032H
+        DB      0FFH
+;
+R1K:    DB      82H             ;HSR: HC=83, HSW=8
+        DW      5308H
+        DB      84H             ;HDR: HDS=9, HDW=63
+        DW      093FH
+        DB      86H             ;VSR: VC=806
+        DW      0326H
+        DB      88H             ;VDR: VDS=28, VSW=6
+        DW      1C06H
+        DB      8AH             ;SP1: 768 rasters
+        DW      0300H
+        DB      0CAH            ;MWR1: 512 words
+        DW      0200H
+        DB      0C2H            ;MWR0: CHR, 64 words
+        DW      8040H
+        DB      0FFH
+;
+RPOST:  DB      8CH             ;SP0: upper screen (never displayed)
+        DW      0000H
+        DB      8EH             ;SP2: lower screen
+        DW      0000H
+        DB      90H             ;BCR: no blink
+        DW      0000H
+        DB      92H             ;HWR, VWS, VWW: no window
+        DW      0000H
+        DB      94H
+        DW      0000H
+        DB      96H
+        DW      0000H
+        DB      98H             ;GCR: no graphic cursor
+        DW      0000H
+        DB      9AH
+        DW      0000H
+        DB      9CH
+        DW      0000H
+        DB      0C8H            ;RAR1
+        DW      0000H
+        DB      0CCH            ;SAR1: start address 0
+        DW      0000H
+        DB      0CEH
+        DW      0000H
+        DB      0E0H            ;BCUR1/2, CDR, ZFR: unused
+        DW      0000H
+        DB      0E2H
+        DW      0000H
+        DB      0E4H
+        DW      0000H
+        DB      0E6H
+        DW      0000H
+        DB      0E8H
+        DW      0000H
+        DB      0EAH
+        DW      0000H
+        DB      RDCR            ;SE1: the base screen displayed
+        DW      4000H
+        DB      ROMR            ;STR=1: started
+        DW      OMRRUN
+        DB      0FFH
+;
+; ---- drawing parameters, through the FIFO ----
+;
+DPCOM:  DW      OPWPTN,32       ;WPTN PRA=0, n=32 bytes (8-bit bus)
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
+        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
+        DW      0805H,0000H     ;PRC: pattern pointer 0,0
+        DW      0806H,0000H     ;PRC: scan start 0,0
+        DW      0807H,0F0F0H    ;PRC: scan end 15,15, no zoom
+        DW      0800H,0000H     ;CL0 = 0
+        DW      0801H,0FFFFH    ;CL1 = 0FFH
+        DW      0802H,0000H     ;CCMP
+        DW      0803H,0000H     ;EDG
+        DW      0804H,0FFFFH    ;MASK: all bits
+        DW      0808H,0         ;ADR XMIN
+        DW      0809H,0         ;ADR YMIN
+        DW      080CH,4000H     ;RWP: base screen, word 0
+        DW      080DH,0000H
+DPCEND:
+DPCLEN  EQU     (DPCEND-DPCOM)/2
+;
+; Per mode: ADR XMAX/YMAX, ORG at the bottom-left pixel, then the
+; overlay's ORG on the CHR screen (DN 0)
+;
+D640:   DW      080AH,639
+        DW      080BH,479
+        DW      OPORG,4025H,6C00H       ;256C0H = 479*320
+        DW      OPORG,0004H,0AD80H      ;4AD8H = 479*40
+D800:   DW      080AH,799
+        DW      080BH,599
+        DW      OPORG,403AH,7F00H       ;3A7F0H = 599*400
+        DW      OPORG,0007H,4FE0H       ;74FEH = 599*50
+D1K:    DW      080AH,1023
+        DW      080BH,767
+        DW      OPORG,405FH,0E000H      ;5FE00H = 767*512
+        DW      OPORG,000BH,0FC00H      ;0BFC0H = 767*64

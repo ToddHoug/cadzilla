@@ -1,0 +1,373 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; CONIO.Z88 -- czdiag: console output and input through the BDOS
+;
+; Every routine here preserves BC, DE and HL unless it says otherwise
+; (the BDOS itself clobbers them all).
+;
+        INCLUDE "CZDIAG.INC"
+;
+        PUBLIC  PCHR,PSTR,PMSG,CRLF,PSPC,PHEX1,PHEX2,PHEX4,PDEC
+        PUBLIC  GETKEY,CHKBRK,GETLN,SKIPSP,PARHEX,PARKHZ,UCASE
+;
+; PCHR -- print the character in A (A preserved)
+;
+PCHR:   PUSH    PSW
+        PUSH    B
+        PUSH    D
+        PUSH    H
+        MOV     E,A
+        MVI     C,2
+        CALL    BDOS
+        POP     H
+        POP     D
+        POP     B
+        POP     PSW
+        RET
+;
+; PSTR -- print the $-terminated string at DE
+;
+PSTR:   PUSH    D
+PSTRL:  LDAX    D
+        CPI     '$'
+        JZ      PSTRX
+        CALL    PCHR
+        INX     D
+        JMP     PSTRL
+PSTRX:  POP     D
+        RET
+;
+; PMSG -- print the $-terminated string that follows the CALL, and
+; return past it:   CALL PMSG / DB "text$"
+;
+PMSG:   XTHL                    ;HL = the string, the caller's HL saved
+        PUSH    PSW
+PMSGL:  MOV     A,M
+        INX     H
+        CPI     '$'
+        JZ      PMSGX
+        CALL    PCHR
+        JMP     PMSGL
+PMSGX:  POP     PSW
+        XTHL                    ;return address past the string
+        RET
+;
+CRLF:   PUSH    PSW
+        MVI     A,CR
+        CALL    PCHR
+        MVI     A,LF
+        CALL    PCHR
+        POP     PSW
+        RET
+;
+PSPC:   PUSH    PSW
+        MVI     A,' '
+        CALL    PCHR
+        POP     PSW
+        RET
+;
+; PHEX1 -- the low nibble of A as a hex digit
+; PHEX2 -- A as two hex digits
+; PHEX4 -- HL as four hex digits
+;
+PHEX4:  PUSH    PSW
+        MOV     A,H
+        CALL    PHEX2
+        MOV     A,L
+        CALL    PHEX2
+        POP     PSW
+        RET
+PHEX2:  PUSH    PSW
+        RRC
+        RRC
+        RRC
+        RRC
+        CALL    PHEX1
+        POP     PSW
+PHEX1:  PUSH    PSW
+        ANI     0FH
+        ADI     '0'
+        CPI     '9'+1
+        JC      PHEX1X
+        ADI     'A'-'9'-1
+PHEX1X: CALL    PCHR
+        POP     PSW
+        RET
+;
+; PDEC -- HL as an unsigned decimal number, no leading zeros
+;
+PDEC:   PUSH    PSW
+        PUSH    B
+        PUSH    D
+        PUSH    H
+        MVI     B,0             ;digits pushed
+PDECL:  CALL    DIV10           ;HL = HL / 10, A = remainder
+        PUSH    PSW
+        INR     B
+        MOV     A,H
+        ORA     L
+        JNZ     PDECL
+PDECO:  POP     PSW
+        ADI     '0'
+        CALL    PCHR
+        DCR     B
+        JNZ     PDECO
+        POP     H
+        POP     D
+        POP     B
+        POP     PSW
+        RET
+;
+; DIV10 -- HL = HL / 10, A = HL mod 10. Clobbers C, DE.
+;
+DIV10:  XCHG                    ;DE = dividend
+        LXI     H,0             ;HL = remainder
+        MVI     C,16
+DIV10L: XCHG                    ;shift DE left into HL
+        DAD     H
+        XCHG
+        MOV     A,L
+        RAL
+        MOV     L,A
+        MOV     A,H
+        RAL
+        MOV     H,A
+        MOV     A,L             ;remainder >= 10?
+        SUI     10
+        MOV     A,H
+        SBI     0
+        JC      DIV10N
+        MOV     H,A
+        MOV     A,L
+        SUI     10
+        MOV     L,A
+        INX     D               ;quotient bit
+DIV10N: DCR     C
+        JNZ     DIV10L
+        MOV     A,L
+        XCHG
+        RET
+;
+; GETKEY -- wait for a key (BDOS 1, which echoes it): A = the key,
+; uppercased. Function 1 rather than 6, so a key typed ahead in the
+; console buffer is seen too.
+;
+GETKEY: PUSH    B
+        PUSH    D
+        PUSH    H
+        MVI     C,1
+        CALL    BDOS
+        POP     H
+        POP     D
+        POP     B
+UCASE:  CPI     'a'
+        RC
+        CPI     'z'+1
+        RNC
+        SUI     20H
+        RET
+;
+; CHKBRK -- has the operator asked to stop a long test? CY if ESC or
+; ^C has been typed, NC otherwise (any other key is thrown away).
+;
+CHKBRK: PUSH    B
+        PUSH    D
+        PUSH    H
+        MVI     C,11            ;console status
+        CALL    BDOS
+        ORA     A
+        JZ      CHKBN
+        MVI     C,1
+        CALL    BDOS
+        CPI     ESC
+        JZ      CHKBY
+        CPI     CTLC
+        JZ      CHKBY
+CHKBN:  ORA     A               ;NC
+        JMP     CHKBX
+CHKBY:  STC
+CHKBX:  POP     H
+        POP     D
+        POP     B
+        RET
+;
+; GETLN -- read a line (BDOS 10): HL = the text, uppercased and ended
+; with a 0. Clobbers A, BC, DE.
+;
+GETLN:  LXI     D,LNBUF
+        MVI     C,10
+        CALL    BDOS
+        CALL    CRLF
+        LXI     H,LNBUF+1
+        MOV     C,M             ;the length
+        INX     H
+        PUSH    H
+GETLNL: MOV     A,C
+        ORA     A
+        JZ      GETLNX
+        MOV     A,M
+        CALL    UCASE
+        MOV     M,A
+        INX     H
+        DCR     C
+        JMP     GETLNL
+GETLNX: MVI     M,0
+        POP     H
+        RET
+;
+; SKIPSP -- step HL over blanks and commas: A = the next character
+;
+SKIPSP: MOV     A,M
+        CPI     ' '
+        JZ      SKIPS1
+        CPI     ','
+        JZ      SKIPS1
+        CPI     09H
+        RNZ
+SKIPS1: INX     H
+        JMP     SKIPSP
+;
+; PARHEX -- parse a hex number at HL (after blanks): DE = its value,
+; HL past it, NC; CY if there is no hex digit there. Clobbers A.
+;
+PARHEX: CALL    SKIPSP
+        LXI     D,0
+        CALL    HEXDIG
+        RC
+PARHL:  PUSH    H               ;DE = DE * 16 + A
+        XCHG
+        DAD     H
+        DAD     H
+        DAD     H
+        DAD     H
+        ADD     L
+        MOV     L,A
+        XCHG
+        POP     H
+        INX     H
+        CALL    HEXDIG
+        JNC     PARHL
+        ORA     A
+        RET
+;
+; HEXDIG -- (HL) as a hex digit: A = its value, NC; or CY
+;
+HEXDIG: MOV     A,M
+        SUI     '0'
+        RC
+        CPI     10
+        CMC
+        RNC
+        SUI     'A'-'0'
+        RC
+        CPI     6
+        CMC
+        RC
+        ADI     10
+        RET
+;
+; PARKHZ -- parse a clock in MHz at HL, as n or n.ddd (at most three
+; decimals): DE = the clock in kHz, HL past it, NC; CY if there is no
+; number there or it is over 65.535 MHz. Clobbers A, BC.
+;
+PARKHZ: CALL    SKIPSP
+        LXI     D,0             ;DE = the whole MHz
+        MOV     A,M
+        SUI     '0'
+        RC
+        CPI     10
+        CMC
+        RC
+PARKL:  MOV     A,M             ;whole part
+        SUI     '0'
+        JC      PARKF
+        CPI     10
+        JNC     PARKF
+        PUSH    H
+        MOV     H,D             ;DE = DE * 10 + A
+        MOV     L,E
+        DAD     H
+        DAD     H
+        DAD     D
+        DAD     H
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        XCHG
+        POP     H
+        MOV     A,D             ;keep it below 66 MHz
+        ORA     A
+        STC
+        RNZ
+        MOV     A,E
+        CPI     66
+        CMC
+        RC
+        INX     H
+        JMP     PARKL
+PARKF:  PUSH    H               ;DE = MHz * 1000
+        MOV     H,D
+        MOV     L,E
+        DAD     H               ;*2
+        DAD     H               ;*4
+        DAD     D               ;*5
+        MOV     B,H
+        MOV     C,L
+        DAD     H               ;*10
+        DAD     H               ;*20
+        DAD     B               ;*25
+        DAD     H               ;*50
+        DAD     H               ;*100
+        MOV     B,H
+        MOV     C,L
+        DAD     H               ;*200
+        DAD     H               ;*400
+        DAD     B               ;*500
+        DAD     H               ;*1000
+        XCHG
+        POP     H
+        MOV     A,M
+        CPI     '.'
+        JNZ     PARKOK
+        INX     H
+        LXI     B,100           ;the decimals: 100, 10, 1 kHz
+PARKD:  MOV     A,M
+        SUI     '0'
+        JC      PARKOK
+        CPI     10
+        JNC     PARKOK
+        INX     H
+        PUSH    H               ;DE += A * BC
+        MOV     H,D
+        MOV     L,E
+PARKM:  ORA     A
+        JZ      PARKM2
+        DAD     B
+        JC      PARKOV
+        DCR     A
+        JMP     PARKM
+PARKM2: XCHG
+        POP     H
+        MOV     A,C             ;next place down
+        CPI     100
+        MVI     C,10
+        JZ      PARKD
+        CPI     10
+        MVI     C,1
+        JZ      PARKD
+PARKSK: MOV     A,M             ;more than three decimals: skip them
+        SUI     '0'
+        JC      PARKOK
+        CPI     10
+        JNC     PARKOK
+        INX     H
+        JMP     PARKSK
+PARKOV: POP     H
+        STC
+        RET
+PARKOK: ORA     A
+        RET
+;
+LNBUF:  DB      40,0
+        DS      41
