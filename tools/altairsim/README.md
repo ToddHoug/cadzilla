@@ -132,6 +132,7 @@ other files that pass through CP/M are.
 | `CZGFXLIB-<version>.DSK` | `software/m80/czgfx/releases/` | a czgfx release, snapshot of the build disk (tracked, never changed) | never — it is only copied |
 | `CZGFXLIB-<version>.DSK` | `software/<toolchain>/<project>/work/` | the project's own copy of the czgfx release it pins in `czgfx.version` | drive 1, `B:`, read-only, in the M80 projects |
 | `CZBDEMO.DSK` | `software/m80/czbasic/demodisk/` | the bootable CZBASIC demo disk | drive 0 of its own machine |
+| `CADZILLA.DSK` | `demodisk/` | every program but the hello examples, on a copy of `CPM22SYS.DSK`; made by `tools/demodisk.py` (gitignored) | drive 0 of its own machine |
 
 `sync_pristine.sh` makes the `work/` copies of the templates. `attach_libdisk.sh`
 swaps an M80 project's `SCRATCH.DSK` for its own copy of its pinned czgfx

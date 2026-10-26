@@ -97,6 +97,9 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
     Its transcript goes to `build/<NAME>.LOG`.
   - Never run it on a `work/` that the MCP server has loaded: both would
     write the same disk image.
+  - `tools/demodisk.py` gathers every program but the hello examples
+    onto one bootable 8MB disk, the gitignored `demodisk/CADZILLA.DSK`, with
+    a Z80 machine to boot it (skill `cadzilla-demo-disk`).
 - `tests/` — emulator test programs and expected output
 
 ## Conventions

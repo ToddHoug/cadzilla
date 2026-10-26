@@ -18,6 +18,9 @@ software/*/*/work/
 # the czgfx library disk -- a build product of software/m80/czgfx/src, rebuilt from it
 software/*/*/libdisk/
 
+# the demo disk -- every program on one CP/M disk, made by tools/demodisk.py
+/demodisk/
+
 # upstream archives/disk images that pristine's third-party tools came from --
 # a local cache rebuilt by tools/altairsim/scripts/fetch_upstream.sh; only the
 # provenance README is tracked
