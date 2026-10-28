@@ -72,6 +72,7 @@ MODEVAL EQU     03H
 ;
 SRWFE   EQU     01H             ;write FIFO empty
 SRWFR   EQU     02H             ;write FIFO ready (not full)
+SRRFR   EQU     04H             ;read FIFO ready (holds data)
 SRCED   EQU     20H             ;command end
 SRCER   EQU     80H             ;command error
 ;
@@ -152,8 +153,15 @@ NEXT:   CALL    LDW             ;DE = screen description
         PCHL
 DRAWN:  CALL    WAITDN          ;let the ACRTC finish drawing
         ANI     SRCER
-        JZ      DRAWOK
+        JZ      DRAWPS
         LXI     D,MSGER
+        CALL    PRINT
+DRAWPS: LDA     PSOVF           ;did a PAINT lose seeds?
+        ORA     A
+        JZ      DRAWOK
+        XRA     A
+        STA     PSOVF
+        LXI     D,MSGPS
         CALL    PRINT
 DRAWOK: LXI     D,MSGKEY
         CALL    PRINT
@@ -270,14 +278,153 @@ SENDBLK:
 ; RUNSCR -- send the FIFO script at HL: chunks of DW n (n > 0) and n
 ; words, each chunk one ACRTC command; DW 0 ends the script.
 ;
+; A one-word PAINT chunk (high byte 0C8H, or 0C9H for E=1) is not just
+; sent but run by PNTCMD, which waits for it and finishes it.
+;
 RUNSCR: CALL    LDW             ;DE = n
         MOV     A,D
         ORA     E
         RZ
-        MOV     B,D
+        MOV     A,D             ;n = 1 ...
+        ORA     A
+        JNZ     RSSEND
+        MOV     A,E
+        CPI     1
+        JNZ     RSSEND
+        INX     H               ;... and a PAINT command word?
+        MOV     A,M
+        DCX     H
+        ANI     0FEH
+        CPI     0C8H
+        JNZ     RSSEND
+        CALL    PNTCMD
+        JMP     RUNSCR
+RSSEND: MOV     B,D
         MOV     C,E
         CALL    SENDBLK
         JMP     RUNSCR
+;
+; PNTCMD -- run the PAINT command word at (HL) to completion; HL += 2.
+;
+; The real HD63484 keeps only four pending resume points ("seeds") of a
+; PAINT. On a complex area it hands further ones to the host through
+; the read FIFO, three words each (X, Y and PP, the pattern pointer),
+; and stops until they are read (manual PAINT-4, Figure C34-6). Left
+; unread, the PAINT never ends. So PNTCMD reads every seed onto PSTACK
+; until the PAINT ends, then paints from each one in turn: WPR PP,
+; AMOVE X,Y and the same PAINT again, which may hand back more seeds.
+; Pixels already painted are in CL0 or CL1, which PAINT treats as an
+; edge, so each re-paint fills only what is left. CP and the pattern
+; pointer end wherever the last re-paint leaves them; the scripts set
+; both before they next depend on them. If more than PSMAX seeds are
+; pending, the extra ones are read and dropped (so the chip is never
+; left waiting), part of the area stays unpainted, and PSOVF is set
+; for the screen loop to report. altairsim's PAINT has no seed limit,
+; so there this only ever sends the PAINT and waits for it.
+;
+PSMAX   EQU     64              ;seeds PSTACK holds
+;
+PNTCMD: CALL    LDW             ;DE = the PAINT word
+        PUSH    H
+        XCHG
+        SHLD    PNTW
+        XRA     A
+        STA     PSTCNT
+PNTGO:  LHLD    PNTW            ;paint from CP
+        CALL    PUTW
+        CALL    PNTDRN          ;collect its seeds until it ends
+PNTPOP: LDA     PSTCNT          ;any seeds left?
+        ORA     A
+        JZ      PNTEND
+        DCR     A
+        STA     PSTCNT
+        CALL    PSADR           ;HL -> X, Y, PP of the top seed
+        PUSH    H
+        LXI     D,4
+        DAD     D
+        MOV     E,M             ;DE = PP
+        INX     H
+        MOV     D,M
+        LXI     H,0805H         ;WPR Pr05: the pattern pointer
+        CALL    PUTW
+        XCHG
+        CALL    PUTW
+        POP     H
+        CALL    LDW             ;DE = X
+        PUSH    D
+        CALL    LDW             ;DE = Y
+        POP     H               ;HL = X
+        MVI     A,OPMOVE
+        CALL    XYCMD
+        JMP     PNTGO           ;paint from the seed
+PNTEND: POP     H
+        RET
+;
+; PNTDRN -- until the PAINT has ended (CED set, write FIFO empty) with
+; nothing left in the read FIFO, move each seed it hands over onto
+; PSTACK.
+;
+PNTDRN: IN      ACRSR
+        MOV     B,A
+        ANI     SRRFR
+        JNZ     PNTRD
+        MOV     A,B
+        ANI     SRCED
+        JZ      PNTDRN
+        MOV     A,B
+        ANI     SRWFE
+        JZ      PNTDRN
+        RET
+PNTRD:  LDA     PSTCNT          ;room for it?
+        CPI     PSMAX
+        JNC     PNTSKP
+        CALL    PSADR
+        MVI     B,3             ;X, Y, PP
+PNTRW:  CALL    RDW
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        DCR     B
+        JNZ     PNTRW
+        LXI     H,PSTCNT
+        INR     M
+        JMP     PNTDRN
+PNTSKP: MVI     A,1             ;no room: read it and drop it
+        STA     PSOVF
+        MVI     B,3
+PNTSW:  CALL    RDW
+        DCR     B
+        JNZ     PNTSW
+        JMP     PNTDRN
+;
+; PSADR -- HL = PSTACK + 6 * PSTCNT
+;
+PSADR:  LDA     PSTCNT
+        MOV     L,A
+        MVI     H,0
+        DAD     H
+        MOV     D,H
+        MOV     E,L
+        DAD     H
+        DAD     D
+        LXI     D,PSTACK
+        DAD     D
+        RET
+;
+; RDW -- DE = the next word from the read FIFO, high byte first (AR is
+; r00). Preserves BC, HL.
+;
+RDW:    CALL    RDB
+        MOV     D,A
+        CALL    RDB
+        MOV     E,A
+        RET
+RDB:    IN      ACRSR
+        ANI     SRRFR
+        JZ      RDB
+        IN      ACRDAT
+        RET
 ;
 ; WAITDN -- wait until the write FIFO is empty and the last command
 ; has ended. Returns A = status register.
@@ -1372,43 +1519,87 @@ SCR12:
         DW      2,0A800H,24             ;CRCL r=24
         DW      0
 ;
+; The ellipse commands have a size limit (manual ELPS-3): with la, lb
+; and ldX the bit lengths of a, b and dX, la + ldX <= 13 and
+; lb + ldX <= 13. Outside it the real chip never finishes the command
+; (CED never sets). The elliptical arcs do the same arithmetic, so
+; screens 13 and 15 keep every ELPS, AEARC and REARC inside it, with
+; dX the X semi-axis. Each uses an exact small-integer axis ratio
+; p:q, so a:b = p*p:q*q: up to 5:1 at dX 255, up to 7:1 at dX 127.
+;
 SCR13:
         DW      3,8000H,512,384         ;AMOVE 512,384
         DW      2,0801H,27242           ;WPR CL1 = CYAN+10
-        DW      4,0AC00H,8191,72,480    ;ELPS semi-axes 480,45 (a:b = 8191:72)
-        DW      2,0801H,28013           ;WPR CL1 = CYAN+13
-        DW      4,0AC00H,8191,288,480   ;ELPS semi-axes 480,90 (a:b = 8191:288)
+        DW      4,0AC00H,1,25,48        ;ELPS semi-axes 48,240 (a:b = 1:25)
+        DW      2,0801H,27756           ;WPR CL1 = CYAN+12
+        DW      4,0AC00H,1,16,60        ;ELPS semi-axes 60,240 (a:b = 1:16)
+        DW      2,0801H,28270           ;WPR CL1 = CYAN+14
+        DW      4,0AC00H,1,9,80         ;ELPS semi-axes 80,240 (a:b = 1:9)
         DW      2,0801H,28784           ;WPR CL1 = CYAN+16
-        DW      4,0AC00H,8191,648,480   ;ELPS semi-axes 480,135 (a:b = 8191:648)
-        DW      2,0801H,29555           ;WPR CL1 = CYAN+19
-        DW      4,0AC00H,8191,1152,480  ;ELPS semi-axes 480,180 (a:b = 8191:1152)
+        DW      4,0AC00H,4,25,96        ;ELPS semi-axes 96,240 (a:b = 4:25)
+        DW      2,0801H,29298           ;WPR CL1 = CYAN+18
+        DW      4,0AC00H,1,4,120        ;ELPS semi-axes 120,240 (a:b = 1:4)
+        DW      2,0801H,29812           ;WPR CL1 = CYAN+20
+        DW      4,0AC00H,9,25,144       ;ELPS semi-axes 144,240 (a:b = 9:25)
         DW      2,0801H,30326           ;WPR CL1 = CYAN+22
-        DW      4,0AC00H,8191,1800,480  ;ELPS semi-axes 480,225 (a:b = 8191:1800)
-        DW      2,0801H,31097           ;WPR CL1 = CYAN+25
-        DW      4,0AC00H,8191,2592,480  ;ELPS semi-axes 480,270 (a:b = 8191:2592)
-        DW      2,0801H,31868           ;WPR CL1 = CYAN+28
-        DW      4,0AC00H,8191,3528,480  ;ELPS semi-axes 480,315 (a:b = 8191:3528)
-        DW      2,0801H,32639           ;WPR CL1 = CYAN+31
-        DW      4,0AC00H,8191,4607,480  ;ELPS semi-axes 480,360 (a:b = 8191:4607)
+        DW      4,0AC00H,4,9,160        ;ELPS semi-axes 160,240 (a:b = 4:9)
+        DW      2,0801H,30840           ;WPR CL1 = CYAN+24
+        DW      4,0AC00H,9,16,180       ;ELPS semi-axes 180,240 (a:b = 9:16)
+        DW      2,0801H,31354           ;WPR CL1 = CYAN+26
+        DW      4,0AC00H,16,25,192      ;ELPS semi-axes 192,240 (a:b = 16:25)
         DW      2,0801H,0AAAAH          ;WPR CL1 = MAGENTA+10
-        DW      4,0AC00H,228,8191,60    ;ELPS semi-axes 60,360 (a:b = 228:8191)
-        DW      2,0801H,0ADADH          ;WPR CL1 = MAGENTA+13
-        DW      4,0AC00H,910,8191,120   ;ELPS semi-axes 120,360 (a:b = 910:8191)
+        DW      4,0AC00H,25,1,240       ;ELPS semi-axes 240,48 (a:b = 25:1)
+        DW      2,0801H,0ACACH          ;WPR CL1 = MAGENTA+12
+        DW      4,0AC00H,16,1,240       ;ELPS semi-axes 240,60 (a:b = 16:1)
+        DW      2,0801H,0AEAEH          ;WPR CL1 = MAGENTA+14
+        DW      4,0AC00H,9,1,240        ;ELPS semi-axes 240,80 (a:b = 9:1)
         DW      2,0801H,0B0B0H          ;WPR CL1 = MAGENTA+16
-        DW      4,0AC00H,2048,8191,180  ;ELPS semi-axes 180,360 (a:b = 2048:8191)
-        DW      2,0801H,0B3B3H          ;WPR CL1 = MAGENTA+19
-        DW      4,0AC00H,3640,8191,240  ;ELPS semi-axes 240,360 (a:b = 3640:8191)
+        DW      4,0AC00H,25,4,240       ;ELPS semi-axes 240,96 (a:b = 25:4)
+        DW      2,0801H,0B2B2H          ;WPR CL1 = MAGENTA+18
+        DW      4,0AC00H,4,1,240        ;ELPS semi-axes 240,120 (a:b = 4:1)
+        DW      2,0801H,0B4B4H          ;WPR CL1 = MAGENTA+20
+        DW      4,0AC00H,25,9,240       ;ELPS semi-axes 240,144 (a:b = 25:9)
         DW      2,0801H,0B6B6H          ;WPR CL1 = MAGENTA+22
-        DW      4,0AC00H,5688,8191,300  ;ELPS semi-axes 300,360 (a:b = 5688:8191)
-        DW      2,0801H,0B9B9H          ;WPR CL1 = MAGENTA+25
-        DW      4,0AC00H,8191,8191,360  ;ELPS semi-axes 360,360 (a:b = 8191:8191)
-        DW      2,0801H,0BCBCH          ;WPR CL1 = MAGENTA+28
-        DW      4,0AC00H,8191,6018,420  ;ELPS semi-axes 420,360 (a:b = 8191:6018)
-        DW      2,0801H,0BFBFH          ;WPR CL1 = MAGENTA+31
-        DW      4,0AC00H,8191,4607,480  ;ELPS semi-axes 480,360 (a:b = 8191:4607)
+        DW      4,0AC00H,9,4,240        ;ELPS semi-axes 240,160 (a:b = 9:4)
+        DW      2,0801H,0B8B8H          ;WPR CL1 = MAGENTA+24
+        DW      4,0AC00H,16,9,240       ;ELPS semi-axes 240,180 (a:b = 16:9)
+        DW      2,0801H,0BABAH          ;WPR CL1 = MAGENTA+26
+        DW      4,0AC00H,25,16,240      ;ELPS semi-axes 240,192 (a:b = 25:16)
+        DW      2,0801H,0F8F8H          ;WPR CL1 = WHITE+24
+        DW      4,0AC00H,1,1,240        ;ELPS semi-axes 240,240 (a:b = 1:1)
         DW      2,0801H,0FFFFH          ;WPR CL1 = WHITE+31
-        DW      4,0AC00H,8191,4607,120  ;ELPS semi-axes 120,90 (a:b = 8191:4607)
+        DW      4,0AC00H,16,9,120       ;ELPS semi-axes 120,90 (a:b = 16:9)
         DW      2,0A800H,20             ;CRCL r=20
+        DW      3,8000H,120,384         ;AMOVE 120,384
+        DW      2,0801H,19789           ;WPR CL1 = GREEN+13
+        DW      4,0AC00H,49,1,105       ;ELPS semi-axes 105,15 (a:b = 49:1)
+        DW      2,0801H,20560           ;WPR CL1 = GREEN+16
+        DW      4,0AC00H,49,4,105       ;ELPS semi-axes 105,30 (a:b = 49:4)
+        DW      2,0801H,21331           ;WPR CL1 = GREEN+19
+        DW      4,0AC00H,49,9,105       ;ELPS semi-axes 105,45 (a:b = 49:9)
+        DW      2,0801H,22102           ;WPR CL1 = GREEN+22
+        DW      4,0AC00H,49,16,105      ;ELPS semi-axes 105,60 (a:b = 49:16)
+        DW      2,0801H,22873           ;WPR CL1 = GREEN+25
+        DW      4,0AC00H,49,25,105      ;ELPS semi-axes 105,75 (a:b = 49:25)
+        DW      2,0801H,23644           ;WPR CL1 = GREEN+28
+        DW      4,0AC00H,49,36,105      ;ELPS semi-axes 105,90 (a:b = 49:36)
+        DW      2,0801H,24415           ;WPR CL1 = GREEN+31
+        DW      4,0AC00H,1,1,105        ;ELPS semi-axes 105,105 (a:b = 1:1)
+        DW      3,8000H,904,384         ;AMOVE 904,384
+        DW      2,0801H,0CDCDH          ;WPR CL1 = YELLOW+13
+        DW      4,0AC00H,1,49,15        ;ELPS semi-axes 15,105 (a:b = 1:49)
+        DW      2,0801H,0D0D0H          ;WPR CL1 = YELLOW+16
+        DW      4,0AC00H,4,49,30        ;ELPS semi-axes 30,105 (a:b = 4:49)
+        DW      2,0801H,0D3D3H          ;WPR CL1 = YELLOW+19
+        DW      4,0AC00H,9,49,45        ;ELPS semi-axes 45,105 (a:b = 9:49)
+        DW      2,0801H,0D6D6H          ;WPR CL1 = YELLOW+22
+        DW      4,0AC00H,16,49,60       ;ELPS semi-axes 60,105 (a:b = 16:49)
+        DW      2,0801H,0D9D9H          ;WPR CL1 = YELLOW+25
+        DW      4,0AC00H,25,49,75       ;ELPS semi-axes 75,105 (a:b = 25:49)
+        DW      2,0801H,0DCDCH          ;WPR CL1 = YELLOW+28
+        DW      4,0AC00H,36,49,90       ;ELPS semi-axes 90,105 (a:b = 36:49)
+        DW      2,0801H,0DFDFH          ;WPR CL1 = YELLOW+31
+        DW      4,0AC00H,1,1,105        ;ELPS semi-axes 105,105 (a:b = 1:1)
         DW      0
 ;
 SCR14:
@@ -1516,78 +1707,78 @@ SCR14:
         DW      0
 ;
 SCR15:
+        DW      2,0801H,27242           ;WPR CL1 = CYAN+10
+        DW      3,8000H,572,420         ;AMOVE 572,420
+        DW      7,0B800H,1,25,512,420,452,420 ;AEARC 60:300 round 512,420 to 452,420
         DW      2,0801H,27756           ;WPR CL1 = CYAN+12
-        DW      3,8000H,552,420         ;AMOVE 552,420
-        DW      7,0B800H,146,8191,512,420,472,420 ;AEARC 40:300 round 512,420 to 472,420
+        DW      3,8000H,587,420         ;AMOVE 587,420
+        DW      7,0B800H,1,16,512,420,437,420 ;AEARC 75:300 round 512,420 to 437,420
         DW      2,0801H,28270           ;WPR CL1 = CYAN+14
-        DW      3,8000H,592,420         ;AMOVE 592,420
-        DW      7,0B800H,582,8191,512,420,432,420 ;AEARC 80:300 round 512,420 to 432,420
+        DW      3,8000H,612,420         ;AMOVE 612,420
+        DW      7,0B800H,1,9,512,420,412,420 ;AEARC 100:300 round 512,420 to 412,420
         DW      2,0801H,28784           ;WPR CL1 = CYAN+16
         DW      3,8000H,632,420         ;AMOVE 632,420
-        DW      7,0B800H,1311,8191,512,420,392,420 ;AEARC 120:300 round 512,420 to 392,420
+        DW      7,0B800H,4,25,512,420,392,420 ;AEARC 120:300 round 512,420 to 392,420
         DW      2,0801H,29298           ;WPR CL1 = CYAN+18
-        DW      3,8000H,672,420         ;AMOVE 672,420
-        DW      7,0B800H,2330,8191,512,420,352,420 ;AEARC 160:300 round 512,420 to 352,420
+        DW      3,8000H,662,420         ;AMOVE 662,420
+        DW      7,0B800H,1,4,512,420,362,420 ;AEARC 150:300 round 512,420 to 362,420
         DW      2,0801H,29812           ;WPR CL1 = CYAN+20
-        DW      3,8000H,712,420         ;AMOVE 712,420
-        DW      7,0B800H,3640,8191,512,420,312,420 ;AEARC 200:300 round 512,420 to 312,420
+        DW      3,8000H,692,420         ;AMOVE 692,420
+        DW      7,0B800H,9,25,512,420,332,420 ;AEARC 180:300 round 512,420 to 332,420
         DW      2,0801H,30326           ;WPR CL1 = CYAN+22
-        DW      3,8000H,752,420         ;AMOVE 752,420
-        DW      7,0B800H,5242,8191,512,420,272,420 ;AEARC 240:300 round 512,420 to 272,420
+        DW      3,8000H,712,420         ;AMOVE 712,420
+        DW      7,0B800H,4,9,512,420,312,420 ;AEARC 200:300 round 512,420 to 312,420
         DW      2,0801H,30840           ;WPR CL1 = CYAN+24
-        DW      3,8000H,792,420         ;AMOVE 792,420
-        DW      7,0B800H,7135,8191,512,420,232,420 ;AEARC 280:300 round 512,420 to 232,420
+        DW      3,8000H,737,420         ;AMOVE 737,420
+        DW      7,0B800H,9,16,512,420,287,420 ;AEARC 225:300 round 512,420 to 287,420
         DW      2,0801H,31354           ;WPR CL1 = CYAN+26
-        DW      3,8000H,832,420         ;AMOVE 832,420
-        DW      7,0B800H,8191,7199,512,420,192,420 ;AEARC 320:300 round 512,420 to 192,420
+        DW      3,8000H,752,420         ;AMOVE 752,420
+        DW      7,0B800H,16,25,512,420,272,420 ;AEARC 240:300 round 512,420 to 272,420
         DW      2,0801H,31868           ;WPR CL1 = CYAN+28
-        DW      3,8000H,872,420         ;AMOVE 872,420
-        DW      7,0B800H,8191,5688,512,420,152,420 ;AEARC 360:300 round 512,420 to 152,420
+        DW      3,8000H,812,420         ;AMOVE 812,420
+        DW      7,0B800H,1,1,512,420,212,420 ;AEARC 300:300 round 512,420 to 212,420
         DW      2,0801H,32382           ;WPR CL1 = CYAN+30
-        DW      3,8000H,912,420         ;AMOVE 912,420
-        DW      7,0B800H,8191,4607,512,420,112,420 ;AEARC 400:300 round 512,420 to 112,420
+        DW      3,8000H,962,420         ;AMOVE 962,420
+        DW      7,0B800H,9,4,512,420,62,420 ;AEARC 450:300 round 512,420 to 62,420
         DW      2,0801H,3084            ;WPR CL1 = ORANGE+12
-        DW      3,8000H,72,420          ;AMOVE 72,420
-        DW      7,0B900H,8191,38,512,420,952,420 ;AEARC 440:30 round 512,420 to 952,420 CW
+        DW      3,8000H,272,420         ;AMOVE 272,420
+        DW      7,0B900H,25,1,512,420,752,420 ;AEARC 240:48 round 512,420 to 752,420 CW
         DW      2,0801H,3598            ;WPR CL1 = ORANGE+14
-        DW      3,8000H,72,420          ;AMOVE 72,420
-        DW      7,0B900H,8191,152,512,420,952,420 ;AEARC 440:60 round 512,420 to 952,420 CW
+        DW      3,8000H,272,420         ;AMOVE 272,420
+        DW      7,0B900H,16,1,512,420,752,420 ;AEARC 240:60 round 512,420 to 752,420 CW
         DW      2,0801H,4112            ;WPR CL1 = ORANGE+16
-        DW      3,8000H,72,420          ;AMOVE 72,420
-        DW      7,0B900H,8191,343,512,420,952,420 ;AEARC 440:90 round 512,420 to 952,420 CW
+        DW      3,8000H,272,420         ;AMOVE 272,420
+        DW      7,0B900H,9,1,512,420,752,420 ;AEARC 240:80 round 512,420 to 752,420 CW
         DW      2,0801H,4626            ;WPR CL1 = ORANGE+18
-        DW      3,8000H,72,420          ;AMOVE 72,420
-        DW      7,0B900H,8191,609,512,420,952,420 ;AEARC 440:120 round 512,420 to 952,420 CW
+        DW      3,8000H,272,420         ;AMOVE 272,420
+        DW      7,0B900H,25,4,512,420,752,420 ;AEARC 240:96 round 512,420 to 752,420 CW
         DW      2,0801H,5140            ;WPR CL1 = ORANGE+20
-        DW      3,8000H,72,420          ;AMOVE 72,420
-        DW      7,0B900H,8191,952,512,420,952,420 ;AEARC 440:150 round 512,420 to 952,420 CW
+        DW      3,8000H,272,420         ;AMOVE 272,420
+        DW      7,0B900H,4,1,512,420,752,420 ;AEARC 240:120 round 512,420 to 752,420 CW
         DW      2,0801H,5654            ;WPR CL1 = ORANGE+22
-        DW      3,8000H,72,420          ;AMOVE 72,420
-        DW      7,0B900H,8191,1371,512,420,952,420 ;AEARC 440:180 round 512,420 to 952,420 CW
+        DW      3,8000H,272,420         ;AMOVE 272,420
+        DW      7,0B900H,25,9,512,420,752,420 ;AEARC 240:144 round 512,420 to 752,420 CW
         DW      2,0801H,6168            ;WPR CL1 = ORANGE+24
-        DW      3,8000H,72,420          ;AMOVE 72,420
-        DW      7,0B900H,8191,1866,512,420,952,420 ;AEARC 440:210 round 512,420 to 952,420 CW
+        DW      3,8000H,272,420         ;AMOVE 272,420
+        DW      7,0B900H,9,4,512,420,752,420 ;AEARC 240:160 round 512,420 to 752,420 CW
         DW      2,0801H,6682            ;WPR CL1 = ORANGE+26
-        DW      3,8000H,72,420          ;AMOVE 72,420
-        DW      7,0B900H,8191,2437,512,420,952,420 ;AEARC 440:240 round 512,420 to 952,420 CW
+        DW      3,8000H,272,420         ;AMOVE 272,420
+        DW      7,0B900H,16,9,512,420,752,420 ;AEARC 240:180 round 512,420 to 752,420 CW
         DW      2,0801H,7196            ;WPR CL1 = ORANGE+28
-        DW      3,8000H,72,420          ;AMOVE 72,420
-        DW      7,0B900H,8191,3084,512,420,952,420 ;AEARC 440:270 round 512,420 to 952,420 CW
-        DW      2,0801H,7710            ;WPR CL1 = ORANGE+30
-        DW      3,8000H,72,420          ;AMOVE 72,420
-        DW      7,0B900H,8191,3808,512,420,952,420 ;AEARC 440:300 round 512,420 to 952,420 CW
+        DW      3,8000H,272,420         ;AMOVE 272,420
+        DW      7,0B900H,25,16,512,420,752,420 ;AEARC 240:192 round 512,420 to 752,420 CW
         DW      2,0801H,09F9FH          ;WPR CL1 = RED+31
         DW      3,8000H,40,40           ;AMOVE 40,40
-        DW      7,0BD00H,1083,8191,120,0,240,0 ;REARC 120:330 round +120,0 to +240,0 CW
-        DW      7,0BD00H,1722,8191,94,0,188,0 ;REARC 94:205 round +94,0 to +188,0 CW
-        DW      7,0BD00H,2706,8191,73,0,146,0 ;REARC 73:127 round +73,0 to +146,0 CW
-        DW      7,0BD00H,4264,8191,57,0,114,0 ;REARC 57:79 round +57,0 to +114,0 CW
-        DW      7,0BD00H,6605,8191,44,0,88,0 ;REARC 44:49 round +44,0 to +88,0 CW
-        DW      7,0BD00H,8191,6018,35,0,70,0 ;REARC 35:30 round +35,0 to +70,0 CW
-        DW      7,0BD00H,8191,4056,27,0,54,0 ;REARC 27:19 round +27,0 to +54,0 CW
-        DW      7,0BD00H,8191,2675,21,0,42,0 ;REARC 21:12 round +21,0 to +42,0 CW
+        DW      7,0BD00H,4,25,120,0,240,0 ;REARC 120:300 round +120,0 to +240,0 CW
+        DW      7,0BD00H,1,4,96,0,192,0 ;REARC 96:192 round +96,0 to +192,0 CW
+        DW      7,0BD00H,9,25,75,0,150,0 ;REARC 75:125 round +75,0 to +150,0 CW
+        DW      7,0BD00H,9,16,60,0,120,0 ;REARC 60:80 round +60,0 to +120,0 CW
+        DW      7,0BD00H,1,1,48,0,96,0  ;REARC 48:48 round +48,0 to +96,0 CW
+        DW      7,0BD00H,16,9,36,0,72,0 ;REARC 36:27 round +36,0 to +72,0 CW
+        DW      7,0BD00H,4,1,28,0,56,0  ;REARC 28:14 round +28,0 to +56,0 CW
+        DW      7,0BD00H,25,4,20,0,40,0 ;REARC 20:8 round +20,0 to +40,0 CW
         DW      2,0801H,0FFFFH          ;WPR CL1 = WHITE+31
-        DW      3,8000H,160,387         ;AMOVE 160,387
+        DW      3,8000H,160,357         ;AMOVE 160,357
         DW      2,0A800H,16             ;CRCL r=16
         DW      0
 ;
@@ -3268,7 +3459,7 @@ MSG12:  DB      CR,LF
         DB      CR,LF,'$'
 MSG13:  DB      CR,LF
         DB      '13/21  ELPS  - '
-        DB      'ellipses: two families round one center'
+        DB      'ellipses at exact ratios: a globe, flat, tall'
         DB      CR,LF,'$'
 MSG14:  DB      CR,LF
         DB      '14/21  AARC  - '
@@ -3306,6 +3497,7 @@ MSGKEY: DB      'Press any key for the next screen (ESC '
         DB      'quits)... $'
 MSGNL:  DB      CR,LF,'$'
 MSGER:  DB      'ACRTC command error (CER set)!',CR,LF,'$'
+MSGPS:  DB      'PAINT seed stack full: part left unpainted',CR,LF,'$'
 MSGEND: DB      CR,LF,'drawdemo done.',CR,LF,'$'
 ;
 ; ---- variables ----
@@ -3344,6 +3536,10 @@ CX:     DS      2
 CY:     DS      2
 COLC:   DS      1
 ROWR:   DS      1
+PNTW:   DS      2               ;PNTCMD: the PAINT word
+PSTCNT: DS      1               ;seeds on PSTACK
+PSOVF:  DB      0               ;1 = seeds were dropped
+PSTACK: DS      6*PSMAX         ;seeds: X, Y, PP
         DS      64
 STACK:
 ;
