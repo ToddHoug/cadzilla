@@ -327,8 +327,11 @@ REGTAB: DB      02H             ;CCR: ABT - abort, flush FIFOs
         DB      0FFH
 ;
 ; Drawing parameter setup, streamed through the FIFO as words.
+; WPTN's n counts words, on the 8-bit bus too: the real HD63484 and the
+; manual's own example (WPTN-2) do. WPTN-1's note that it must be words
+; x 2 there is wrong, and n=32 would take the next 16 words as pattern.
 ;
-DPINIT: DW      1800H,32        ;WPTN PRA=0, n=32 bytes (8-bit bus)
+DPINIT: DW      1800H,16        ;WPTN PRA=0, n=16 words
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH     ;pattern RAM all ones
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
