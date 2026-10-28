@@ -135,6 +135,7 @@ START:  RET                     ;nothing below is ever executed
         LXI     H,CZCMD##
         LXI     H,CZXYM##
         LXI     H,CZWPR##
+        LXI     H,CZRDW##
         RET
 ;
         GPTS    PTS1,<5,5,50,5,50,50>

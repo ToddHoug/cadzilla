@@ -54,7 +54,7 @@ attach. That is for trying an unreleased library in a program.
 
 ### Versions and releases
 
-`CZGFX.INC` carries the version: `CZVERS EQU 0101H` (1.1), the major number in the
+`CZGFX.INC` carries the version: `CZVERS EQU 0103H` (1.3), the major number in the
 high byte and the minor in the low one, so a program can check it at
 assembly time. To release:
 1. raise `CZVERS`;
@@ -69,6 +69,8 @@ release a build disk older than its sources. `git add` the new release.
 |---|---|
 | 1.0 | the first release: drawing, curves, modes, pattern RAM, PAINT and copy, the overlay, text |
 | 1.1 | WPTN's count is in words, as the real HD63484 takes it, even on the 8-bit bus. The manual's WPTN-1 says bytes; 1.0 sent byte counts, which made `GINIT` swallow its own setup words on the real board. `GINIT`, `GLDPAT`, `GLSTYL` and text are fixed. Needs an altairsim that counts words too (fork master from 2026-10-27); an older altairsim draws 1.1 wrongly |
+| 1.2 | ellipses and elliptical arcs keep to the HD63484's ELPS parameter limit (see *Ellipses and the ELPS limit*), which 1.0 and 1.1 broke for all but small ellipses: the real board hangs (CED never sets), and altairsim doesn't check it. `GELLIP` uses ELPS only where it fits to within a pixel, and otherwise draws a polygon of 64-256 sides. `GEARC`/`GREARC` coarsen the rx:ry ratio to fit the arc's size, and refuse one too big for the chip (carry set, nothing drawn). New equate `OPRPLG` |
+| 1.3 | `GPAINT`/`GFLOOD` (`CZPANT`/`CZFLOD`) finish the fill on the real chip. The chip keeps four pending seeds and hands any more to the host through the read FIFO, then stalls until they are read; 1.2 and earlier never read them, so a complex fill hung the board. They now drain the seeds and re-PAINT from each, return when the fill is done (CP back at the start point, the pattern pointer as it was), and return carry set if more than 32 seeds were pending at once. New public `CZRDW` (read a word from the read FIFO) |
 
 ### Building the library
 
@@ -213,10 +215,10 @@ Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
 | `GWAIT` | wait for drawing to finish | A = status; Z = OK, NZ = command error (CER) |
 | `GABORT` | abort: flush the FIFOs, clear CER | |
 | `GCIRC x,y,r` | circle of radius r centred on x,y | CP is left at the centre |
-| `GELLIP x,y,rx,ry` | ellipse with semi-axes rx (X) and ry (Y), 0..4095 | |
+| `GELLIP x,y,rx,ry` | ellipse with semi-axes rx (X) and ry (Y), 0..4095 | ELPS or a polygon: see *Ellipses and the ELPS limit* |
 | `GARC xc,yc,xe,ye[,DIRCW]` | arc from the CP round xc,yc to the ray through xe,ye | radius = the CP's distance from the centre; counter-clockwise unless `DIRCW`; CP = xe,ye (not drawn). Clobbers HL |
 | `GRARC` | the same, centre and end relative to the CP | clobbers HL |
-| `GEARC rx,ry,xc,yc,xe,ye[,DIRCW]` / `GREARC` | elliptical arc: semi-axes in the ratio rx:ry | only the ratio matters, each at most 90; the size comes from the CP. Clobbers HL |
+| `GEARC rx,ry,xc,yc,xe,ye[,DIRCW]` / `GREARC` | elliptical arc: semi-axes in the ratio rx:ry | only the ratio matters, each at most 90; the size comes from the CP. The ratio is coarsened to fit the ELPS limit, and an arc with an X semi-axis of 4096 or more isn't drawn (carry set). Clobbers HL |
 | `GPAINT x,y,e` | fill round x,y out to pixels of color e | see *PAINT* below |
 | `GFLOOD x,y,c` | fill the connected region of color c round x,y | recolors one shape |
 | `GCOPY x1,y1,x2,y2,xd,yd[,t]` | copy a rectangle so its corner x1,y1 lands on xd,yd | transform t: `CPNORM` (default), `CPMIRX`, `CPMIRY`, `CPR180`, `CPTRAN`, `CPR90` (CCW), `CPR270` (CW), `CPATRN`. Clobbers HL |
@@ -264,16 +266,44 @@ macros are thin wrappers around them.
 | `CZINIT` | `CZINIT` (HL = mode descriptor), `CZCLS` (A = color), `CZOCLS` (clear the overlay), `CZPDEF` (the pattern defaults); data `CZM640`, `CZM800`, `CZM1K`, `CZXMAX`, `CZYMAX`, `CZMREG` (the MODE register's value), `CZDPB` (the mode's drawing parameter block) |
 | `CZDRAW` | `CZCOL`, `CZMOVE`, `CZLINE`, `CZRECT`, `CZFRCT`, `CZDOT`, `CZRMOV`, `CZRLIN`, `CZRRCT`, `CZRFRC` |
 | `CZPOLY` | `CZPLL`, `CZPLG` (HL = point table) |
-| `CZCURV` | `CZCRCL` (HL = radius, round the CP), `CZELPS` (HL = rx, DE = ry, round the CP), `CZARC` (A = `OPAARC`/`OPRARC`/`OPAEAR`/`OPREAR` + `DIRCW`, HL = parameter table) |
+| `CZCURV` | `CZCRCL` (HL = radius, round the CP), `CZELPS` (HL = rx, DE = ry, round the CP), `CZARC` (A = `OPAARC`/`OPRARC`/`OPAEAR`/`OPREAR` + `DIRCW`, HL = parameter table; returns HL past it, C if an elliptical arc was refused) |
 | `CZFILL` | `CZPANT` (A = edge color), `CZFLOD` (A = region color), `CZGCPY` (A = transform, +10H for RGCPY; HL = Xs,Ys,DX,DY table) |
 | `CZPAT` | `CZLPAT` (A = start word, HL = table), `CZLSTY` (HL = pattern, A = zoom), `CZPTN` (HL = size: H = height-1, L = width-1; A = direction), `CZPSCN` (HL = table: DB x0,y0,x1,y1,zx,zy -- the scan window at run time) |
-| `CZMODE` | `CZOPM`, `CZCMOD`, `CZAMOD` (A = field value), `CZCOL0`, `CZCCMP` (A = color), `CZAMIN`, `CZAMAX` (HL = X, DE = Y), `CZAFUL`, `CZGCP` (returns HL = X, DE = Y), `CZRDOT` (HL = X, DE = Y: A = the pixel's color; C if off the screen) |
+| `CZMODE` | `CZOPM`, `CZCMOD`, `CZAMOD` (A = field value), `CZCOL0`, `CZCCMP` (A = color), `CZAMIN`, `CZAMAX` (HL = X, DE = Y), `CZAFUL`, `CZGCP` (returns HL = X, DE = Y), `CZRDW` (HL = the next read-FIFO word), `CZRDOT` (HL = X, DE = Y: A = the pixel's color; C if off the screen) |
 | `CZTXT` | `CZTFNT` (HL = font), `CZTSTR` (HL = text, B = length); data `CZTST`, the text state |
 | `CZTXL` | `CZTPOS` (HL = X, DE = Y), `CZTATR` (A = scale, B = direction, C = flags), `CZTCHR` (A = character), `CZTNL` |
 | `CZFNT8`, `CZFN11` | the fonts: data `CZF8`, `CZF11` |
 | `CZOVL` | `CZOVON`, `CZOVOF` (show / hide), `CZOPAL` (B/C/E = R/G/B), `CZOVL` (draw on the overlay), `CZFRM` (draw on the frame) |
 | `CZPAL` | `CZPALD` (load the default palette), `CZPALS` (A = index, B/C/E = R/G/B) |
 | `CZCORE` | `CZWREG` (B = register, HL = value), `CZPUTW` (HL → FIFO), `CZWAIT`, `CZXY` (A = opcode, HL/DE), `CZXYM` (the same, with the drawing mode), `CZCMD` (A = opcode: the command word with the drawing mode), `CZWPR` (A = drawing parameter register, HL = value), `CZSEND` (HL = table, BC = words), `CZRTAB`, `CZLDW`, `CZABT`; data `CZDM`, the drawing mode byte |
+
+### Ellipses and the ELPS limit
+
+ELPS, AEARC and REARC take a and b in the ratio dX² : dY² rather than the
+semi-axes themselves. The manual (ELPS-3) limits their bit lengths:
+
+    ℓa + ℓdX ≤ 13   and   ℓb + ℓdX ≤ 13
+
+dX is the X semi-axis: ELPS's own parameter, or the one an arc's CP and
+centre imply. Past the limit the real chip never ends the command (CED
+stays clear, and `GWAIT` waits forever). altairsim draws such parameters
+without complaint, so a program that works in the emulator can still hang
+the board. The limit leaves little room. A 240×20 ellipse has 8 bits of
+dX, leaving 5 bits for a ratio of 144:1. So:
+
+- `CZELPS` halves rx² and ry² together until both fit. It sends ELPS only
+  if that leaves dY within a pixel (it checks ry·(a+b) ≤ 2ab), which only
+  small or near-round ellipses pass. Otherwise it draws the ellipse with
+  RPLG from a quarter-wave cosine table, within a pixel of the curve:
+  64 sides, 128 if a semi-axis is 64 or more, 256 if one is 512 or more.
+  It starts and ends at the centre, like ELPS.
+- `CZARC` can't do the same for an arc (its end points would move). Instead
+  it bounds dX by S = |u| + |v|·r, where u,v is the CP less the centre and
+  r is the least whole number with r²·b ≥ a. It halves a and b together
+  until both fit 13 − ℓS. A small arc keeps its ratio. A big one gets a
+  coarser one: a 4:3 arc is about 3% out by 800 pixels, and a 50:13 one
+  is badly out past 200. With S of 4096 or more it sends nothing and
+  returns carry set.
 
 ### Drawing modes
 
@@ -369,11 +399,17 @@ region of one color, recoloring it.
   8-connected outline (lines, circles) is enough to hold it. Lines don't
   draw their end point, though, so a spoke that ends exactly on a circle
   can leave a one-pixel gap. Run spokes a pixel or two past the circle.
-- **No seed-stack limit.** On the real chip PAINT keeps only four
-  pending seeds and hands the rest to the host through the read FIFO to
-  be re-issued. The altairsim model has no such limit, and czgfx doesn't
-  implement the re-issue loop, so one `GPAINT` fills a complex area there
-  but may leave parts unfilled on the board.
+- **Seeds.** On the real chip PAINT keeps only four pending seeds (resume
+  points). It hands any more to the host through the read FIFO as X, Y,
+  PP (pattern pointer) and stalls until they are read (PAINT-4, Figure
+  C34-6). `CZPANT` and `CZFLOD` drain them onto a 32-entry stack while the
+  PAINT runs. They then WPR PP, AMOVE and PAINT again from each one,
+  until the stack is empty and the last PAINT has ended. So they return
+  only when the whole fill is done, with CP back at the start point and
+  the pattern pointer as it was. More than 32 seeds pending at once
+  returns carry set, and those parts stay unpainted. The read FIFO must
+  be empty when they start. The altairsim model has no seed limit, so
+  this path runs only on the board.
 
 ### The overlay
 

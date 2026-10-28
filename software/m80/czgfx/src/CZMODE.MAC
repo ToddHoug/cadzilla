@@ -12,7 +12,7 @@
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZOPM,CZCMOD,CZAMOD,CZCOL0,CZCCMP
-        PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP,CZRDOT
+        PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP,CZRDOT,CZRDW
         EXTRN   CZDM,CZWPR,CZPUTW,CZXMAX,CZYMAX
 ;
         CSEG
@@ -188,9 +188,10 @@ RDX:    POP     H
         POP     B
         RET
 ;
-; RDW -- HL = the next word from the read FIFO, high byte first
-; (AR is r00, as CZPUTW needs it too)
+; CZRDW (RDW) -- HL = the next word from the read FIFO, high byte
+; first (AR is r00, as CZPUTW needs it too). Waits for RFR.
 ;
+CZRDW:
 RDW:    CALL    RDB
         MOV     H,A
         CALL    RDB

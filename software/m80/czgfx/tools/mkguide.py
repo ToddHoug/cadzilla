@@ -40,7 +40,7 @@ COVER = os.path.join(REPO, 'docs', 'images', 'cadzilla.png')
 SHOTS = os.path.join(REPO, 'docs', 'images', 'czgfx')
 INC = os.path.join(REPO, 'software', 'm80', 'czgfx', 'src', 'CZGFX.INC')
 TITLE = 'czgfx Graphics Library User Guide'
-REVISION = '1.0'
+REVISION = '1.1'
 DATE = datetime.date.today().isoformat()
 
 
@@ -722,7 +722,7 @@ A0>MYPROG'''))
         ['GCIRC x,y,r', 'a circle of radius r centred on x,y; the CP is left '
          'at the centre'],
         ['GELLIP x,y,rx,ry', 'an ellipse with semi-axes rx (along X) and ry '
-         '(along Y), each up to 4095'],
+         '(along Y), each up to 4095: ELPS, or a polygon (below)'],
         ['GARC xc,yc,xe,ye[,DIRCW]', 'an arc from the CP round the centre '
          'xc,yc to where it meets the ray from the centre through xe,ye'],
         ['GRARC', 'the same, the centre and xe,ye relative to the CP'],
@@ -741,6 +741,21 @@ A0>MYPROG'''))
         '90): the size comes from the CP. Started on the ellipse\'s '
         'horizontal axis, a distance d from the centre, the arc lies on the '
         'ellipse with semi-axes d along X and d * ry / rx along Y.',
+        'ELPS and the elliptical arcs take a and b in the ratio dX\u00b2 : '
+        'dY\u00b2, and the chip limits their bit lengths (manual, ELPS-3): '
+        'the bits of a plus the bits of dX, and the bits of b plus the bits '
+        'of dX, must each be at most 13, dX being the X semi-axis. Past it the '
+        'real board never ends the command, and ' + C('GWAIT') + ' waits '
+        'forever. altairsim does not check this.',
+        C('GELLIP') + ' sends ELPS only when the ratio still fits to within a '
+        'pixel, which only small or near-round ellipses manage. Otherwise it '
+        'draws a polygon within a pixel of the curve: 64 sides, 128 if a '
+        'semi-axis is 64 or more, 256 if one is 512 or more.',
+        C('GEARC') + ' and ' + C('GREARC') + ' halve rx\u00b2 and ry\u00b2 '
+        'together to fit the arc\'s size, so a big arc gets a coarser ratio '
+        '(a 4:3 arc is about 3% out at 800 pixels). An arc whose X semi-axis '
+        'could be 4096 or more is not drawn, and ' + C('CZARC') + ' returns '
+        'carry set.',
         'Circles and ellipses are drawn in order round the curve, so a '
         'dashed line style runs along them (chapter 8).',
         'The arc macros clobber HL.']))
@@ -904,10 +919,15 @@ A0>MYPROG'''))
         '<b>Outlines must be closed.</b> The fill is 4-connected, so an '
         '8-connected outline (lines, circles) holds it, but a line\'s end '
         'point isn\'t drawn: run spokes a pixel past a circle.',
-        '<b>On the real board</b>, PAINT keeps only four pending seed points '
-        'and hands any more to the host, which czgfx doesn\'t do, so a '
-        'complicated area may be left partly unfilled. altairsim has no such '
-        'limit.']))
+        '<b>Seeds.</b> On the real board PAINT keeps only four pending seed '
+        'points. It hands any more to the host through the read FIFO (X, Y '
+        'and the pattern pointer each), then stalls until they are read. '
+        + C('GPAINT') + ' and ' + C('GFLOOD') + ' read them onto a 32-entry '
+        'stack and PAINT again from each, so they return only when the whole '
+        'fill is done. The CP is then back at x,y and the pattern pointer '
+        'is as it was. With more than 32 pending at once they return carry '
+        'set, and those parts stay unpainted. altairsim has no seed limit, '
+        'so this runs only on the board.']))
     story.append(P('9.2 Copying blocks', H2))
     story.append(P(
         C('GCOPY x1,y1,x2,y2,xd,yd[,t]') + ' copies the rectangle with '
@@ -1092,8 +1112,8 @@ A0>MYPROG'''))
         'it, and a program\'s ' + C('work/') + ' directory is self-contained.'))
     story.append(table([
         ['Where', 'What'],
-        [C('CZGFX.INC: CZVERS'), 'the version: ' + C('CZVERS EQU 0100H') +
-         ' is 1.0, major in the high byte, minor in the low. A program can '
+        [C('CZGFX.INC: CZVERS'), 'the version: ' + C('CZVERS EQU 0103H') +
+         ' is 1.3, major in the high byte, minor in the low. A program can '
          'check it at assembly time.'],
         [C('software/m80/czgfx/releases/CZGFXLIB-<v>.DSK'), 'the releases: '
          'library disks, one per version, tracked and never changed'],
@@ -1203,14 +1223,16 @@ tools/altairsim/scripts/attach_libdisk.sh software/m80/myprog/work'''))
         ('CZDRAW', 66, 'CZCOL, CZMOVE, CZLINE, CZRECT, CZFRCT, CZDOT, CZRMOV, '
          'CZRLIN, CZRRCT, CZRFRC'),
         ('CZPOLY', 49, 'CZPLL, CZPLG (HL = point table)'),
-        ('CZCURV', 192, 'CZCRCL (HL = r), CZELPS (HL = rx, DE = ry), CZARC '
-         '(A = OPAARC/OPRARC/OPAEAR/OPREAR + DIRCW, HL = table)'),
-        ('CZFILL', 51, 'CZPANT (A = edge), CZFLOD (A = region), CZGCPY (A = '
+        ('CZCURV', 1105, 'CZCRCL (HL = r), CZELPS (HL = rx, DE = ry), CZARC '
+         '(A = OPAARC/OPRARC/OPAEAR/OPREAR + DIRCW, HL = table; C if '
+         'refused)'),
+        ('CZFILL', 460, 'CZPANT (A = edge), CZFLOD (A = region; both C if '
+         'seeds were dropped), CZGCPY (A = '
          'transform, +10H relative; HL = table)'),
         ('CZPAT', 149, 'CZLPAT (A = word, HL = table), CZLSTY (HL = style, A = '
          'zoom), CZPTN (HL = size, A = direction), CZPSCN (HL = 6-byte table)'),
         ('CZMODE', 246, 'CZOPM, CZCMOD, CZAMOD (A), CZCOL0, CZCCMP (A), '
-         'CZAMIN, CZAMAX (HL, DE), CZAFUL, CZGCP, CZRDOT'),
+         'CZAMIN, CZAMAX (HL, DE), CZAFUL, CZGCP, CZRDW, CZRDOT'),
         ('CZOVL', 78, 'CZOVON, CZOVOF, CZOPAL (B/C/E = R/G/B), CZOVL, CZFRM'),
         ('CZTXT', 444, 'CZTFNT (HL = font), CZTSTR (HL = text, B = length); '
          'data CZTST'),
@@ -1241,9 +1263,9 @@ tools/altairsim/scripts/attach_libdisk.sh software/m80/myprog/work'''))
         ('Directions', 'DIRCCW 0, DIRCW 1 (curves); PTSLNT 8 (GPTN)'),
         ('Overlay, text', 'OVSET 0FFH, OVCLR 0; TXOPAQ 1'),
         ('Opcodes', 'OPMOVE OPRMOV OPLINE OPRLIN OPRECT OPRRCT OPAPLL OPAPLG '
-         'OPCRCL OPELPS OPAARC OPRARC OPAEAR OPREAR OPFRCT OPRFRC OPPANT OPDOT '
+         'OPRPLG OPCRCL OPELPS OPAARC OPRARC OPAEAR OPREAR OPFRCT OPRFRC OPPANT OPDOT '
          'OPPTN OPAGCP OPRGCP OPRD (command high bytes); CMDDOT'),
-        ('Version', 'CZVERS (0100H for 1.0)')]:
+        ('Version', 'CZVERS (0103H for 1.3)')]:
         rows.append([g, C(n)])
     story.append(table(rows, [1.5 * inch, 5.4 * inch]))
 
@@ -1306,7 +1328,7 @@ A0>SUBMIT CZBUILD'''))
         'a pixel. ' + C('GCOPY') + ' covers copying on the screen. For the '
         'rest, send the command yourself with ' + C('CZCMD##') + ' or '
         + C('CZPUTW##') + ' and its parameters with ' + C('CZPUTW##') + '.',
-        'PAINT\'s four-seed limit on the real chip (9.1).',
+        'At most 32 PAINT seeds pending at once (9.1).',
         'Only the overlay\'s lower half (' + C('MDOLSL') + ' = 0) is used, '
         'since czgfx\'s screen starts at frame word 0.',
         'Switching the ACRTC\'s pixel depth while the display runs (GOVL, '

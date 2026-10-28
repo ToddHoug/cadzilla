@@ -42,7 +42,7 @@
 ; one in its software/<toolchain>/<project>/czgfx.version and builds against its own
 ; copy of it (tools/altairsim/scripts/attach_libdisk.sh).
 ;
-CZVERS  EQU     0101H           ;1.1
+CZVERS  EQU     0103H           ;1.3
 ;
 ;
 ; ---- board I/O map: one 8-port block, base set by SW1-1..SW1-5 ----
@@ -83,6 +83,7 @@ OPRECT  EQU     90H             ;ARCT   X,Y (CP unchanged)
 OPRRCT  EQU     94H             ;RRCT   dX,dY (CP unchanged)
 OPAPLL  EQU     98H             ;APLL   n, X1,Y1 .. Xn,Yn (CP = end)
 OPAPLG  EQU     0A0H            ;APLG   n, X1,Y1 .. (closes on CP)
+OPRPLG  EQU     0A4H            ;RPLG   n, dX1,dY1 .. (each from the last)
 OPCRCL  EQU     0A8H            ;CRCL   r (centre CP)
 OPELPS  EQU     0ACH            ;ELPS   a,b,dX (centre CP)
 OPAARC  EQU     0B0H            ;AARC   Xc,Yc,Xe,Ye (from CP; CP = Pe)
@@ -681,7 +682,12 @@ GPTN    MACRO   XV,YV,WV,HV,DV
 ; GCIRC x,y,r -- circle of radius r centred on x,y (x,y blank: on the
 ; CP; r blank: in HL). CP is left at the centre.
 ; GELLIP x,y,rx,ry -- ellipse with semi-axes rx (along X), ry (along
-; Y), likewise (rx,ry blank: in HL,DE). Both radii up to 4095.
+; Y), likewise (rx,ry blank: in HL,DE). Both radii up to 4095. It is
+; the chip's ELPS when that fits ELPS's limit (bits of a, b plus bits
+; of rx at most 13; see CZCURV.MAC) to within a pixel, which only
+; small or near-round ellipses do; otherwise a polygon within a
+; pixel of the curve: 64 sides, 128 if rx or ry is 64 or more, 256 if
+; 512 or more.
 ;
 GCIRC   MACRO   XV,YV,RV
         CZAT    XV,YV
@@ -701,7 +707,10 @@ GELLIP  MACRO   XV,YV,RX,RY
 ; GRARC -- the same, the centre and xe,ye relative to the CP
 ; GEARC rx,ry,xc,yc,xe,ye[,DIRCW] -- elliptical arc: as GARC on an
 ; ellipse whose semi-axes are in the ratio rx:ry (only the ratio
-; matters, each at most 90; the size comes from the CP)
+; matters, each at most 90; the size comes from the CP). The chip's
+; ELPS limit applies (see CZCURV.MAC): rx^2 and ry^2 are halved
+; together to fit the arc's size, so a big arc gets a coarser ratio,
+; and one whose X semi-axis is 4096 or more isn't drawn (carry set).
 ; GREARC -- the same, relative. All four clobber HL.
 ;
 CZARCM  MACRO   OP,DV,PTS
@@ -741,6 +750,9 @@ GREARC  MACRO   RX,RY,XC,YC,XE,YE,DV
 ; Both fill with the current color and pattern, and also stop at any
 ; pixel already in CL1 or CL0 (the chip's rule) -- so to paint over
 ; color 0 with GINIT's CL0 = 0, GBCOL something else first.
+; Both return when the fill is done, re-painting from the seeds the
+; chip hands back (see CZFILL.MAC), with CP back at x,y. Carry set if
+; there were too many seeds (32) and part of the area is unpainted.
 ;
 GPAINT  MACRO   XV,YV,EV
         CZAT    XV,YV

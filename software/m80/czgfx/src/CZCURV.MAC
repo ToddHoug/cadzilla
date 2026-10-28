@@ -9,10 +9,16 @@
 ; arc starts at CP and leaves CP on its end point, which it doesn't
 ; draw.
 ;
+; ELPS and the elliptical arcs have one more limit (manual, ELPS-3):
+; with la, lb and ldX the bit lengths of a, b and dX (the X semi-axis),
+; la+ldX <= 13 and lb+ldX <= 13. Past it the real chip never ends the
+; command (CED stays clear). CZELPS keeps to it or draws a polygon;
+; CZARC fits a and b to it or refuses.
+;
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZCRCL,CZELPS,CZARC
-        EXTRN   CZPUTW,CZSEND,CZCMD
+        EXTRN   CZPUTW,CZSEND,CZCMD,CZXY,CZLDW,CZGCP
 ;
         CSEG
 ;
@@ -23,55 +29,243 @@ CZCRCL: MVI     A,OPCRCL
         JMP     CZPUTW
 ;
 ; CZELPS -- ellipse centred on CP with semi-axes HL (along X) and DE
-; (along Y), each 0-4095.
+; (along Y). Preserves BC, DE, HL.
 ;
 ; ELPS doesn't take the Y semi-axis: it takes a and b with
 ; a : b = dX^2 : dY^2, and dX. So a = HL^2 and b = DE^2, halved
-; together until both fit 13 bits (a ratio, so halving both keeps it,
-; to within the bits shifted out), and at least 1.
+; together until both fit 13 - (the bits of dX). That keeps the ratio
+; to within the bits shifted out; if they cost a pixel or more of dY
+; (ry*(a+b) > 2ab), or the X semi-axis is 4096 or more, the ellipse is
+; drawn as a polygon instead, within a pixel of the curve: 64 sides,
+; 128 if a semi-axis is 64 or more, 256 if one is 512 or more.
 ;
 CZELPS: PUSH    B
         PUSH    D
         PUSH    H
-        PUSH    D
-        MOV     B,H             ;ESQA = HL^2
+        SHLD    ERX
+        XCHG
+        SHLD    ERY
+        XCHG
+        CALL    BITLEN          ;A = bits of dX
+        CPI     13
+        JNC     EPOLY           ;a and b can't have a bit left
+        CMA                     ;ELIM = 13 - A
+        ADI     14
+        STA     ELIM
+        LHLD    ERX             ;ESQA = rx^2
+        MOV     B,H
         MOV     C,L
         XCHG
         CALL    MUL
         SHLD    ESQA+2
         XCHG
         SHLD    ESQA
-        POP     D               ;ESQB = DE^2
-        MOV     B,D
-        MOV     C,E
+        LHLD    ERY             ;ESQB = ry^2
+        MOV     B,H
+        MOV     C,L
+        XCHG
         CALL    MUL
         SHLD    ESQB+2
         XCHG
         SHLD    ESQB
-ELFIT:  LXI     H,ESQA          ;both under 2000H yet?
-        CALL    FITS
-        JNZ     ELSHR
+ELFIT:  LXI     H,ESQA          ;both within ELIM bits yet?
+        CALL    BIT32
+        MOV     C,A
         LXI     H,ESQB
-        CALL    FITS
-        JZ      ELSEND
-ELSHR:  LXI     H,ESQA          ;no: halve both
+        CALL    BIT32
+        CMP     C
+        JNC     EL1
+        MOV     A,C             ;A = the longer
+EL1:    LXI     H,ELIM
+        CMP     M
+        JC      EFOK
+        JZ      EFOK
+        LXI     H,ESQA          ;no: halve both
         CALL    SHR32
         LXI     H,ESQB
         CALL    SHR32
         JMP     ELFIT
-ELSEND: MVI     A,OPELPS
+EFOK:   LHLD    ESQA            ;a and b now fit 12 bits
+        MOV     A,H
+        ORA     L
+        JZ      EPOLY           ;a ratio shifted out
+        XCHG
+        LHLD    ESQB
+        MOV     A,H
+        ORA     L
+        JZ      EPOLY
+        DAD     D               ;EP1 = ry * (a+b)
+        XCHG
+        LHLD    ERY
+        MOV     B,H
+        MOV     C,L
+        CALL    MUL
+        SHLD    EP1+2
+        XCHG
+        SHLD    EP1
+        LHLD    ESQA            ;EP2 = 2a * b
+        DAD     H
+        MOV     B,H
+        MOV     C,L
+        LHLD    ESQB
+        XCHG
+        CALL    MUL
+        SHLD    EP2+2
+        XCHG
+        SHLD    EP2
+        LXI     H,EP2
+        LXI     D,EP1
+        CALL    CMP32
+        JC      EPOLY           ;dY a pixel or more out
+        MVI     A,OPELPS
         CALL    CZCMD
         LHLD    ESQA
-        CALL    NOT0
         CALL    CZPUTW          ;a
         LHLD    ESQB
-        CALL    NOT0
         CALL    CZPUTW          ;b
-        POP     H
+        LHLD    ERX
         CALL    CZPUTW          ;dX
+EDONE:  POP     H
         POP     D
         POP     B
         RET
+;
+; The polygon: RMOVE to (rx,0), then RPLG through the points at
+; angles k*pi/128 (k = EIDX, in steps of ESTEP) to close back there,
+; and RMOVE back to the centre. A point is (rx cos, ry sin), the
+; cosines from COSTAB's quarter wave: k = 64q + j, quadrant q, j = 0-63.
+;
+EPOLY:  LDA     ERX+1           ;a semi-axis 512 or more?
+        MOV     B,A
+        LDA     ERY+1
+        ORA     B
+        MOV     B,A
+        MVI     C,1             ;yes: 256 sides, 255 points after Ps
+        LXI     H,255
+        CPI     2
+        JNC     EPST
+        LDA     ERX             ;64 or more?
+        MOV     C,A
+        LDA     ERY
+        ORA     C
+        ANI     0C0H
+        ORA     B
+        MVI     C,2             ;yes: 128, 127 after Ps
+        LXI     H,127
+        JNZ     EPST
+        MVI     C,4             ;no: 64, 63 after Ps
+        LXI     H,63
+EPST:   MOV     A,C
+        STA     ESTEP
+        STA     EIDX
+        PUSH    H
+        LXI     H,0
+        SHLD    EPY
+        LHLD    ERX
+        SHLD    EPX
+        LXI     D,0
+        MVI     A,OPRMOV        ;CP = Ps = (rx,0)
+        CALL    CZXY
+        MVI     A,OPRPLG
+        CALL    CZCMD
+        POP     H
+        CALL    CZPUTW          ;n
+EPLP:   LDA     EIDX
+        ANI     63
+        STA     EJD             ;j
+        LDA     EIDX
+        RLC
+        RLC
+        ANI     3
+        STA     EQD             ;q
+        RAR                     ;cos: T(j), q even; T(64-j), q odd
+        LDA     EJD
+        JNC     EPC
+        CMA
+        ADI     65
+EPC:    CALL    TABLE
+        LHLD    ERX
+        CALL    SCALE
+        LDA     EQD             ;negative in q = 1, 2
+        DCR     A
+        CPI     2
+        CC      NEGHL
+        LXI     D,EPX
+        CALL    DELTA           ;dX
+        LDA     EQD             ;sin: T(64-j), q even; T(j), q odd
+        RAR
+        LDA     EJD
+        JC      EPS
+        CMA
+        ADI     65
+EPS:    CALL    TABLE
+        LHLD    ERY
+        CALL    SCALE
+        LDA     EQD             ;negative in q = 2, 3
+        CPI     2
+        CNC     NEGHL
+        LXI     D,EPY
+        CALL    DELTA           ;dY
+        LDA     ESTEP
+        MOV     B,A
+        LDA     EIDX
+        ADD     B
+        STA     EIDX
+        JNC     EPLP            ;(until k reaches 256)
+        LHLD    ERX             ;RPLG left CP on Ps: back to the centre
+        CALL    NEGHL
+        LXI     D,0
+        MVI     A,OPRMOV
+        CALL    CZXY
+        JMP     EDONE
+;
+; TABLE -- DE = COSTAB entry A. Clobbers HL.
+;
+TABLE:  MOV     L,A
+        MVI     H,0
+        DAD     H
+        LXI     D,COSTAB
+        DAD     D
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        RET
+;
+; SCALE -- HL = HL * DE / 8000H, rounded (DE a COSTAB entry). Clobbers
+; BC, DE.
+;
+SCALE:  MOV     B,H
+        MOV     C,L
+        CALL    MUL
+        MOV     A,D             ;+4000H, to round
+        ADI     40H
+        MOV     D,A
+        JNC     SC1
+        INX     H
+SC1:    DAD     H               ;HL:DE >> 15
+        MOV     A,D
+        RLC
+        ANI     1
+        ORA     L
+        MOV     L,A
+        RET
+;
+; DELTA -- send HL minus the word at DE, then store HL there. Clobbers
+; BC, DE, HL.
+;
+DELTA:  XCHG
+        MOV     A,E
+        SUB     M
+        MOV     C,A
+        MOV     M,E
+        INX     H
+        MOV     A,D
+        SBB     M
+        MOV     B,A
+        MOV     M,D
+        MOV     H,B
+        MOV     L,C
+        JMP     CZPUTW
 ;
 ; MUL -- HL:DE = BC * DE (unsigned 16 x 16 -> 32, HL the high word)
 ;
@@ -99,18 +293,7 @@ MULSH:  MOV     A,H             ;CY:HL:DE >>= 1
         JNZ     MULLP
         RET
 ;
-; FITS -- Z if the 32-bit value at HL (low byte first) is under 2000H
-;
-FITS:   INX     H
-        MOV     A,M
-        ANI     0E0H
-        INX     H
-        ORA     M
-        INX     H
-        ORA     M
-        RET
-;
-; SHR32 -- halve the 32-bit value at HL (low byte first)
+; SHR32 -- halve the 32-bit value at HL (low byte first). Clobbers C.
 ;
 SHR32:  INX     H
         INX     H
@@ -125,6 +308,79 @@ SHRLP:  MOV     A,M
         JNZ     SHRLP
         RET
 ;
+; BIT32 -- A = the bit length of the 32-bit value at HL (0 for 0).
+; Clobbers B, HL.
+;
+BIT32:  INX     H
+        INX     H
+        INX     H
+        MVI     B,32
+B32LP:  MOV     A,M             ;the top nonzero byte
+        ORA     A
+        JNZ     B32B
+        DCX     H
+        MOV     A,B
+        SUI     8
+        MOV     B,A
+        JNZ     B32LP
+        RET
+B32B:   ADD     A               ;less its leading zeros
+        JC      B32D
+        DCR     B
+        JMP     B32B
+B32D:   MOV     A,B
+        RET
+;
+; BITLEN -- A = the bit length of HL (0 for 0). Clobbers C, HL.
+;
+BITLEN: MVI     C,17
+BLLP:   DCR     C
+        JZ      BLEND
+        DAD     H
+        JNC     BLLP
+BLEND:  MOV     A,C
+        RET
+;
+; CMP32 -- CY if the 32-bit value at DE is more than the one at HL.
+; Clobbers B, C, DE, HL.
+;
+CMP32:  MVI     C,4
+        ORA     A
+CMLP:   LDAX    D               ;(HL) - (DE)
+        MOV     B,A
+        MOV     A,M
+        SBB     B
+        INX     H
+        INX     D
+        DCR     C
+        JNZ     CMLP
+        RET
+;
+; ABSHL, NEGHL -- HL = |HL|, -HL
+;
+ABSHL:  MOV     A,H
+        ORA     A
+        RP
+NEGHL:  MOV     A,H
+        CMA
+        MOV     H,A
+        MOV     A,L
+        CMA
+        MOV     L,A
+        INX     H
+        RET
+;
+; SHRHL -- HL = HL / 2 (unsigned)
+;
+SHRHL:  ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        RET
+;
 ; NOT0 -- HL = 1 if it was 0
 ;
 NOT0:   MOV     A,H
@@ -136,23 +392,216 @@ NOT0:   MOV     A,H
 ; CZARC -- arc from CP. A = command high byte: OPAARC, OPRARC, OPAEAR
 ; or OPREAR, +DIRCW for clockwise. HL = its parameter table: Xc,Yc,
 ; Xe,Ye, preceded by a,b for the elliptical ones (a : b = rx^2 : ry^2).
-; Returns HL just past the table.
+; Returns HL just past the table, NC; or, for an elliptical arc too big
+; to draw, CY and nothing drawn (CP unchanged).
+;
+; An elliptical arc's X semi-axis is dX = sqrt(u^2 + v^2 * a/b), u,v
+; being CP less the centre. So S = |u| + |v|*r, r the least with
+; r^2 * b >= a, is at least dX. With S under 4096, a and b are halved
+; together until both fit 13 - (the bits of S), as for ELPS: the ratio
+; can be coarser than the one asked for. Preserves BC, DE.
 ;
 CZARC:  PUSH    B
         PUSH    D
         MOV     B,A
-        CALL    CZCMD
-        MOV     A,B
-        LXI     B,4             ;circular: 4 words
         ANI     08H             ;elliptical?
-        JZ      ARCSND
-        LXI     B,6
-ARCSND: CALL    CZSEND
-        POP     D
+        JNZ     EARC
+        MOV     A,B             ;circular: the command and 4 words
+        CALL    CZCMD
+        LXI     B,4
+        CALL    CZSEND
+        ORA     A
+ARCRET: POP     D
         POP     B
         RET
+EARC:   MOV     A,B
+        STA     EOP
+        SHLD    ETBL
+        CALL    CZLDW           ;EA = a, EB = b, at least 1
+        XCHG
+        CALL    NOT0
+        SHLD    EA
+        XCHG
+        CALL    CZLDW
+        XCHG
+        CALL    NOT0
+        SHLD    EB
+        XCHG                    ;HL = &Xc
+        LDA     EOP
+        ANI     04H             ;relative?
+        JZ      EAABS
+        CALL    CZLDW           ;yes: u = -dXc, v = -dYc
+        XCHG
+        CALL    NEGHL
+        SHLD    EU
+        XCHG
+        CALL    CZLDW
+        XCHG
+        CALL    NEGHL
+        SHLD    EV
+        JMP     EAR
+EAABS:  PUSH    H               ;no: u = CPX - Xc, v = CPY - Yc
+        CALL    CZGCP
+        SHLD    EU
+        XCHG
+        SHLD    EV
+        POP     H
+        CALL    CZLDW
+        LHLD    EU
+        MOV     A,L
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        SHLD    EU
+        LHLD    ETBL
+        LXI     D,6
+        DAD     D
+        CALL    CZLDW
+        LHLD    EV
+        MOV     A,L
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        SHLD    EV
+EAR:    LXI     H,1             ;r: HL = r^2 * b, DE = r * b, BC = b
+        SHLD    ER
+        LHLD    EB
+        MOV     B,H
+        MOV     C,L
+        MOV     D,H
+        MOV     E,L
+EARLP:  PUSH    D               ;r^2 * b >= a yet?
+        XCHG
+        LHLD    EA
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        XCHG
+        POP     D
+        JNC     EARDN
+        DAD     D               ;no: (r+1)^2 b = r^2 b + 2rb + b
+        JC      EARR            ;(past 16 bits: past a too)
+        DAD     D
+        JC      EARR
+        DAD     B
+        JC      EARR
+        XCHG
+        DAD     B
+        XCHG
+        CALL    ERINC
+        JMP     EARLP
+EARR:   CALL    ERINC
+EARDN:  LHLD    EV              ;ES = |u| + |v| * r
+        CALL    ABSHL
+        MOV     B,H
+        MOV     C,L
+        LHLD    ER
+        XCHG
+        CALL    MUL
+        SHLD    ES+2
+        XCHG
+        SHLD    ES
+        LHLD    EU
+        CALL    ABSHL
+        XCHG
+        LHLD    ES
+        DAD     D
+        SHLD    ES
+        JNC     EAS1
+        LHLD    ES+2
+        INX     H
+        SHLD    ES+2
+EAS1:   LXI     H,ES
+        CALL    BIT32
+        CPI     13
+        JNC     EREF            ;dX 4096 or more
+        CMA                     ;ELIM = 13 - bits of S
+        ADI     14
+        STA     ELIM
+EAFIT:  LHLD    EA              ;a and b within ELIM bits yet?
+        CALL    BITLEN
+        MOV     B,A
+        LHLD    EB
+        CALL    BITLEN
+        CMP     B
+        JNC     EAF1
+        MOV     A,B
+EAF1:   LXI     H,ELIM
+        CMP     M
+        JC      EAOK
+        JZ      EAOK
+        LHLD    EA              ;no: halve both
+        CALL    SHRHL
+        SHLD    EA
+        LHLD    EB
+        CALL    SHRHL
+        SHLD    EB
+        JMP     EAFIT
+EAOK:   LDA     EOP
+        CALL    CZCMD
+        LHLD    EA
+        CALL    NOT0
+        CALL    CZPUTW          ;a
+        LHLD    EB
+        CALL    NOT0
+        CALL    CZPUTW          ;b
+        LHLD    ETBL
+        LXI     D,4
+        DAD     D
+        LXI     B,4
+        CALL    CZSEND          ;Xc,Yc,Xe,Ye
+        ORA     A
+        JMP     ARCRET
+EREF:   LHLD    ETBL            ;refused: HL past the table, CY
+        LXI     D,12
+        DAD     D
+        STC
+        JMP     ARCRET
 ;
+ERINC:  PUSH    H               ;r = r + 1
+        LHLD    ER
+        INX     H
+        SHLD    ER
+        POP     H
+        RET
+;
+; COSTAB -- cos(j*pi/128) * 8000H, j = 0-64
+;
+COSTAB: DW      8000H,7FF6H,7FD9H,7FA7H,7F62H,7F0AH,7E9DH,7E1EH
+        DW      7D8AH,7CE4H,7C2AH,7B5DH,7A7DH,798AH,7885H,776CH
+        DW      7642H,7505H,73B6H,7255H,70E3H,6F5FH,6DCAH,6C24H
+        DW      6A6EH,68A7H,66D0H,64E9H,62F2H,60ECH,5ED7H,5CB4H
+        DW      5A82H,5843H,55F6H,539BH,5134H,4EC0H,4C40H,49B4H
+        DW      471DH,447BH,41CEH,3F17H,3C57H,398DH,36BAH,33DFH
+        DW      30FCH,2E11H,2B1FH,2827H,2528H,2224H,1F1AH,1C0CH
+        DW      18F9H,15E2H,12C8H,0FABH,0C8CH,096BH,0648H,0324H
+        DW      0000H
+;
+ERX:    DS      2               ;CZELPS: rx, ry
+ERY:    DS      2
+ELIM:   DS      1               ;the bits a and b may have
 ESQA:   DS      4               ;rx^2, then a
 ESQB:   DS      4               ;ry^2, then b
+EP1:    DS      4               ;ry * (a+b)
+EP2:    DS      4               ;2ab
+ESTEP:  DS      1               ;polygon: step in k, 1, 2 or 4
+EIDX:   DS      1               ;k
+EJD:    DS      1               ;j
+EQD:    DS      1               ;q
+EPX:    DS      2               ;the last point, from the centre
+EPY:    DS      2
+EOP:    DS      1               ;CZARC: the command
+ETBL:   DS      2               ;its table
+EA:     DS      2               ;a, b
+EB:     DS      2
+EU:     DS      2               ;u, v: CP less the centre
+EV:     DS      2
+ER:     DS      2               ;r
+ES:     DS      4               ;S
 ;
         END

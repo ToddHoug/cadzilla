@@ -8,10 +8,18 @@
 ; (the chip's own rule). AGCPY/RGCPY copy a block of pixels to CP,
 ; turned or mirrored on the way.
 ;
+; The real chip keeps only four pending seeds (resume points) of a
+; PAINT. It hands the rest to the host through the read FIFO, three
+; words each: X, Y, PP (the pattern pointer, Pr05). Then it stalls
+; until they are read (PAINT-4, Figure C34-6). So CZPANT and CZFLOD
+; don't return until the whole fill is done: they drain the read FIFO
+; onto a stack of seeds, and PAINT again from each one. altairsim's
+; PAINT has no seed limit, so there the stack stays empty.
+;
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZPANT,CZFLOD,CZGCPY
-        EXTRN   CZPUTW,CZSEND,CZWPR,CZCMD,CZDM
+        EXTRN   CZPUTW,CZSEND,CZWPR,CZCMD,CZDM,CZXY,CZGCP,CZRDW
 ;
         CSEG
 ;
@@ -20,19 +28,119 @@
 ; CZFLOD -- paint the region of color A round CP: its edge is every
 ; other color (EDG = A, PAINT E=1)
 ;
+; Both wait for the fill to end, then leave CP where it started and the
+; pattern pointer as it was. NC; CY if more than PMAX seeds were
+; pending at once, when the parts they lead to stay unpainted. The read
+; FIFO must be empty when they start. Preserve BC, DE, HL.
+;
+PMAX    EQU     32              ;seeds the stack holds
+;
 CZPANT: PUSH    B
         MVI     B,OPPANT
         JMP     PAINT
 CZFLOD: PUSH    B
         MVI     B,OPPANT+1
-PAINT:  PUSH    H
+PAINT:  PUSH    D
+        PUSH    H
+        PUSH    PSW
+        MOV     A,B
+        STA     PCMD
+        CALL    CZGCP           ;the start point
+        SHLD    PX0
+        XCHG
+        SHLD    PY0
+        LXI     H,0C05H         ;RPR PP
+        CALL    CZPUTW
+        CALL    CZRDW
+        SHLD    PP0
+        POP     PSW
         MOV     H,A             ;EDG, the color in both bytes
         MOV     L,A
         MVI     A,03H
         CALL    CZWPR
-        POP     H
-        MOV     A,B
+        LXI     H,PSTK
+        SHLD    PSP
+        XRA     A
+        STA     PCNT
+        STA     POVF
+PGO:    LDA     PCMD
         CALL    CZCMD
+PDRN:   IN      ACRSR           ;seeds coming, or the PAINT done?
+        MOV     B,A
+        ANI     SRRFR
+        JNZ     PSEED
+        MOV     A,B
+        ANI     SRWFE+SRCED
+        CPI     SRWFE+SRCED
+        JNZ     PDRN
+        LDA     PCNT            ;done: any seeds left?
+        ORA     A
+        JZ      PEND
+        DCR     A
+        STA     PCNT
+        LHLD    PSP             ;pop X, Y, PP
+        LXI     D,-6
+        DAD     D
+        SHLD    PSP
+        MVI     C,3
+        LXI     D,PSX
+PPOP:   MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     C
+        JNZ     PPOP
+        LHLD    PSPP            ;WPR PP, AMOVE X,Y, PAINT
+        MVI     A,05H
+        CALL    CZWPR
+        LHLD    PSY
+        XCHG
+        LHLD    PSX
+        MVI     A,OPMOVE
+        CALL    CZXY
+        JMP     PGO
+PSEED:  LDA     PCNT            ;a seed: X, Y, PP
+        CPI     PMAX
+        JNC     PFULL
+        INR     A
+        STA     PCNT
+        LHLD    PSP
+        XCHG
+        MVI     C,3
+PSL:    CALL    CZRDW
+        XCHG
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        INX     H
+        XCHG
+        DCR     C
+        JNZ     PSL
+        XCHG
+        SHLD    PSP
+        JMP     PDRN
+PFULL:  STA     POVF            ;no room: read it and drop it
+        MVI     C,3
+PFL:    CALL    CZRDW
+        DCR     C
+        JNZ     PFL
+        JMP     PDRN
+PEND:   LHLD    PP0             ;put PP and CP back
+        MVI     A,05H
+        CALL    CZWPR
+        LHLD    PY0
+        XCHG
+        LHLD    PX0
+        MVI     A,OPMOVE
+        CALL    CZXY
+        LDA     POVF            ;CY if seeds were dropped
+        ADI     0FFH
+        POP     H
+        POP     D
         POP     B
         RET
 ;
@@ -58,5 +166,17 @@ CZGCPY: PUSH    B
         POP     D
         POP     B
         RET
+;
+PCMD:   DS      1               ;the PAINT command's high byte
+PX0:    DS      2               ;the start point and PP
+PY0:    DS      2
+PP0:    DS      2
+PSX:    DS      2               ;a seed popped: X, Y, PP
+PSY:    DS      2
+PSPP:   DS      2
+PCNT:   DS      1               ;seeds on the stack
+POVF:   DS      1               ;nonzero once one was dropped
+PSP:    DS      2               ;the stack's top
+PSTK:   DS      PMAX*6          ;X, Y, PP each
 ;
         END
