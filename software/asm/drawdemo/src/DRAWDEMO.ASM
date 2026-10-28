@@ -1672,7 +1672,7 @@ SCR16:
         DW      2,0801H,0FAFAH          ;WPR CL1 = WHITE+26
         DW      3,8000H,690,509         ;AMOVE 690,509
         DW      1,0C800H                ;PAINT
-        DW      18,1800H,32,0,0FFFEH,0FFFEH,0FFFEH ;WPTN bricks
+        DW      18,1800H,16,0,0FFFEH,0FFFEH,0FFFEH ;WPTN bricks
         DW      0FFFEH,0FFFEH,0FFFEH,0FFFEH,0,0FEFFH
         DW      0FEFFH,0FEFFH,0FEFFH,0FEFFH,0FEFFH
         DW      0FEFFH
@@ -1680,7 +1680,7 @@ SCR16:
         DW      2,0800H,2056            ;WPR CL0 = ORANGE+8
         DW      3,8000H,220,175         ;AMOVE 220,175
         DW      1,0C800H                ;PAINT
-        DW      18,1800H,32,0FFFFH,0FFFFH,0FFFFH ;WPTN all ones (solid)
+        DW      18,1800H,16,0FFFFH,0FFFFH,0FFFFH ;WPTN all ones (solid)
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH,0FFFFH
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH,0FFFFH
         DW      0FFFFH,0FFFFH,0FFFFH
@@ -1695,7 +1695,7 @@ SCR16:
         DW      0
 ;
 SCR17:
-        DW      18,1800H,32,0,6,6,6,6,6,6,6,1022,1022 ;WPTN 16x16 letter F
+        DW      18,1800H,16,0,6,6,6,6,6,6,6,1022,1022 ;WPTN 16x16 letter F
         DW      6,6,6,16382,16382,0
         DW      2,0801H,09F9FH          ;WPR CL1 = RED+31
         DW      2,0800H,08585H          ;WPR CL0 = RED+5
@@ -2282,7 +2282,7 @@ SCR20:
         DW      2,0801H,0FFFFH          ;WPR CL1 = WHITE+31
         DW      3,8000H,770,398         ;AMOVE 770,398
         DW      3,9000H,1007,737        ;ARCT 1007,737
-        DW      18,1800H,32,0,0FFFEH,0FFFEH,0FFFEH ;WPTN bricks
+        DW      18,1800H,16,0,0FFFEH,0FFFEH,0FFFEH ;WPTN bricks
         DW      0FFFEH,0FFFEH,0FFFEH,0FFFEH,0,0FEFFH
         DW      0FEFFH,0FEFFH,0FEFFH,0FEFFH,0FEFFH
         DW      0FEFFH
@@ -2339,7 +2339,7 @@ SCR20:
         DW      2,0801H,0F4F4H          ;WPR CL1 = WHITE+20
         DW      3,8000H,520,694         ;AMOVE 520,694
         DW      3,0C000H,753,735        ;AFRCT 753,735
-        DW      18,1800H,32,771,1542,3084,6168,12336 ;WPTN diagonal hatch
+        DW      18,1800H,16,771,1542,3084,6168,12336 ;WPTN diagonal hatch
         DW      24672,0C0C0H,08181H,771,1542,3084,6168
         DW      12336,24672,0C0C0H,08181H
         DW      2,0801H,0FFFFH          ;WPR CL1 = WHITE+31
@@ -2350,7 +2350,7 @@ SCR20:
         DW      2,0805H,0               ;WPR PRC: pattern pointer 0,0
         DW      3,8000H,520,400         ;AMOVE 520,400
         DW      3,0C010H,753,735        ;AFRCT 753,735 CMCL0
-        DW      18,1800H,32,09F9FH,09898H,09191H ;WPTN 4x4 color tile
+        DW      18,1800H,16,09F9FH,09898H,09191H ;WPTN 4x4 color tile
         DW      08A8AH,0DFDFH,0D8D8H,0D1D1H,0CACAH
         DW      24415,22616,20817,19018,16191,14392
         DW      12593,10794
@@ -2361,62 +2361,62 @@ SCR20:
         DW      3,0C018H,1005,735       ;AFRCT 1005,735 CMPRAM
         DW      2,0800H,0               ;WPR CL0 = ORANGE+0
         DW      2,0801H,09F9FH          ;WPR CL1 = RED+31
-        DW      3,1800H,2,4095          ;WPTN line style long dash
+        DW      3,1800H,1,4095          ;WPTN line style long dash
         DW      2,0806H,0               ;WPR PRC: scan start 0,0
         DW      2,0807H,240             ;WPR PRC: scan end 15,0, zoom x1 y1
         DW      2,0805H,0               ;WPR PRC: pattern pointer 0,0
         DW      3,8000H,20,360          ;AMOVE 20,360
         DW      3,8808H,376,360         ;ALINE 376,360 CMCL1
         DW      2,0801H,7967            ;WPR CL1 = ORANGE+31
-        DW      3,1800H,2,255           ;WPTN line style dash
+        DW      3,1800H,1,255           ;WPTN line style dash
         DW      2,0806H,0               ;WPR PRC: scan start 0,0
         DW      2,0807H,240             ;WPR PRC: scan end 15,0, zoom x1 y1
         DW      2,0805H,0               ;WPR PRC: pattern pointer 0,0
         DW      3,8000H,20,316          ;AMOVE 20,316
         DW      3,8808H,376,316         ;ALINE 376,316 CMCL1
         DW      2,0801H,0DFDFH          ;WPR CL1 = YELLOW+31
-        DW      3,1800H,2,13107         ;WPTN line style short dash
+        DW      3,1800H,1,13107         ;WPTN line style short dash
         DW      2,0806H,0               ;WPR PRC: scan start 0,0
         DW      2,0807H,240             ;WPR PRC: scan end 15,0, zoom x1 y1
         DW      2,0805H,0               ;WPR PRC: pattern pointer 0,0
         DW      3,8000H,20,272          ;AMOVE 20,272
         DW      3,8808H,376,272         ;ALINE 376,272 CMCL1
         DW      2,0801H,24415           ;WPR CL1 = GREEN+31
-        DW      3,1800H,2,21845         ;WPTN line style dots
+        DW      3,1800H,1,21845         ;WPTN line style dots
         DW      2,0806H,0               ;WPR PRC: scan start 0,0
         DW      2,0807H,240             ;WPR PRC: scan end 15,0, zoom x1 y1
         DW      2,0805H,0               ;WPR PRC: pattern pointer 0,0
         DW      3,8000H,20,228          ;AMOVE 20,228
         DW      3,8808H,376,228         ;ALINE 376,228 CMCL1
         DW      2,0801H,32639           ;WPR CL1 = CYAN+31
-        DW      3,1800H,2,6399          ;WPTN line style dash dot
+        DW      3,1800H,1,6399          ;WPTN line style dash dot
         DW      2,0806H,0               ;WPR PRC: scan start 0,0
         DW      2,0807H,240             ;WPR PRC: scan end 15,0, zoom x1 y1
         DW      2,0805H,0               ;WPR PRC: pattern pointer 0,0
         DW      3,8000H,20,184          ;AMOVE 20,184
         DW      3,8808H,376,184         ;ALINE 376,184 CMCL1
         DW      2,0801H,16191           ;WPR CL1 = BLUE+31
-        DW      3,1800H,2,255           ;WPTN line style dash, zoom x3
+        DW      3,1800H,1,255           ;WPTN line style dash, zoom x3
         DW      2,0806H,0               ;WPR PRC: scan start 0,0
         DW      2,0807H,242             ;WPR PRC: scan end 15,0, zoom x3 y1
         DW      2,0805H,0               ;WPR PRC: pattern pointer 0,0
         DW      3,8000H,20,140          ;AMOVE 20,140
         DW      3,8808H,376,140         ;ALINE 376,140 CMCL1
         DW      2,0801H,0BFBFH          ;WPR CL1 = MAGENTA+31
-        DW      3,1800H,2,6399          ;WPTN line style dash dot, zoom x2
+        DW      3,1800H,1,6399          ;WPTN line style dash dot, zoom x2
         DW      2,0806H,0               ;WPR PRC: scan start 0,0
         DW      2,0807H,241             ;WPR PRC: scan end 15,0, zoom x2 y1
         DW      2,0805H,0               ;WPR PRC: pattern pointer 0,0
         DW      3,8000H,20,96           ;AMOVE 20,96
         DW      3,8808H,376,96          ;ALINE 376,96 CMCL1
         DW      2,0801H,0FFFFH          ;WPR CL1 = WHITE+31
-        DW      3,1800H,2,21845         ;WPTN line style dots, zoom x4
+        DW      3,1800H,1,21845         ;WPTN line style dots, zoom x4
         DW      2,0806H,0               ;WPR PRC: scan start 0,0
         DW      2,0807H,243             ;WPR PRC: scan end 15,0, zoom x4 y1
         DW      2,0805H,0               ;WPR PRC: pattern pointer 0,0
         DW      3,8000H,20,52           ;AMOVE 20,52
         DW      3,8808H,376,52          ;ALINE 376,52 CMCL1
-        DW      3,1800H,2,4095          ;WPTN line style long dash, zoom x2
+        DW      3,1800H,1,4095          ;WPTN line style long dash, zoom x2
         DW      2,0806H,0               ;WPR PRC: scan start 0,0
         DW      2,0807H,241             ;WPR PRC: scan end 15,0, zoom x2 y1
         DW      2,0805H,0               ;WPR PRC: pattern pointer 0,0
@@ -2430,7 +2430,7 @@ SCR20:
         DW      3,8000H,880,370         ;AMOVE 880,370
         DW      10,0A008H,4,833,225,956,315,804,315 ;APLG 5 points CMCL1
         DW      927,225
-        DW      18,1800H,32,255,255,255,255,255,255 ;WPTN checkerboard
+        DW      18,1800H,16,255,255,255,255,255,255 ;WPTN checkerboard
         DW      255,255,0FF00H,0FF00H,0FF00H,0FF00H
         DW      0FF00H,0FF00H,0FF00H,0FF00H
         DW      2,0801H,30840           ;WPR CL1 = CYAN+24
@@ -3123,7 +3123,13 @@ REGTAB: DB      02H             ;CCR: ABT - abort, flush FIFOs
 ;
 ; Drawing parameter setup, streamed through the FIFO as words.
 ;
-DPINIT: DW      1800H,32        ;WPTN PRA=0, n=32 bytes (8-bit bus)
+; WPTN's n counts pattern WORDS, on the 8-bit bus too. The manual's
+; WPTN-1 note ("words x 2" in 8-bit mode) is wrong: its own WPTN-2
+; example sends n = 2 for two words, and so does the real chip --
+; given n = 2 bytes' worth for one word it waits for a second and
+; takes the next command as pattern data.
+;
+DPINIT: DW      1800H,16        ;WPTN PRA=0, n=16 words
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH     ;pattern RAM all ones
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
