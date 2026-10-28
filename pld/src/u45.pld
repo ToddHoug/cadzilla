@@ -1,7 +1,7 @@
 Name     U45 ;
 PartNo   00 ;
-Date     10/01/26 ;
-Revision 02 ;
+Date     10/26/26 ;
+Revision 03 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -24,6 +24,14 @@ Device   G16V8MA ;
  * product term. Pins 1 and 11 are ordinary inputs; pins 12 and 19 have no
  * feedback.
  *
+ * Revision 03 (board rework): RS moved from pin 12 to pin 16 and ~SIXTN
+ * from pin 16 to pin 12, so that RS has feedback and can be held while
+ * CS is asserted (see the ACRTC equations). ~SIXTN needs no feedback.
+ *
+ * Compile with no minimization (cupl -m0): the third product term of
+ * the RS and R/W latches is logically redundant and only covers the
+ * hazard as CS changes, so a minimizer would remove it.
+ *
  * Speed grade: GAL16V8-15 (15 ns) or faster. A slower part would not lengthen the
  * guaranteed R/W-before-CS lead: it is set by the minimum tpd, which is
  * 3 ns for both the -15 and the -25.
@@ -44,15 +52,15 @@ PIN 5  = pDBIN     ; /* S-100 pDBIN (P1 pin 78)                                 
 PIN 6  = sOUT      ; /* S-100 sOUT (P1 pin 45)                                  */
 PIN 7  = sINP      ; /* S-100 sINP (P1 pin 46)                                  */
 PIN 8  = !SXTRQ    ; /* net ~{SXTRQ} - S-100 ~SXTRQ (P1 pin 58)                 */
-PIN 9  = IODEC     ; /* board I/O address match from U60 pin 18                 */
+PIN 9  = IODEC     ; /* board I/O match: U46 pin 16 IODECQ (U46 rev 03 on)      */
 PIN 11 = !DTACK    ; /* net ~{DTACK} - ACRTC ~DTACK (U1 pin 10), R1 pull-up     */
 
 /* ---- Outputs ---- */
-PIN 12 = CRT_RS    ; /* ACRTC RS (U1 pin 5)                                     */
+PIN 12 = !SIXTN    ; /* net ~{SIXTN} - S-100 ~SIXTN (P1 pin 60); rev 03 rework  */
 PIN 13 = !CRT_CS   ; /* net ~{CRT_CS} - ACRTC ~CS (U1 pin 4)                    */
 PIN 14 = CRT_RW    ; /* net CRT_R/~{W} - ACRTC R/~W (U1 pin 3); 1 = read        */
 PIN 15 = RDY       ; /* S-100 RDY (P1 pin 72)                                   */
-PIN 16 = !SIXTN    ; /* net ~{SIXTN} - S-100 ~SIXTN (P1 pin 60)                 */
+PIN 16 = CRT_RS    ; /* ACRTC RS (U1 pin 5); rev 03 rework                      */
 PIN 17 = !DAC_WR   ; /* net ~{DAC_WR} - Bt453 ~WR (U47 pin 28)                  */
 PIN 18 = !DAC_RD   ; /* net ~{DAC_RD} - Bt453 ~RD (U47 pin 27)                  */
 PIN 19 = !DAC_CS   ; /* net ~{DAC_CS} - Bt453 ~CS (U47 pin 26)                  */
@@ -71,12 +79,34 @@ DACSEL  = IOSEL & SA2 ;                    /* Bt453: +4..+7, C1C0 = SA1..0 */
  *     settled when a read CS falls.
  *   - A write CS also waits for the R/W pin (pin 14 feedback) to go low,
  *     so R/W always changes first.
- *   - CS comes from status, not pDBIN/pWR. RDY must be low by T2, and an
- *     8080 asserts pWR only after its wait states. */
-CRT_RW    = !sOUT ;
+ *   - CS comes from status, not pDBIN/pWR. RDY must be low when the
+ *     8080 samples READY in T2, and the strobes don't come early enough
+ *     for that: pWR* is a buffered 8080 /WR, which is active during the
+ *     wait states, and pDBIN later still. A write's CS ends on pWR*'s
+ *     release instead, through IODECQ (U46 revision 04 on).
+ *
+ * RS and R/W must also stay valid until CS has gone high (tRSH, tRWH >= 0).
+ * Status lasts into T1 of the next machine cycle, after the address has
+ * moved on to the next opcode fetch, so CS ends only when IODEC falls:
+ * through the 74LS85s and U60, tens of ns after the address changed. In
+ * revision 02, RS = SA1 followed the new address at once, while CS was
+ * still low, and the ACRTC sometimes took the access with the next
+ * fetch's A1: an AR write became a register write, a status read a data
+ * read (found by czdiag on the real board, 10/26/26).
+ *
+ * So both are transparent latches, held while CS is asserted: they follow
+ * their source while CS is high and keep their value while it is low.
+ * The third term of each covers the hazard as CS changes. They are set up
+ * before CS falls (the address is valid from T1, status from T2), and let
+ * go only after the CS pin (pin 13 feedback) has gone high. */
+CRT_RW    = !sOUT & !CRT_CS
+          # CRT_RW & CRT_CS
+          # !sOUT & CRT_RW ;
 CRT_CS    = CRTSEL & sINP
           # CRTSEL & sOUT & !CRT_RW ;
-CRT_RS    = SA1 ;
+CRT_RS    = SA1 & !CRT_CS
+          # CRT_RS & CRT_CS
+          # SA1 & CRT_RS ;
 CRT_CS.OE = 'b'1 ;
 CRT_RS.OE = 'b'1 ;
 CRT_RW.OE = 'b'1 ;

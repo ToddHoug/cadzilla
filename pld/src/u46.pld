@@ -1,12 +1,12 @@
 Name     U46 ;
 PartNo   00 ;
-Date     10/01/26 ;
-Revision 02 ;
+Date     10/28/26 ;
+Revision 05 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
 Location U46 ;
-Device   G16V8AS ;
+Device   G16V8MA ;
 
 /* SPDX-License-Identifier: CERN-OHL-P-2.0 */
 /* Copyright (C) 2026 Todd Houg */
@@ -15,17 +15,30 @@ Device   G16V8AS ;
  * U46 - GAL16V8, sheet "S100 Interface"
  *
  * S-100 bus control: host data-buffer enables/direction (U38-U40
- * 74F245), control-latch write (U41 74LS273), and the Bt453 register
- * address bits.
+ * 74F245), control-latch write (U41 74LS273), the Bt453 register
+ * address bit C0, and the qualified board decode IODECQ that U45 uses in
+ * place of U60's IODEC (revision 03), which ends ACRTC writes on pWR*
+ * (revision 04) and keeps the board's other ports from leading into an
+ * ACRTC access (revision 05).
  *
- * Simple mode (G16V8AS): all outputs are always-driven combinatorial.
- * Pin 1 is an ordinary input. Change to G16V8 (auto) or G16V8MA if
- * product-term output enables are ever needed.
+ * Complex mode (G16V8MA): IODECQ and BLK need their pins' feedback,
+ * which simple mode doesn't give pins 16 and 18. Every output is always
+ * driven ('b'1 output enables). Pins 1 and 11 are ordinary inputs; pins
+ * 12 and 19 have no feedback (not needed by DH2LEN and DAC_A0).
+ *
+ * Revision 03 (board rework): pin 16 drives U45 pin 9 (IODECQ), in place
+ * of U60 pin 18, whose branch to U45 is cut. U60's IODEC still comes to
+ * pin 9 here. See IODECQ below.
+ *
+ * Revision 04 (board rework): pin 18 no longer drives the Bt453's C1 (U47
+ * pin 25): that trace is cut and C1 is wired to SA1 directly (U46 pin 2).
+ * Pin 18 is now an internal state bit with no load (WSEEN in revision
+ * 04, BLK from revision 05; no rework between them).
  *
  * Speed grade: GAL16V8-15 (15 ns) or faster.
  *
  * ~DLDEN, ~DHDEN and ~DH2LEN drive the active-low 74F245 ~OE (pin 19)
- * inputs. Pins 11 and 16 are unconnected.
+ * inputs. Pin 11 is unconnected.
  *
  * Polarity: pins declared with '!' are active-low; write their equations
  * in active-true terms (e.g. X = ... asserts the pin LOW).
@@ -49,22 +62,86 @@ PIN 12 = !DH2LEN   ; /* net ~{DH2LEN} - 74F245 U40 ~OE (pin 19): HD0-7 -> DI    
 PIN 13 = !DHDEN    ; /* net ~{DHDEN} - 74F245 U39 ~OE (pin 19): DI <-> HD8-15   */
 PIN 14 = !DLDEN    ; /* net ~{DLDEN} - 74F245 U38 ~OE (pin 19): DO <-> HD0-7    */
 PIN 15 = HDIR      ; /* 74F245 U38/U39/U40 DIR (pin 1); 1 = S-100 -> HD         */
+PIN 16 = IODECQ    ; /* qualified board decode -> U45 pin 9 (rev 03 rework)     */
 PIN 17 = !CTRL_WR  ; /* net ~{CTRL_WR} - U41 74LS273 CP (pin 11)                */
-PIN 18 = DAC_A1    ; /* Bt453 C1 (U47 pin 25)                                   */
+PIN 18 = BLK       ; /* state only: ACRTC blocked this cycle (rev 05; C1 cut)  */
 PIN 19 = DAC_A0    ; /* Bt453 C0 (U47 pin 24)                                   */
-/* PIN 16 = unconnected */
 /* PIN 10 = GND, PIN 20 = +5V */
 
 /* ---- Equations ---- */
 
-/* Board I/O cycle (IODEC = address match from U60) */
-IOSEL   = IODEC & (sINP # sOUT) ;
+/* Qualified board decode. S-100 status lasts into T1 of the next machine
+ * cycle, after the address has moved on to the next opcode fetch. So an
+ * IN or OUT to any port at address xx6E or xx70 was followed by a fetch
+ * at xx70 or xx72 that U60 decodes as this board, while the stale sINP or
+ * sOUT still said I/O: the ACRTC took a spurious access. The Altair BIOS's
+ * console output (OUT 11H at E06E, then RET at E070) wrote every console
+ * character into the ACRTC's AR (found by czdiag, 10/26/26).
+ *
+ * IODECQ may only become true while status shows no I/O, and then holds
+ * while the address still decodes. In a real board cycle the port address
+ * arrives in T1, while status still shows the previous memory read, so it
+ * is set before sINP/sOUT. A fetch address that decodes during stale I/O
+ * status finds it false and leaves it false. It also comes true for a
+ * memory cycle at a board-like address, but every use below and in U45
+ * still needs sINP or sOUT. The hold term doesn't depend on status, so
+ * there is no hazard as status rises. */
+/*
+ * Revision 04: an ACRTC write also ends on pWR*. The ACRTC latches write
+ * data on CS's trailing edge, and CS used to last into T1 of the next
+ * cycle, ending only when the decode of the new address fell. When that
+ * address has A0 = A2 = 0, CRTSEL in U45 stays true and CS waits for
+ * IODEC (74LS85s, U60, here, U45), tens of ns into T1, by which time the
+ * 8080's status byte (A2H) is on DO: high-byte register writes lost D0
+ * and D3 and gained D7 (czdiag, boards A and B, 10/26/26). Measured on the
+ * Altair, DO holds 270 ns and the address 250 ns after pWR* rises.
+ *
+ * Revision 05: the board's other ports. IODECQ holds while the address
+ * still decodes as this board, so an IN or OUT to MODE (+1) or the Bt453
+ * (+4..+7) at an address ending 6E or 70 led into a fetch at xx70/xx72
+ * that U45 took as a fresh ACRTC access under the stale status: a Bt453
+ * OUT at xx6E wrote AR (czdiag probe BT016E, board A, 10/28/26).
+ *
+ * BLK means "no ACRTC access for the rest of this I/O cycle". It sets
+ * when status arrives with the address on a non-ACRTC port, or when pWR*
+ * asserts in an ACRTC write (+0, +2), and holds while the I/O status does.
+ * IODECQ holds while BLK is clear, while the address is still a non-ACRTC
+ * port (so the Bt453 keeps its CS, which it needs 35 ns past WR* or RD*,
+ * until the address leaves), or while pWR* is low (so an ACRTC write runs
+ * to pWR*'s release). So:
+ *   - an ACRTC write ends when pWR* is released (rev 04): U45 raises CS
+ *     two GAL delays later, well inside the 250 ns, whether the CPU
+ *     asserts pWR* before or after its wait states (the 8080 does it
+ *     during them);
+ *   - an ACRTC read lasts until the address leaves, as before;
+ *   - a MODE or Bt453 cycle ends as before, except that IODECQ falls if
+ *     the address turns into an ACRTC port under the same status.
+ * IODECQ can't come back until status shows no I/O. No hold term turns
+ * off without another already on: at T2 the non-ACRTC address term (or,
+ * for the ACRTC, the !BLK term) holds, and in a write the pWR term comes
+ * on before BLK sets. */
+ACR     = !SA2 & !SA0 ;                    /* the ACRTC's ports, +0 and +2 */
+IODECQ  = IODEC & !sINP & !sOUT
+        # IODEC & IODECQ & !BLK
+        # IODEC & IODECQ & !ACR
+        # IODEC & IODECQ & pWR ;
+BLK     = IODECQ & (sINP # sOUT) & !ACR
+        # IODECQ & sOUT & pWR & ACR
+        # BLK & (sINP # sOUT) ;
+
+/* Board I/O cycle (IODECQ from above, pin 16 feedback) */
+IOSEL   = IODECQ & (sINP # sOUT) ;
 X16     = SXTRQ & !SA2 & SA1 & !SA0 ;      /* 16-bit transfer to +2 only   */
 RDEN    = IOSEL & sINP & pDBIN ;           /* slave may drive DI/DO now    */
 
-/* Bt453 register select: C1C0 = SA1..0 */
+/* The write buffers use the raw decode (rev 04): they must keep driving
+ * the ACRTC's data pins until after its CS has risen, and IODECQ now
+ * falls before that. Enabled in a stale-status window they only drive
+ * HD from DO, which nothing latches: the strobes all use IODECQ. */
+WRSEL   = IODEC & sOUT ;
+
+/* Bt453 register select: C0 = SA0 here; C1 is wired to SA1 (rev 04) */
 DAC_A0  = SA0 ;
-DAC_A1  = SA1 ;
 
 /* Host data buffers; HDIR = 1 is S-100 -> HD (writes)
  *   U38 DO <-> HD0-7 : all writes except +3, and the low byte of a
@@ -73,11 +150,21 @@ DAC_A1  = SA1 ;
  *                      (+1 MODE is write-only, +3 is 16-bit only)
  *   U39 DI <-> HD8-15: 16-bit transfers only (high byte) */
 HDIR    = sOUT ;
-DLDEN   = IOSEL & sOUT & !(!SA2 & SA1 & SA0)
+DLDEN   = WRSEL & !(!SA2 & SA1 & SA0)
         # RDEN & X16 ;
 DH2LEN  = RDEN & !X16 & (SA2 # !SA0) ;
-DHDEN   = IOSEL & sOUT & X16
+DHDEN   = WRSEL & X16
         # RDEN & X16 ;
 
 /* MODE register write at +1: U41 '273 latches on the rising edge */
 CTRL_WR = IOSEL & sOUT & pWR & !SA2 & !SA1 & SA0 ;
+
+/* Complex mode: every output always driven */
+DH2LEN.OE  = 'b'1 ;
+DHDEN.OE   = 'b'1 ;
+DLDEN.OE   = 'b'1 ;
+HDIR.OE    = 'b'1 ;
+IODECQ.OE  = 'b'1 ;
+CTRL_WR.OE = 'b'1 ;
+BLK.OE     = 'b'1 ;
+DAC_A0.OE  = 'b'1 ;
