@@ -36,7 +36,7 @@
 
 #include <cadzilla.h>       /* the board's ports and the CZ_SR_ status bits */
 
-#define CZ88GFX_VERSION 0x0101  /* this header's release: major, minor */
+#define CZ88GFX_VERSION 0x0102  /* this header's release: major, minor */
 
 /* ---- setup ---- */
 

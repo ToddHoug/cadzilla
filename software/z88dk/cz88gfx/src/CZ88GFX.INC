@@ -49,7 +49,7 @@
 ; <major>.<minor>/ (CZ88GFX.LIB and this file); each project pins one in
 ; its software/<toolchain>/<project>/cz88gfx.version.
 ;
-CZ88VER EQU     0101H           ;1.1
+CZ88VER EQU     0102H           ;1.2
 ;
 ; ---- the library's symbols (see each module for its entry conditions) ----
 ;

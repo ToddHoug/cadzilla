@@ -208,8 +208,8 @@ TSTEP:  LXI     H,0
 ;
 UNPK:   LXI     H,1800H         ;WPTN PRA=0
         CALL    CZPUTW
-        LDA     FCH             ;n: the cell's rows, in bytes (8-bit bus)
-        ADD     A
+        LDA     FCH             ;n: the cell's rows, in words (the real
+                                ;chip; not the manual's bytes)
         MOV     L,A
         MVI     H,0
         CALL    CZPUTW

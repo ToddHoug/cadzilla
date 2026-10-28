@@ -31,7 +31,9 @@ The library is **8080 code** in Intel mnemonics, assembled `-m8080`. z80asm
 links it unchanged into an 8080, 8085 or Z80 program, so one library serves
 every CPU a project's `machine.toml` can pick. Each module assembles to the
 same bytes as czgfx 1.0's M80 module; that was checked against the M80
-listings when the port was made.
+listings when the port was made. From 1.2, `CZINIT`, `CZPAT` and `CZTXT`
+differ from czgfx 1.0 in WPTN's count (words, not bytes; see the release
+table below), as czgfx 1.1 does.
 
 `software/z88dk/z88demo/` is the worked example: gfxdemo's ten screens ported line
 for line, built for the Z80. Each screen's frame, palette and overlay are
@@ -85,6 +87,7 @@ sources, or to release when the two version numbers disagree.
 |---|---|
 | 1.0 | czgfx 1.0 ported to z80asm |
 | 1.1 | the C bindings (`cz88gfx.h`, the `CZC*` modules); the graphics modules are byte-for-byte 1.0's |
+| 1.2 | WPTN's count n is in words, as the real HD63484 counts it on the 8-bit bus (measured on two boards), not the manual's bytes: `CZINIT`'s pattern load, `CZLPAT`, `CZLSTY` and the text code. Before, a real board took twice the data each WPTN sent, so `GINIT` never set PRC, CL0, CL1, CCMP, EDG or MASK. Needs an altairsim that counts words too |
 
 ### Building the library
 
