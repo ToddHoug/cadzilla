@@ -36,8 +36,8 @@ rebuild, until that program chooses to.
 
 A program that uses czgfx:
 - pins a release in its tracked `software/<toolchain>/<project>/czgfx.version`, a
-  single line such as `1.0`;
-- has its own copy of that release in `work/`, `CZGFXLIB-1.0.DSK`, which
+  single line such as `1.1`;
+- has its own copy of that release in `work/`, `CZGFXLIB-1.1.DSK`, which
   it mounts as **`B:`, read-only**.
 
 `tools/altairsim/scripts/attach_libdisk.sh <work-dir>` makes the copy and
@@ -54,7 +54,7 @@ attach. That is for trying an unreleased library in a program.
 
 ### Versions and releases
 
-`CZGFX.INC` carries the version: `CZVERS EQU 0100H`, the major number in the
+`CZGFX.INC` carries the version: `CZVERS EQU 0101H` (1.1), the major number in the
 high byte and the minor in the low one, so a program can check it at
 assembly time. To release:
 1. raise `CZVERS`;
@@ -64,6 +64,11 @@ assembly time. To release:
 `release.sh` copies the build disk to `releases/CZGFXLIB-<major>.<minor>.DSK`
 and makes it read-only. It refuses to overwrite an existing release, or to
 release a build disk older than its sources. `git add` the new release.
+
+| Release | Changes |
+|---|---|
+| 1.0 | the first release: drawing, curves, modes, pattern RAM, PAINT and copy, the overlay, text |
+| 1.1 | WPTN's count is in words, as the real HD63484 takes it, even on the 8-bit bus. The manual's WPTN-1 says bytes; 1.0 sent byte counts, which made `GINIT` swallow its own setup words on the real board. `GINIT`, `GLDPAT`, `GLSTYL` and text are fixed. Needs an altairsim that counts words too (fork master from 2026-10-27); an older altairsim draws 1.1 wrongly |
 
 ### Building the library
 

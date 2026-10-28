@@ -31,8 +31,7 @@ CZLPAT: PUSH    B
         CALL    CZLDW           ;DE = n
         XCHG
         PUSH    H
-        DAD     H               ;in 8-bit bus mode WPTN counts bytes
-        CALL    CZPUTW
+        CALL    CZPUTW          ;n: WPTN counts words (CZINIT.MAC, DPCOM)
         POP     B               ;BC = n words
         XCHG
         CALL    CZSEND
@@ -49,9 +48,9 @@ CZLSTY: PUSH    B
         ANI     0FH             ;C = Pr07 low: PEX=15, PZX=A
         ORI     0F0H
         MOV     C,A
-        LXI     H,1800H         ;WPTN PRA=0, 2 bytes: row 0
+        LXI     H,1800H         ;WPTN PRA=0, 1 word: row 0
         CALL    CZPUTW
-        LXI     H,2
+        LXI     H,1
         CALL    CZPUTW
         POP     H
         PUSH    H

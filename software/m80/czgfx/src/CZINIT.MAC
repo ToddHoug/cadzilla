@@ -333,7 +333,11 @@ RPOST:  DB      8CH             ;SP0: upper screen (disabled)
 ;
 ; ---- drawing parameters, streamed through the FIFO as words ----
 ;
-DPCOM:  DW      1800H,32        ;WPTN PRA=0, n=32 bytes (8-bit bus)
+; (*) WPTN's n counts WORDS, on the 8-bit bus too. The manual's WPTN-1
+; says bytes, but the real HD63484 takes n words (as WPTN-2's own example
+; does): with n = 32 it took the 16 words after the pattern as pattern too.
+;
+DPCOM:  DW      1800H,16        ;WPTN PRA=0, n=16 words (*)
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH     ;pattern RAM all ones
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH

@@ -585,7 +585,7 @@ a shared library possible:
 
 ```
 drive 0  A:  software/<toolchain>/<project>/work/CPM22SYS.DSK       the project's own disk
-drive 1  B:  software/<toolchain>/<project>/work/CZGFXLIB-1.0.DSK   its czgfx release (read-only)
+drive 1  B:  software/<toolchain>/<project>/work/CZGFXLIB-1.1.DSK   its czgfx release (read-only)
 ```
 
 Build a consumer (from a clean `A0>` on the project's own machine):
