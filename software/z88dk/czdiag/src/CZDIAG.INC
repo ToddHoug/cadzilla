@@ -63,7 +63,7 @@ CCRABT  EQU     8300H           ;the same with ABT
 OPORG   EQU     0400H           ;ORG DPH DPL
 OPWPR   EQU     0800H           ;WPR (RN) D
 OPRPR   EQU     0C00H           ;RPR (RN)
-OPWPTN  EQU     1800H           ;WPTN (PRA) n(bytes), D1..
+OPWPTN  EQU     1800H           ;WPTN (PRA) n(words), D1.. (*)
 OPRPTN  EQU     1C00H           ;RPTN (PRA) n(words)
 OPDRD   EQU     2400H           ;DRD AX AY (program-controlled DMA read)
 OPDWT   EQU     2800H           ;DWT AX AY, D1..
@@ -75,6 +75,10 @@ OPALIN  EQU     8800H           ;ALINE X Y
 OPARCT  EQU     9000H           ;ARCT X Y
 OPAFRC  EQU     0C000H          ;AFRCT X Y
 OPBAD   EQU     0000H           ;not a command: must set CER
+;
+; (*) The real HD63484 counts WPTN's n in words on the 8-bit bus too, as
+;     the manual's own example (WPTN-2) does. WPTN-1's note that n must be
+;     words x 2 on the 8-bit bus is wrong (found on real boards, 10/26/26).
 ;
 ; RWP's screen field (Pr0C bits 15-14)
 ;

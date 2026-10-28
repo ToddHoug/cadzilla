@@ -93,8 +93,8 @@ The menu has the same seven stages as keys `1`-`7`, plus:
 | **DAC** | The Bt453 address register is written at +4 and +6 and read at both (20 patterns). The address steps on after blue and wraps from 0FFH to 0. All 256 palette entries, R, G and B, take 22 patterns: walking 1s, walking 0s, 00, FF, 55, AA, and one value per address. Writing the address resets the R/G/B phase. Overlay colors 1-3 take the same 22 patterns. Palette entries and overlay colors don't overwrite each other. Afterwards the default palette is restored | Board decode for +4 to +7 (U45 `DAC_RD`/`DAC_WR`), the data bus D0-D7, and the Bt453's MPU port. It says nothing about the pixel clock, because the MPU port is asynchronous to the video |
 | **MODE** | Writes the mode's MODE value. Base+1 and +3 are read and shown as INFO: no chip drives them, so the bus floats | MODE can't be read back. OLSEL is checked by OVL. OLEN and the sync polarities can only be checked by eye (`V`) |
 | **ACRTC** | Abort, then SR = 23H (an LPD bit set is reported separately). With the display stopped (STR=0), every bit of timing RAM r82-r9C and display-control RAM rC0-rEA is walked (36 patterns; r9E is skipped, it is the chip's work area). Then a different value goes into every register and all are read back. AR auto-increments from r80 up, on writes and on reads, but not below r80. DCR's ATR byte is walked, CCR's GBM is set to 0-4, and OMR bits 13-0 are walked. Last, the mode is loaded and every register is read back | U45 chip select and RS, AR, both halves of every register, D0-D7 through the ACRTC, and AR decode |
-| **FIFO** | Drawing parameter registers Pr00-Pr0D with all patterns, through WPR and RPR (bits the manual says always read 0, in Pr06 and RWP, are masked). The 16-word pattern RAM with 3 patterns, through WPTN and RPTN. A command sent half-way must leave CED clear, and AMOVE must move CP (read back with RPR, including negative values). The FIFO flags: RPTN of 16 words fills the 8-word read FIFO (RFF and RFR must set) and stalls, so 8 more words fill the write FIFO (WFR and WFE must clear); then everything drains (CED set, RFR clear). An undefined command (0000H) must set CER, and abort must clear it | Both FIFOs, the command processor, and the status register's bits in both states |
-| **CLOCK** | Samples the raster counter RCR 512 times: it must change, stay within 0..VC-1, and keep bits 15-12 at 0. Then it times 4 frames by RCR's wrap with a loop of known cycle count (290/268/277 cycles per pass on an 8080/8085/Z80, detected at run time) and works out the frame rate, raster rate, 2CLK and pixel clock. These are compared with the mode's own (25.175/40/65 MHz) and with the standard oscillators. Last, STR=0 must hold a CLR, and STR=1 must let it finish | See "Can the host see the clocks?" below |
+| **FIFO** | Drawing parameter registers Pr00-Pr0D with all patterns, through WPR and RPR; every bit must read back, including the ones the manual says always read 0 (see below). The 16-word pattern RAM with 3 patterns, through WPTN (n in words, see below) and RPTN. A command sent half-way must leave CED clear, and AMOVE must move CP (read back with RPR, including negative values). The FIFO flags: RPTN of 16 words fills the 8-word read FIFO (RFF and RFR must set) and stalls, so 8 more words fill the write FIFO (WFR and WFE must clear); then everything drains (CED set, RFR clear). An undefined command (0000H) must set CER, and abort must clear it | Both FIFOs, the command processor, and the status register's bits in both states |
+| **CLOCK** | Samples the raster counter RCR 512 times: it must change, stay within 0..VC-1, and keep bits 15-12 at 0. Then it times 4 frames by RCR's wrap with a loop of known cycle count (290/268/277 cycles per pass on an 8080/8085/Z80, detected at run time) and works out the frame rate, raster rate, 2CLK and pixel clock. These are compared with the mode's own (25.175/40/65 MHz) and with the standard oscillators. Last, whether STR=0 held a CLR is reported (the manual says it does, the real chip doesn't), and STR=1 must let it finish | See "Can the host see the clocks?" below |
 | **FRAME** | In each of the 8 banks, all 16 data bits (36 patterns at words 0-7). Bank select: words 0-15, two of each bank, take different values. Every address line: in each bank, words b and b+2^k (k = 3..19, the chips' A0-A16) take different values, and all are written before any is read. Then an address-in-address march (DWT writes, DRD reads, then all of it again complemented): quick by default, or every word with `FULL` | U11-U18, the bank decode U56-U58, the address latches U49/U50, and the data buffers |
 | **OVL** | The same tests on U19, through the never-displayed CHR screen (DN 0): data bits, address lines A0-A15 in both halves, and a march. OLSEL must pick the half: word 0 of each half holds a different value | U19, the drawing-side address mux, and MODE OLSEL (U41) driving U19 A16 |
 
@@ -141,6 +141,36 @@ the ACRTC's 2CLK.
   ramp, and an overlay grid every 64 pixels. `O` turns the overlay off and
   on.
 
+## The real chip and the real board
+
+czdiag was first run on real CADzilla boards in October 2026, in an Altair
+8800c with a 2 MHz 8080. That showed three places where the HD63484 doesn't
+do what its manual says; czdiag (and czgfx 1.1, cz88gfx 1.2, altairsim)
+follow the chip:
+
+- **WPTN's n counts words on the 8-bit bus too.** The manual (WPTN-1) says
+  n must be the number of words x 2 there, but its own example (WPTN-2)
+  sends n = 2 for two words, and so does the chip. With n x 2, the chip
+  takes the next n FIFO words as pattern data.
+- **RPR returns every bit written to Pr06, Pr0C and Pr0D.** The manual's
+  Figure 5.25 marks some of them "always 0".
+- **STR=0 doesn't hold drawing:** a CLR runs to the end.
+
+It also found four faults in the board's S-100 decode, all fixed by PLD
+changes and small reworks in `pld/` (U45 revision 03, U46 revisions 03 to
+05). On a board without them, czdiag's ACRTC and FIFO stages fail:
+
+| Fault | What czdiag shows | Fixed by |
+|---|---|---|
+| RS followed the next fetch's A1 while CS was still low | register writes landing in the wrong register, low bytes stale, at a regular beat | U45 rev 03 (RS and R/W held while CS is low; U45 pins 12/16 swapped) |
+| Stale I/O status plus a fetch at xx70/xx72 made a spurious ACRTC access (the BIOS console output wrote every character into AR) | FIFO commands vanish after any console output | U46 rev 03 (the qualified decode IODECQ, to U45 pin 9) |
+| A write's CS ended after DO had moved on to the next status byte | register high bytes lose D0/D3 and gain D7 | U46 rev 04 (ACRTC writes end on pWR*'s release; Bt453 C1 wired to SA1) |
+| A MODE or Bt453 IN/OUT whose next fetch was at xx70/xx72 still started an ACRTC access (the decode held across the board's own ports) | depends on where code sits: a Bt453 OUT at xx6E clobbered AR | U46 rev 05 (no rework: the state bit on pin 18 blocks the ACRTC for the rest of a non-ACRTC cycle) |
+
+With all of them, code can put its I/O anywhere: none of these depends on
+where an IN or OUT sits any more. (On a board with only U46 rev 04, keep
+MODE and Bt453 I/O off addresses ending 6E and 70.)
+
 ## Other host-visible checks, and what is left
 
 - **Also checked:** port decode and aliasing (DAC and ACRTC registers), D0-D7
@@ -154,15 +184,18 @@ the ACRTC's 2CLK.
 
 ## In altairsim
 
-`CZDIAG ALL MHZ=2` gives 28 PASS and 1 FAIL. The results are the same with
-cad0 `draw_rate=real` (datasheet command timing).
+`CZDIAG ALL MHZ=2` gives 28 PASS and 1 FAIL, with an altairsim that counts
+WPTN in words (the ToddHoug fork from 2026-10-27; an older one fails the
+pattern RAM and FIFO flag tests). The results are the same with cad0
+`draw_rate=real` (datasheet command timing).
+
+On a real board with all the reworks (board A, 2026-10-27): 28 PASS and 2
+FAIL, the two being that board's own overlay address fault (a bad U52).
 
 What altairsim can't show:
 
 - **RCR always reads 0.** "CLOCK raster counter RCR runs" therefore fails,
   with an INFO line saying why, and the frame timing is skipped.
-- **Drawing is not held with STR=0.** The CLR runs anyway, which is reported
-  as INFO.
 - **Wait states and DTACK** aren't modelled.
 
 What was checked by hand:

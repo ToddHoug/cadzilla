@@ -533,8 +533,14 @@ FRDF2:  ORA     A
 ;
 ; NEAR3 -- Z if PCLK is within 3% (1/32) of DE kHz
 ;
-NEAR3:  LHLD    PCLK
-        MOV     A,L
+NEAR3:  LHLD    PCLK            ;over 65.535 MHz (clamped to 0FFFFH):
+        MOV     A,H             ;  near nothing
+        ANA     L
+        INR     A
+        JNZ     NEAR3C
+        ORI     1               ;NZ
+        RET
+NEAR3C: MOV     A,L
         SUB     E
         MOV     L,A
         MOV     A,H
@@ -615,9 +621,10 @@ CPYL:   LDAX    D
 ;
 ; ---- STR starts and stops drawing ----
 ;
-; With STR=0 the ACRTC holds drawing (manual 5.6, OMR), so a CLR must
-; not end; STR=1 lets it run. Done on one word past the picture, at
-; 0F0000H.
+; The manual (5.6, OMR) says STR=0 holds drawing, so a CLR wouldn't end;
+; the real chip runs it anyway (found on real boards, 10/26/26), so which
+; one happened is only reported. STR=1 must let it run: that is the test.
+; Done on one word past the picture, at 0F0000H.
 ;
 TSTR:   LXI     D,NSTR
         CALL    TBEGIN
@@ -645,10 +652,10 @@ TSTRW:  IN      ACRSR
         ORA     E
         JNZ     TSTRW
         CALL    PINFO
-        DB      "STR=0 held the CLR, as it should$"
+        DB      "STR=0 held the CLR, as the manual says$"
         JMP     TSTRS
 TSTRR:  CALL    PINFO
-        DB      "the CLR ran with STR=0 (altairsim doesn't hold drawing)$"
+        DB      "the CLR ran with STR=0, as the real chip does (the manual says it halts)$"
 TSTRS:  MVI     B,ROMR          ;start: it must end now
         LXI     H,OMRRUN
         CALL    WREG

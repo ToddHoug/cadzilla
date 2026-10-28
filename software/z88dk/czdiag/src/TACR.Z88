@@ -389,8 +389,9 @@ SFIFO:  CALL    PMSG
         JMP     LDDPAR
 ;
 ; TPREG -- Pr00-Pr0D (colors, edge, mask, pattern control, area, RWP),
-; all patterns, WPR then RPR. Some bits always read 0 (manual Figure
-; 5.25): PRMASK has each register's readable ones.
+; all patterns, WPR then RPR. Every bit reads back as written: the
+; manual's Figure 5.25 marks some of Pr06, Pr0C and Pr0D "always 0", but
+; the real chip returns them (found on real boards, 10/26/26).
 ;
 TPREG:  LXI     D,NPREG
         CALL    TBEGIN
@@ -406,9 +407,8 @@ TPREGP: XCHG
         MOV     H,M
         MOV     L,A
         MOV     A,B
-        CALL    WPR
-        CALL    PRMSK           ;expected: the pattern, masked
         SHLD    TEXP
+        CALL    WPR
         MOV     A,B
         CALL    RPR
         CALL    CHKREG
@@ -426,34 +426,6 @@ TPREGP: XCHG
         JNZ     TPREGR
         JMP     TEND
 ;
-; PRMSK -- HL AND register B's PRMASK. Preserves BC, DE.
-;
-PRMSK:  PUSH    D
-        XCHG                    ;DE = the value
-        MOV     A,B
-        ADD     A
-        MOV     L,A
-        MVI     H,0
-        PUSH    D
-        LXI     D,PRMASK
-        DAD     D
-        POP     D
-        MOV     A,M
-        ANA     E
-        MOV     E,A
-        INX     H
-        MOV     A,M
-        ANA     D
-        MOV     D,A
-        XCHG
-        POP     D
-        RET
-;
-PRMASK: DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH,0FFFFH      ;CL0 CL1 CCMP EDG MASK
-        DW      0FFFFH,0F0F0H,0FFFFH                    ;PRC
-        DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH             ;ADR
-        DW      0C0FFH,0FFF0H                           ;RWP
-;
 ; TPRAM -- the 16-word pattern RAM: walking 1s, walking 0s, and a
 ; value per word, each written with WPTN and read with RPTN
 ;
@@ -464,7 +436,7 @@ TPRAM:  LXI     D,NPRAM
         MVI     B,0             ;B = the pass
 TPRAMP: LXI     H,OPWPTN
         CALL    PUTW
-        LXI     H,32            ;(8-bit bus: n counts bytes)
+        LXI     H,16            ;(n counts words)
         CALL    PUTW
         MVI     C,0             ;C = the word
 TPRAMW: CALL    PRAMV
@@ -607,7 +579,7 @@ TFILL:  LXI     D,NFILL
         MVI     B,2             ;the pattern RAM: pass 2's words
         LXI     H,OPWPTN
         CALL    PUTW
-        LXI     H,32
+        LXI     H,16            ;(n counts words)
         CALL    PUTW
         MVI     C,0
 TFILLW: CALL    PRAMV

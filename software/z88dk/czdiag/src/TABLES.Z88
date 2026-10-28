@@ -271,7 +271,7 @@ RPOST:  DB      8CH             ;SP0: upper screen (never displayed)
 ;
 ; ---- drawing parameters, through the FIFO ----
 ;
-DPCOM:  DW      OPWPTN,32       ;WPTN PRA=0, n=32 bytes (8-bit bus)
+DPCOM:  DW      OPWPTN,16       ;WPTN PRA=0, n=16 words
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
         DW      0FFFFH,0FFFFH,0FFFFH,0FFFFH
