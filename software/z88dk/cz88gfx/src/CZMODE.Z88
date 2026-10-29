@@ -2,7 +2,7 @@
 ; Copyright (C) 2026 Todd Houg
 ;
 ; CZMODE.Z88 -- cz88gfx: drawing mode, CL0/CCMP, the area, reading back
-; (A port of czgfx 1.0's CZMODE.MAC to z88dk's z80asm.)
+; (A port of czgfx 1.3's CZMODE.MAC to z88dk's z80asm.)
 ; (the CP, a pixel)
 ;
 ; The drawing mode byte CZDM (in CZCORE) is the low byte of every
@@ -13,7 +13,7 @@
         INCLUDE "CZ88GFX.INC"
 ;
         PUBLIC  CZOPM,CZCMOD,CZAMOD,CZCOL0,CZCCMP
-        PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP,CZRDOT
+        PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP,CZRDOT,CZRDW
         EXTERN  CZDM,CZWPR,CZPUTW,CZXMAX,CZYMAX
 ;
         SECTION code_user
@@ -189,9 +189,10 @@ RDX:    POP     H
         POP     B
         RET
 ;
-; RDW -- HL = the next word from the read FIFO, high byte first
-; (AR is r00, as CZPUTW needs it too)
+; CZRDW (RDW) -- HL = the next word from the read FIFO, high byte
+; first (AR is r00, as CZPUTW needs it too). Waits for RFR.
 ;
+CZRDW:
 RDW:    CALL    RDB
         MOV     H,A
         CALL    RDB

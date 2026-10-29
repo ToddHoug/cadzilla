@@ -36,7 +36,7 @@
 
 #include <cadzilla.h>       /* the board's ports and the CZ_SR_ status bits */
 
-#define CZ88GFX_VERSION 0x0102  /* this header's release: major, minor */
+#define CZ88GFX_VERSION 0x0103  /* this header's release: major, minor */
 
 /* ---- setup ---- */
 
@@ -102,6 +102,8 @@ extern void cz_circle(int x, int y, unsigned int r) __smallc __z88dk_callee;
 extern void cz_circle_cp(unsigned int r) __z88dk_fastcall;          /* round the CP */
 extern void cz_ellipse(int x, int y, unsigned int rx,
                        unsigned int ry) __smallc __z88dk_callee;   /* rx, ry 0..4095 */
+/* (The chip's ELPS only when it fits ELPS's parameter limit to within a
+ * pixel; otherwise a polygon of 64-256 sides within a pixel of the curve.) */
 extern void cz_ellipse_cp(unsigned int rx, unsigned int ry) __smallc __z88dk_callee;
 
 /* Arc from the CP round the centre xc,yc (radius = the CP's distance) to
@@ -116,10 +118,12 @@ extern void cz_rarc(int xc, int yc, int xe, int ye,
 /* Elliptical arc on semi-axes in the ratio rx:ry (each at most 90; only
  * the ratio matters). The macros square them -- for constants, at compile
  * time; each argument is used twice. The _sq forms take a = rx*rx,
- * b = ry*ry themselves. */
-extern void cz_earc_sq(unsigned int a, unsigned int b, int xc, int yc, int xe,
+ * b = ry*ry themselves. To keep to the chip's ELPS limit a and b are
+ * halved together to fit the arc's size (a big arc gets a coarser ratio).
+ * Returns 0, or 1 and draws nothing if the X semi-axis could reach 4096. */
+extern unsigned char cz_earc_sq(unsigned int a, unsigned int b, int xc, int yc, int xe,
                        int ye, unsigned char dir) __smallc __z88dk_callee;
-extern void cz_rearc_sq(unsigned int a, unsigned int b, int xc, int yc, int xe,
+extern unsigned char cz_rearc_sq(unsigned int a, unsigned int b, int xc, int yc, int xe,
                         int ye, unsigned char dir) __smallc __z88dk_callee;
 #define cz_earc(rx, ry, xc, yc, xe, ye, dir) \
         cz_earc_sq((rx) * (rx), (ry) * (ry), xc, yc, xe, ye, dir)
@@ -129,11 +133,14 @@ extern void cz_rearc_sq(unsigned int a, unsigned int b, int xc, int yc, int xe,
 /* ---- PAINT and copy ---- */
 
 /* Fill round x,y out to pixels of color edge / recolor the region of
- * color c round x,y. Both also stop at CL0 and CL1 (the chip's rule). */
-extern void cz_paint(int x, int y, unsigned char edge) __smallc __z88dk_callee;
-extern void cz_flood(int x, int y, unsigned char c) __smallc __z88dk_callee;
-extern void cz_paint_cp(unsigned char edge) __z88dk_fastcall;   /* from the CP */
-extern void cz_flood_cp(unsigned char c) __z88dk_fastcall;
+ * color c round x,y. Both also stop at CL0 and CL1 (the chip's rule).
+ * They return when the fill is done -- re-painting from the seeds the
+ * real chip hands back -- with the CP back at the start: 0, or 1 if more
+ * than 32 seeds were pending and part of the area is unpainted. */
+extern unsigned char cz_paint(int x, int y, unsigned char edge) __smallc __z88dk_callee;
+extern unsigned char cz_flood(int x, int y, unsigned char c) __smallc __z88dk_callee;
+extern unsigned char cz_paint_cp(unsigned char edge) __z88dk_fastcall;  /* from the CP */
+extern unsigned char cz_flood_cp(unsigned char c) __z88dk_fastcall;
 
 /* Copy the rectangle x1,y1..x2,y2 so that x1,y1 lands on xd,yd. */
 #define CZ_CP_NORM  0   /* as it is */

@@ -85,6 +85,7 @@ DESCRIBE = {
     "GFXDEMO.COM": "the czgfx library demo, ten screens",
     "TESTPAT.COM": "board bring-up test patterns, from a menu",
     "CZDIAG.COM": "board diagnostics, PASS/FAIL: CZDIAG ALL (destructive)",
+    "CZPTEST.COM": "cz88gfx 1.3 PAINT-seed and ELPS-limit check",
     "CZBASIC.COM": "MBASIC 5.21 compatible BASIC with CZ graphics",
     "CZDEMO.BAS": "CZBASIC CZDEMO: a tour of the CZ statements",
     "STARBRST.BAS": "CZBASIC STARBRST: lines from the centre",

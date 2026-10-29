@@ -11,31 +11,36 @@
 ;
         SECTION code_user
 ;
-; void cz_paint(int x, int y, unsigned char edge)
-; void cz_flood(int x, int y, unsigned char c)
+; unsigned char cz_paint(int x, int y, unsigned char edge)
+; unsigned char cz_flood(int x, int y, unsigned char c)
+; 0, or 1 if seeds were dropped (CZPANT/CZFLOD returned CY)
 ;
 _cz_paint:
         MVI     C,3
         CALL    CZCPOP
         CALL    CZCMV
         LDA     CZCAV+4
-        JMP     CZPANT
+        CALL    CZPANT
+        JMP     CYRET
 _cz_flood:
         MVI     C,3
         CALL    CZCPOP
         CALL    CZCMV
         LDA     CZCAV+4
-        JMP     CZFLOD
+        CALL    CZFLOD
+        JMP     CYRET
 ;
-; void cz_paint_cp(unsigned char edge) fastcall -- from the CP
-; void cz_flood_cp(unsigned char c) fastcall
+; unsigned char cz_paint_cp(unsigned char edge) fastcall -- from the CP
+; unsigned char cz_flood_cp(unsigned char c) fastcall
 ;
 _cz_paint_cp:
         MOV     A,L
-        JMP     CZPANT
+        CALL    CZPANT
+        JMP     CYRET
 _cz_flood_cp:
         MOV     A,L
-        JMP     CZFLOD
+        CALL    CZFLOD
+        JMP     CYRET
 ;
 ; void cz_copy(int x1, int y1, int x2, int y2, int xd, int yd,
 ;              unsigned char t)
@@ -71,5 +76,13 @@ SUBDE:  MOV     A,L
         MOV     A,H
         SBB     D
         MOV     H,A
+        RET
+
+;
+; CYRET -- the result for C: HL = 0, or 1 if the routine returned CY
+;
+CYRET:  LXI     H,0
+        RNC
+        INR     L
         RET
 ;

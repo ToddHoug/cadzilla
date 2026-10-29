@@ -49,7 +49,7 @@
 ; <major>.<minor>/ (CZ88GFX.LIB and this file); each project pins one in
 ; its software/<toolchain>/<project>/cz88gfx.version.
 ;
-CZ88VER EQU     0102H           ;1.2
+CZ88VER EQU     0103H           ;1.3
 ;
 ; ---- the library's symbols (see each module for its entry conditions) ----
 ;
@@ -62,7 +62,7 @@ CZ88VER EQU     0102H           ;1.2
         EXTERN  CZRMOV,CZRLIN,CZRRCT,CZRFRC
         EXTERN  CZPLL,CZPLG
         EXTERN  CZOPM,CZCMOD,CZAMOD,CZCOL0,CZCCMP,CZAMIN,CZAMAX,CZAFUL
-        EXTERN  CZGCP,CZRDOT
+        EXTERN  CZGCP,CZRDOT,CZRDW
         EXTERN  CZLPAT,CZLSTY,CZPTN,CZPSCN
         EXTERN  CZCRCL,CZELPS,CZARC
         EXTERN  CZPANT,CZFLOD,CZGCPY
@@ -110,6 +110,7 @@ OPRECT  EQU     90H             ;ARCT   X,Y (CP unchanged)
 OPRRCT  EQU     94H             ;RRCT   dX,dY (CP unchanged)
 OPAPLL  EQU     98H             ;APLL   n, X1,Y1 .. Xn,Yn (CP = end)
 OPAPLG  EQU     0A0H            ;APLG   n, X1,Y1 .. (closes on CP)
+OPRPLG  EQU     0A4H            ;RPLG   n, dX1,dY1 .. (each from the last)
 OPCRCL  EQU     0A8H            ;CRCL   r (centre CP)
 OPELPS  EQU     0ACH            ;ELPS   a,b,dX (centre CP)
 OPAARC  EQU     0B0H            ;AARC   Xc,Yc,Xe,Ye (from CP; CP = Pe)
@@ -647,7 +648,11 @@ GPTN    MACRO   XV,YV,WV,HV,DV
 ; centre. (On the CP, radius in HL: CALL CZCRCL.)
 ; GELLIP x,y,rx,ry -- ellipse with semi-axes rx (along X), ry (along
 ; Y), likewise (on the CP, rx,ry in HL,DE: CALL CZELPS). Both radii up
-; to 4095.
+; to 4095. It is the chip's ELPS when that fits ELPS's limit (bits of a,
+; b plus bits of rx at most 13; see CZCURV.Z88) to within a pixel, which
+; only small or near-round ellipses do; otherwise a polygon within a
+; pixel of the curve: 64 sides, 128 if rx or ry is 64 or more, 256 if
+; 512 or more.
 ;
 GCIRC   MACRO   XV,YV,RV
         GMOVE   XV,YV
@@ -667,7 +672,10 @@ GELLIP  MACRO   XV,YV,RX,RY
 ; GRARC -- the same, the centre and xe,ye relative to the CP
 ; GEARC rx,ry,xc,yc,xe,ye,dir -- elliptical arc: as GARC on an ellipse
 ; whose semi-axes are in the ratio rx:ry (only the ratio matters, each
-; at most 90; the size comes from the CP)
+; at most 90; the size comes from the CP). The chip's ELPS limit
+; applies (see CZCURV.Z88): rx^2 and ry^2 are halved together to fit
+; the arc's size, so a big arc gets a coarser ratio, and one whose X
+; semi-axis is 4096 or more isn't drawn (carry set).
 ; GREARC -- the same, relative. All four clobber HL.
 ;
 CZARCM  MACRO   OP,PTS
@@ -704,6 +712,9 @@ GREARC  MACRO   RX,RY,XC,YC,XE,YE,DV
 ; Both fill with the current color and pattern, and also stop at any
 ; pixel already in CL1 or CL0 (the chip's rule) -- so to paint over
 ; color 0 with GINIT's CL0 = 0, GBCOL something else first.
+; Both return when the fill is done, re-painting from the seeds the
+; chip hands back (see CZFILL.Z88), with CP back at x,y. Carry set if
+; there were too many seeds (32) and part of the area is unpainted.
 ;
 GPAINT  MACRO   XV,YV,EV
         GMOVE   XV,YV

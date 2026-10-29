@@ -50,13 +50,11 @@ int main(void)
     cz_ellipse_cp(3, 4);
     cz_arc(1, 2, 3, 4, CZ_DIR_CCW);
     cz_rarc(1, 2, 3, 4, CZ_DIR_CW);
-    cz_earc(4, 3, 1, 2, 3, 4, CZ_DIR_CCW);
-    cz_rearc(4, 3, 1, 2, 3, 4, CZ_DIR_CW);
+    if (cz_earc(4, 3, 1, 2, 3, 4, CZ_DIR_CCW) | cz_rearc(4, 3, 1, 2, 3, 4, CZ_DIR_CW))
+        cz_abort();
 
-    cz_paint(1, 2, 3);
-    cz_flood(1, 2, 3);
-    cz_paint_cp(3);
-    cz_flood_cp(3);
+    if (cz_paint(1, 2, 3) | cz_flood(1, 2, 3) | cz_paint_cp(3) | cz_flood_cp(3))
+        cz_abort();
     cz_copy(1, 2, 3, 4, 5, 6, CZ_CP_NORM + CZ_CP_MIRY + CZ_CP_MIRX + CZ_CP_R180);
     cz_copy(1, 2, 3, 4, 5, 6, CZ_CP_TRAN + CZ_CP_R270 + CZ_CP_R90 + CZ_CP_ATRN);
 

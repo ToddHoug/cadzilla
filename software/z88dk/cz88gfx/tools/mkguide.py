@@ -55,7 +55,7 @@ INC = os.path.join(LIBDIR, 'src', 'CZ88GFX.INC')
 HDR = os.path.join(LIBDIR, 'src', 'cz88gfx.h')
 STUBS = os.path.join(LIBDIR, 'src', 'CZC*.Z88')
 TITLE = 'cz88gfx Graphics Library User Guide'
-REVISION = '1.0'
+REVISION = '1.1'
 DATE = datetime.date.today().isoformat()
 
 
@@ -972,6 +972,14 @@ cz_polyline(sine);
         + C('cz_earc_sq') + ' and ' + C('cz_rearc_sq') + '.',
         'Circles and ellipses are drawn in order round the curve, so a '
         'dashed line style runs along them (chapter 8).',
+        '<b>The ELPS limit.</b> The real chip never ends ELPS or an '
+        'elliptical arc whose a, b and dX break la+ldX <= 13, lb+ldX <= 13 '
+        '(manual ELPS-3); altairsim doesn\'t model it. From 1.3, an ellipse '
+        'is the chip\'s ELPS only where that fits to within a pixel, and '
+        'otherwise a polygon of 64-256 sides within a pixel of the curve. An '
+        'elliptical arc\'s ratio is coarsened to fit its size, and one whose X '
+        'semi-axis could reach 4096 is not drawn (carry; in C, a return of '
+        '1).',
         'The arc macros clobber HL.']))
     story.append(shot(4, 'Demo screen 4: concentric circles, a rainbow of '
                          'half-circle arcs drawn both ways round, ellipses, '
@@ -1174,10 +1182,13 @@ cz_lstyle(0xFFFF, 0);    /* solid */
         '<b>Outlines must be closed.</b> The fill is 4-connected, so an '
         '8-connected outline (lines, circles) holds it, but a line\'s end '
         'point isn\'t drawn: run spokes a pixel past a circle.',
-        '<b>On the real board</b>, PAINT keeps only four pending seed points '
-        'and hands any more to the host, which cz88gfx doesn\'t do, so a '
-        'complicated area may be left partly unfilled. altairsim has no such '
-        'limit.']))
+        '<b>The seed stack.</b> The real chip keeps only four pending seed '
+        'points; it hands the rest to the host through the read FIFO and '
+        'stalls until they are read. From 1.3 the library reads them onto a '
+        '32-entry stack and paints again from each, so a fill returns only '
+        'when it is done, with the CP back at the start. Carry (in C, a '
+        'return of 1) means more than 32 were pending at once and part of '
+        'the area is unpainted. altairsim has no seed limit.']))
     story.append(P('9.2 Copying blocks', H2))
     story.append(P(
         C('GCOPY x1,y1,x2,y2,xd,yd,t') + ' / '
@@ -1407,7 +1418,11 @@ cz_frame();
         ['1.0', 'czgfx 1.0 ported to z80asm'],
         ['1.1', 'the C bindings: ' + C('cz88gfx.h') + ' and the ' + C('CZC*') +
          ' modules. The graphics modules are byte for byte 1.0\'s. A C '
-         'program needs 1.1 or later.']],
+         'program needs 1.1 or later.'],
+        ['1.2', 'WPTN counts words, as the real chip does on the 8-bit bus.'],
+        ['1.3', 'two real-chip hangs fixed, as in czgfx 1.3: ellipses and '
+         'elliptical arcs keep to ELPS\'s parameter limit (chapter 6), and '
+         'PAINT reads back its overflow seeds (9.1).']],
         [0.9 * inch, 6.0 * inch]))
     story.append(P('13.1 Moving a program to another release', H2))
     story.append(code('''
@@ -1724,7 +1739,8 @@ software/z88dk/cz88gfx/tools/build.sh'''))
         'a pixel. The copy covers copying on the screen. For the rest, send '
         'the command yourself: ' + C('CZCMD') + ' and ' + C('CZPUTW') + ' in '
         'assembly, ' + C('cz_cmd') + ' and ' + C('cz_putw') + ' in C.',
-        'PAINT\'s four-seed limit on the real chip (9.1).',
+        'PAINT\'s seed stack holds 32 seeds (9.1); a fill that needs more at '
+        'once returns carry and is left partly unpainted.',
         'It is 8080 code everywhere: a Z80 program runs the same code an 8080 '
         'one does.',
         'The C bindings are for sccz80, the compiler ' + C('zccbuild.sh') +

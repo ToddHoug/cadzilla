@@ -58,9 +58,9 @@ _cz_rarc:
         ADI     OPRARC
         JMP     ARCGO
 ;
-; void cz_earc_sq(unsigned a, unsigned b, int xc, int yc, int xe, int ye,
+; unsigned char cz_earc_sq(unsigned a, unsigned b, int xc, int yc, int xe, int ye,
 ;                 unsigned char dir) -- a : b = rx^2 : ry^2 (cz_earc)
-; void cz_rearc_sq(...) -- the same, relative to the CP
+; unsigned char cz_rearc_sq(...) -- the same, relative to the CP
 ; The table: a,b,Xc,Yc,Xe,Ye.
 ;
 _cz_earc_sq:
@@ -75,5 +75,14 @@ _cz_rearc_sq:
         LDA     CZCAV+12
         ADI     OPREAR
 ARCGO:  LXI     H,CZCAV
-        JMP     CZARC
+        CALL    CZARC
+        JMP     CYRET
+
+;
+; CYRET -- the result for C: HL = 0, or 1 if CZARC refused the arc (CY)
+;
+CYRET:  LXI     H,0
+        RNC
+        INR     L
+        RET
 ;
