@@ -77,7 +77,7 @@ the same rule that stops MBASIC variables starting with a keyword.
 | `/F:n` | number of files (default 3) |
 | `/S:n` | largest random record (default 128) |
 | `/M:addr` | highest memory address for BASIC (`&Hxxxx` or decimal) |
-| `/X` | no graphics: the graphics code's memory (4,031 bytes) becomes program space. A `CZ` statement then gives *Illegal function call* |
+| `/X` | no graphics: the graphics code's memory (5,487 bytes) becomes program space. A `CZ` statement then gives *Illegal function call* |
 
 Use `/X` for large programs that don't draw. STARTRK, for example, doesn't
 fit alongside the graphics code.
@@ -127,22 +127,22 @@ CZCOLOR sets the color that stays.
 
 ## Memory and size
 
-On the project's 56K CP/M (TPA 0100H-B5FFH):
+On the project's 62K CP/M (TPA 0100H-C5FFH):
 
 | | Bytes free |
 |---|---|
-| MBASIC 5.21 | 21,048 |
-| CZBASIC | 14,703 |
-| CZBASIC `/X` | about 18,700 |
+| MBASIC 5.21 | 21,048 (measured on the old 56K system, not remeasured) |
+| CZBASIC | 19,391 (the start-up banner, real Altair) |
+| CZBASIC `/X` | 24,878 (the start-up banner, real Altair) |
 
-`CZBASIC.COM` is 30,336 bytes (237 records). The layout in memory, low to high:
+`CZBASIC.COM` is 31,744 bytes (248 records). The layout in memory, low to high:
 
 ```
 0100H   BINIT   start-up code; afterwards the run-time buffers (BUF,
                 KBUF, the value stack and others: 1,135 bytes)
         the interpreter core
-GFXBEG  BGFX, BGTEXT (1,492 bytes) and the czgfx modules, its CZF8 font
-        included (2,539): 4,031 bytes, which /X frees
+GFXBEG  BGFX, BGTEXT and the czgfx modules, its CZF8 font included:
+        5,487 bytes, which /X frees
         the file blocks (/F:, /S:)
 TXTTAB  program text, variables, arrays, free, strings
         the stack (512 bytes, CLEAR ,,n)
@@ -214,7 +214,7 @@ L80 BINIT,CZBASIC,CZB1,CZB2,CZB3,B:CZGFX/S,CZBASIC/N/Y/E
 ```
 
 It also writes `CZBASIC.SYM` for the debugger's `SYMBOLS LOAD`. Watch L80's
-own "Bytes Free" (613 at present): the memory L80 has left for the program
+own "Bytes Free" (5,244 at present): the memory L80 has left for the program
 it is loading and its symbol table, so it shrinks as CZBASIC grows.
 
 BGFX and BGTEXT `INCLUDE B:CZGFX.INC`, so rebuild them (and relink) after
