@@ -29,7 +29,8 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   - `asm/`: hello, firstdraw, drawdemo
   - `m80/`: czgfx, gfxdemo, czbasic, testpat
   - `rmac/`: rhello, ddcz
-  - `z88dk/`: cz88gfx, zhello, z88demo, czdiag (the standalone board
+  - `z88dk/`: cz88gfx, zhello, z88demo, autodemo (a free-running attract
+    demo: seven animated screens, any key pauses), czdiag (the standalone board
     diagnostic: Bt453, ACRTC registers/FIFOs, clocks, video memory),
     czptest (cz88gfx 1.3's PAINT-seed and ELPS-limit check for a real board)
   - `zcc/`: chello, cgfxdemo, cgsxdemo, dxfview

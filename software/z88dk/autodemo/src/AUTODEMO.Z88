@@ -1,0 +1,1290 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; AUTODEMO.Z88 -- CADzilla free-running demo (z88dk z80asm, cz88gfx 1.4)
+;
+; An attract-mode demo for the 8080: seven screens, each drawing all the
+; time, change by themselves every few seconds and cycle for ever. No
+; keys are needed. A key pauses it (any key resumes); ESC, ^C or Q quits.
+;
+;   1  Bouncing vectors   two end points, each flying on its own random path
+;                         until it meets a screen edge, where it reflects
+;                         and takes a new random path. A line joins them
+;                         every step and the last 48 stay on the screen.
+;   2  Circles to         three balls bounce about, each squeezing from a
+;      ellipses           circle to a wide, a round, then a tall ellipse
+;                         and back (EOR drawing: drawn twice is erased)
+;   3  Palette tunnel     32 nested filled boxes, drawn once; a colour wheel
+;                         rotated through their palette entries each step
+;   4  String art         four corner fans of straight lines, drawn
+;                         line by line and drawn again in rotated colours
+;   5  Polygons           a square, a hexagon and a triangle turning in
+;                         opposite directions, leaving trails
+;   6  Radar              range rings, blips and a sweeping ray with a
+;                         trail (EOR: the ray lights the blips it passes)
+;   7  Confetti           random boxes, outlines, circles and lines, wiped
+;                         away by a moving black band
+;
+; Timing. The board has no timer and the ACRTC status has no vertical
+; sync bit, so each screen simply runs a fixed number of steps (CNTn
+; below), each followed by a delay of DLAn loops (24 T-states each). The
+; numbers were tuned in altairsim under work/cadzilla-real.toml (2 MHz,
+; draw_rate = "real") to give 2.5 to 3.5 seconds a screen: measured 3.1,
+; 3.2, 3.2, 2.8, 3.1, 3.0 and 3.1 s for screens 1 to 7. A real board will
+; differ a little: its ACRTC draws at its own speed, so retune there.
+;
+; Only the 8080 is needed. Nothing here uses PAINT, the AREA stop modes,
+; the overlay or text.
+;
+; Build on the host (cz88gfx release pinned in cz88gfx.version; see
+; cadzilla-build-z88dk), then R AUTODEMO.COM onto the disk and run it:
+;   tools/z88dk/z88build.sh software/z88dk/autodemo
+; The lookup tables in ADTAB.INC come from tools/mktables.py.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+; ---- tuning: steps per screen (CNTn) and delay loops per step (DLAn) ----
+;
+CNT1    EQU     100
+DLA1    EQU     2000
+CNT2    EQU     60
+DLA2    EQU     0
+CNT3    EQU     120
+DLA3    EQU     1400
+CNT4    EQU     96
+DLA4    EQU     1700
+CNT5    EQU     96
+DLA5    EQU     1500
+CNT6    EQU     96
+DLA6    EQU     2000
+CNT7    EQU     62
+DLA7    EQU     0
+;
+NRING   EQU     48              ;screen 1: lines kept on the screen
+NBALL   EQU     3               ;screen 2: balls
+BSZ     EQU     20              ;screen 2: bytes per ball
+;
+BDOS    EQU     0005H
+DIRIO   EQU     6               ;direct console I/O: E = 0FFH reads, no wait
+PSTRING EQU     9
+CR      EQU     0DH
+LF      EQU     0AH
+ESC     EQU     1BH
+CTLC    EQU     03H
+;
+        ORG     0100H
+;
+START:  LXI     H,0             ;keep CCP's stack, run on our own
+        DAD     SP
+        SHLD    OLDSP
+        LXI     SP,STACK
+;
+        LXI     D,MSGHI
+        CALL    PRINT
+        GINIT   CZM1K           ;1024x768, default palette, screen cleared
+        LXI     H,SCRTAB
+        SHLD    CURSCR
+;
+; The screen loop: fetch the next row of SCRTAB (wrapping at its end),
+; name the screen on the console, run its INIT once and its STEP N times.
+;
+NEXT:   LHLD    CURSCR
+        CALL    LDW             ;DE = INIT
+        MOV     A,D
+        ORA     E
+        JNZ     GOT
+        LXI     H,SCRTAB        ;end of the table: round again
+        SHLD    CURSCR
+        JMP     NEXT
+GOT:    XCHG
+        SHLD    INITP
+        XCHG
+        CALL    LDW
+        XCHG
+        SHLD    STEPP
+        XCHG
+        CALL    LDW
+        XCHG
+        SHLD    STEPS
+        XCHG
+        CALL    LDW
+        XCHG
+        SHLD    DLYV
+        XCHG
+        CALL    LDW             ;DE = the name, HL = the next row
+        SHLD    CURSCR
+        CALL    PRINT
+        LHLD    INITP
+        CALL    JHL
+;
+RUN:    LHLD    STEPP
+        CALL    JHL
+        CALL    POLL
+        LHLD    DLYV
+        CALL    DELAY
+        LHLD    STEPS
+        DCX     H
+        SHLD    STEPS
+        MOV     A,H
+        ORA     L
+        JNZ     RUN
+        GWAIT                   ;let the screen finish
+        JZ      NEXT
+        GABORT                  ;a command error: clear it and go on
+        JMP     NEXT
+;
+EXIT:   LXI     D,MSGBYE
+        CALL    PRINT
+        LHLD    OLDSP
+        SPHL
+        RET
+;
+SCRTAB: DW      S1INIT,S1STEP,CNT1,DLA1,NM1
+        DW      S2INIT,S2STEP,CNT2,DLA2,NM2
+        DW      S3INIT,S3STEP,CNT3,DLA3,NM3
+        DW      S4INIT,S4STEP,CNT4,DLA4,NM4
+        DW      S5INIT,S5STEP,CNT5,DLA5,NM5
+        DW      S6INIT,S6STEP,CNT6,DLA6,NM6
+        DW      S7INIT,S7STEP,CNT7,DLA7,NM7
+        DW      0
+;
+;
+; ================= console, keys, delay =================
+;
+PRINT:  MVI     C,PSTRING
+        JMP     BDOS
+;
+JHL:    PCHL                    ;CALL JHL calls the routine at HL
+;
+; POLL -- look for a key without waiting. ESC, ^C and Q quit; any other
+; key pauses until the next one, which resumes (or quits, if it is one of
+; those three).
+;
+POLL:   MVI     C,DIRIO
+        MVI     E,0FFH
+        CALL    BDOS
+        ORA     A
+        RZ
+        CALL    ISQ
+        JZ      EXIT
+        LXI     D,MSGPAU
+        CALL    PRINT
+PWAIT:  MVI     C,DIRIO
+        MVI     E,0FFH
+        CALL    BDOS
+        ORA     A
+        JZ      PWAIT
+        CALL    ISQ
+        JZ      EXIT
+        LXI     D,MSGRUN
+        JMP     PRINT
+;
+ISQ:    CPI     ESC             ;Z if A is a quit key
+        RZ
+        CPI     CTLC
+        RZ
+        CPI     'Q'
+        RZ
+        CPI     'q'
+        RET
+;
+; DELAY -- spin HL times, 24 T-states a time
+;
+DELAY:  MOV     A,H
+        ORA     L
+        RZ
+DLP:    DCX     H
+        MOV     A,H
+        ORA     L
+        JNZ     DLP
+        RET
+;
+;
+; ================= small helpers =================
+;
+LDW:    MOV     E,M             ;DE = word at HL, HL += 2
+        INX     H
+        MOV     D,M
+        INX     H
+        RET
+;
+STW:    MOV     M,E             ;word at HL = DE, HL += 2
+        INX     H
+        MOV     M,D
+        INX     H
+        RET
+;
+NEGHL:  MOV     A,L
+        CMA
+        MOV     L,A
+        MOV     A,H
+        CMA
+        MOV     H,A
+        INX     H
+        RET
+;
+SUBHD:  MOV     A,L             ;HL = HL - DE
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        RET
+;
+MIRR:   ORA     A               ;A <> 0: HL = DE - HL (a reflection)
+        RZ
+        XCHG
+        JMP     SUBHD
+;
+COPY4:  MVI     B,4             ;copy 4 bytes HL -> DE, both advance
+CPY4L:  MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     CPY4L
+        RET
+;
+COPY8:  CALL    COPY4
+        JMP     COPY4
+;
+; RAND -- 16-bit xorshift (7,9,8): SEED = next value, returned in HL.
+; Preserves BC, DE.
+;
+RAND:   LHLD    SEED
+        MOV     A,H             ;x ^= x << 7
+        RAR
+        MOV     A,L
+        RAR
+        XRA     H
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     A,H
+        RAR
+        XRA     L
+        MOV     L,A             ;x ^= x >> 9
+        XRA     H               ;x ^= x << 8
+        MOV     H,A
+        SHLD    SEED
+        RET
+;
+; RVELP -- HL = a random speed, 3..18 (6..36 if SPDSH). RVELS -- the same with a random sign.
+;
+RVELP:  CALL    RAND
+        MOV     A,L
+        ANI     15
+        ADI     3
+        MOV     L,A
+        MVI     H,0
+        LDA     SPDSH           ;nonzero: twice as fast
+        ORA     A
+        RZ
+        DAD     H
+        RET
+;
+RVELS:  CALL    RVELP
+        PUSH    H
+        CALL    RAND
+        MOV     A,H
+        POP     H
+        ANI     1
+        RZ
+        JMP     NEGHL
+;
+; NEWVEL -- the word at HL = a new random velocity
+;
+NEWVEL: PUSH    H
+        CALL    RVELS
+        XCHG
+        POP     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        RET
+;
+; DRSEG -- draw the line whose end points x0,y0,x1,y1 (four words) are
+; at HL, in the current colour and drawing mode. HL ends past them.
+;
+DRSEG:  CALL    LDW             ;DE = x0
+        PUSH    D
+        CALL    LDW             ;DE = y0
+        XTHL                    ;HL = x0, the pointer on the stack
+        CALL    CZMOVE
+        POP     H
+        CALL    LDW             ;DE = x1
+        PUSH    D
+        CALL    LDW             ;DE = y1
+        XTHL
+        CALL    CZLINE
+        POP     H
+        RET
+;
+; SCRINI -- start of every screen: default palette, replace mode, black
+;
+SCRINI: CALL    CZPALD
+        GMODE   0
+        GCLS    0
+        RET
+;
+; A mover is four words: X, Y, VX, VY. MOVEA advances one axis of it:
+; HL -> the position, whose velocity is 4 bytes on, DE = the largest
+; position allowed. Going past 0 or DE puts it on that edge and gives it a
+; new random speed away from the edge. Returns A <> 0 if it bounced.
+;
+MOVEA:  SHLD    MAP
+        XCHG
+        SHLD    MAXV
+        LHLD    MAP
+        MOV     E,M
+        INX     H
+        MOV     D,M             ;DE = position
+        INX     H
+        INX     H
+        INX     H               ;HL -> velocity
+        MOV     C,M
+        INX     H
+        MOV     B,M             ;BC = velocity
+        XCHG                    ;HL = position
+        DAD     B
+        MOV     A,H
+        ORA     A
+        JM      MALOW           ;went below 0
+        XCHG                    ;DE = the new position
+        LHLD    MAXV
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        JC      MAHIGH          ;went past the top
+        LHLD    MAP
+        CALL    STW
+        XRA     A
+        RET
+MALOW:  LHLD    MAP
+        LXI     D,0
+        CALL    STW             ;on the edge
+        INX     H
+        INX     H               ;HL -> velocity
+        PUSH    H
+        CALL    RVELP           ;away from it: positive
+        XCHG
+        POP     H
+        CALL    STW
+        MVI     A,1
+        RET
+MAHIGH: LHLD    MAXV
+        XCHG
+        LHLD    MAP
+        CALL    STW             ;on the far edge
+        INX     H
+        INX     H
+        PUSH    H
+        CALL    RVELP
+        CALL    NEGHL           ;negative
+        XCHG
+        POP     H
+        CALL    STW
+        MVI     A,1
+        RET
+;
+; MOVEEP -- move the mover at HL one step inside 0..XMAXV, 0..YMAXV. When
+; one axis bounces, the other axis gets a new random velocity too: a new
+; path.
+;
+MOVEEP: SHLD    EPP
+        LHLD    XMAXV
+        XCHG
+        LHLD    EPP
+        CALL    MOVEA
+        ORA     A
+        JZ      MEP1
+        LHLD    EPP
+        LXI     D,6
+        DAD     D
+        CALL    NEWVEL          ;X bounced: new VY
+MEP1:   LHLD    YMAXV
+        XCHG
+        LHLD    EPP
+        INX     H
+        INX     H
+        CALL    MOVEA
+        ORA     A
+        RZ
+        LHLD    EPP
+        LXI     D,4
+        DAD     D
+        JMP     NEWVEL          ;Y bounced: new VX
+;
+; EPINIT -- the mover at HL: a random place and random velocities
+;
+EPINIT: PUSH    H
+        CALL    RAND
+        MOV     A,H
+        ANI     3
+        MOV     D,A
+        MOV     E,L             ;X = 0..1023
+        POP     H
+        CALL    STW
+        PUSH    H
+        CALL    RAND
+        MOV     A,H
+        ANI     1
+        MOV     D,A
+        MOV     E,L             ;Y = 0..511
+        POP     H
+        CALL    STW
+        PUSH    H
+        CALL    NEWVEL
+        POP     H
+        INX     H
+        INX     H
+        JMP     NEWVEL
+;
+;
+; ================= screen 1: bouncing vectors =================
+;
+; EP0 and EP1 are the two end points. RING holds the last NRING lines (x0,
+; y0,x1,y1) with RCOL their colours (0 = empty); RIDX is the oldest.
+;
+S1INIT: CALL    SCRINI
+        MVI     A,1
+        STA     SPDSH           ;fast
+        LXI     H,1023
+        SHLD    XMAXV
+        LXI     H,767
+        SHLD    YMAXV
+        LXI     H,RCOL
+        MVI     B,NRING
+        XRA     A
+S1CLR:  MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     S1CLR
+        STA     RIDX
+        STA     LCOL
+        LXI     H,EP0
+        CALL    EPINIT
+        LXI     H,EP1
+        JMP     EPINIT
+;
+; RPTR -- HL -> the ring entry RIDX
+;
+RPTR:   LDA     RIDX
+        MOV     L,A
+        MVI     H,0
+        DAD     H
+        DAD     H
+        DAD     H
+        LXI     D,RING
+        DAD     D
+        RET
+;
+S1STEP: LDA     RIDX            ;erase the oldest line, if there is one
+        MOV     E,A
+        MVI     D,0
+        LXI     H,RCOL
+        DAD     D
+        MOV     A,M
+        ORA     A
+        JZ      S1MOV
+        XRA     A
+        CALL    CZCOL
+        CALL    RPTR
+        CALL    DRSEG
+S1MOV:  LXI     H,EP0
+        CALL    MOVEEP
+        LXI     H,EP1
+        CALL    MOVEEP
+        CALL    RPTR            ;the new line takes the oldest one's place
+        XCHG
+        LXI     H,EP0
+        CALL    COPY4           ;X and Y of the first end point
+        LXI     H,EP1
+        CALL    COPY4
+        LDA     LCOL            ;colours drift through the hues
+        ADI     5
+        STA     LCOL
+        ORI     18H             ;never dark
+        MOV     C,A
+        LDA     RIDX
+        MOV     E,A
+        MVI     D,0
+        LXI     H,RCOL
+        DAD     D
+        MOV     M,C
+        MOV     A,C
+        CALL    CZCOL
+        CALL    RPTR
+        CALL    DRSEG
+        LDA     RIDX
+        INR     A
+        CPI     NRING
+        JNZ     S1X
+        XRA     A
+S1X:    STA     RIDX
+        RET
+;
+;
+; ================= screen 2: bouncing circles to ellipses =================
+;
+; The radii stay within what the chip's ELPS command can take (+-12 round 24..31,
+; checked against CZELPS's rule); CZELPS draws anything else as a polygon, a
+; hundred times slower on the 8080.
+; A ball is X,Y,VX,VY (a mover; X,Y is its top-left corner, so it bounces
+; 12 pixels past its radius), then R (radius, 24..31), PH (wave phase),
+; PHV (phase speed), COL, and what is on the screen now: centre OX,OY
+; and semi-axes ORX,ORY (ORX = 0: nothing yet). Drawn in EOR: the same
+; call erases it.
+;
+S2INIT: CALL    SCRINI
+        GMODE   OMEOR
+        XRA     A
+        STA     SPDSH           ;slower
+        XRA     A
+        STA     S2IDX
+        LXI     H,BALLS
+        MVI     A,NBALL
+        STA     BCNT
+S2I1:   SHLD    BP
+        CALL    BALLIN
+        LHLD    BP
+        LXI     D,BSZ
+        DAD     D
+        LDA     BCNT
+        DCR     A
+        STA     BCNT
+        JNZ     S2I1
+        RET
+;
+BALLIN: CALL    EPINIT          ;HL = BP: place and velocities
+        LHLD    BP
+        LXI     D,8
+        DAD     D               ;HL -> R
+        PUSH    H
+        CALL    RAND
+        MOV     A,L
+        ANI     7
+        ADI     24
+        MOV     B,A             ;B = R
+        MOV     A,H
+        ANI     63
+        MOV     C,A             ;C = phase
+        CALL    RAND
+        MOV     A,L
+        ANI     3
+        ADI     2
+        MOV     D,A             ;D = phase speed 2..5
+        POP     H
+        MOV     M,B
+        INX     H
+        MOV     M,C
+        INX     H
+        MOV     M,D
+        INX     H               ;HL -> COL
+        LDA     S2IDX
+        MOV     E,A
+        INR     A
+        STA     S2IDX
+        MVI     D,0
+        PUSH    H
+        LXI     H,BCOLS
+        DAD     D
+        MOV     A,M
+        POP     H
+        MOV     M,A
+        INX     H
+        MVI     B,8             ;nothing drawn yet
+        XRA     A
+BINZ:   MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     BINZ
+        RET
+;
+S2STEP: LXI     H,BALLS
+        MVI     A,NBALL
+        STA     BCNT
+S2LP:   SHLD    BP
+        CALL    BALLST
+        LHLD    BP
+        LXI     D,BSZ
+        DAD     D
+        LDA     BCNT
+        DCR     A
+        STA     BCNT
+        JNZ     S2LP
+        RET
+;
+; ELLDRW -- draw the ellipse at ECX,ECY (semi-axes ERX2,ERY2) in colour A
+;
+ELLDRW: CALL    CZCOL
+        LHLD    ECY
+        XCHG
+        LHLD    ECX
+        CALL    CZMOVE
+        LHLD    ERY2
+        XCHG
+        LHLD    ERX2
+        JMP     CZELPS
+;
+BALLST: LHLD    BP              ;erase what the ball drew last time
+        LXI     D,16
+        DAD     D
+        MOV     A,M
+        INX     H
+        ORA     M
+        JZ      BSMOVE
+        LHLD    BP
+        LXI     D,12
+        DAD     D
+        LXI     D,ECX
+        CALL    COPY8
+        LHLD    BP
+        LXI     D,11
+        DAD     D
+        MOV     A,M
+        CALL    ELLDRW
+BSMOVE: LHLD    BP              ;M = R + 12, the ball's reach
+        LXI     D,8
+        DAD     D
+        MOV     A,M
+        ADI     12
+        STA     MM
+        ADD     A               ;2M
+        MOV     E,A
+        MVI     D,0
+        LXI     H,1023
+        CALL    SUBHD
+        SHLD    XMAXV
+        LXI     H,767
+        CALL    SUBHD
+        SHLD    YMAXV
+        LHLD    BP
+        CALL    MOVEEP
+        LHLD    BP              ;phase += speed
+        LXI     D,9
+        DAD     D
+        MOV     A,M
+        INX     H
+        ADD     M
+        ANI     63
+        DCX     H
+        MOV     M,A
+        MOV     E,A             ;d = WAVE[phase], -20..20
+        MVI     D,0
+        LXI     H,WAVE
+        DAD     D
+        MOV     C,M
+        LHLD    BP
+        LXI     D,8
+        DAD     D
+        MOV     B,M             ;B = R
+        MOV     A,B
+        ADD     C               ;rx = R + d
+        MOV     L,A
+        MVI     H,0
+        SHLD    ERX2
+        MOV     A,B
+        SUB     C               ;ry = R - d
+        MOV     L,A
+        MVI     H,0
+        SHLD    ERY2
+        LHLD    BP              ;centre = corner + M
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        XCHG
+        LDA     MM
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        SHLD    ECX
+        LHLD    BP
+        INX     H
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        XCHG
+        LDA     MM
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        SHLD    ECY
+        LHLD    BP
+        LXI     D,11
+        DAD     D
+        MOV     A,M
+        CALL    ELLDRW
+        LHLD    BP              ;remember it for the erase
+        LXI     D,12
+        DAD     D
+        XCHG
+        LXI     H,ECX
+        JMP     COPY8
+;
+;
+; ================= screen 3: palette tunnel =================
+;
+; 32 nested outlines in palette entries 1..32, each 3 pixels thick, drawn
+; once (filled boxes would repaint the screen 32 times over, which takes
+; seconds). Each step loads 32 colours from the wheel, one further round it
+; than last time.
+;
+S3INIT: CALL    SCRINI
+        LXI     H,0
+        SHLD    S3X
+        SHLD    S3Y
+        MVI     A,1
+        STA     S3C
+S3LP1:  LDA     S3C
+        CALL    CZCOL
+        LHLD    S3Y             ;Y1 = 767 - Y0, X1 = 1023 - X0
+        XCHG
+        LXI     H,767
+        CALL    SUBHD
+        SHLD    S3YE
+        LHLD    S3X
+        XCHG
+        LXI     H,1023
+        CALL    SUBHD
+        SHLD    S3XE
+        MVI     A,3
+        STA     S3J
+S3LJ:   LHLD    S3Y
+        XCHG
+        LHLD    S3X
+        CALL    CZMOVE
+        LHLD    S3YE
+        XCHG
+        LHLD    S3XE
+        CALL    CZRECT
+        LHLD    S3X             ;one pixel in on every side
+        INX     H
+        SHLD    S3X
+        LHLD    S3Y
+        INX     H
+        SHLD    S3Y
+        LHLD    S3XE
+        DCX     H
+        SHLD    S3XE
+        LHLD    S3YE
+        DCX     H
+        SHLD    S3YE
+        LDA     S3J
+        DCR     A
+        STA     S3J
+        JNZ     S3LJ
+        LHLD    S3X             ;the next ring: 16 in X and 12 in Y from
+        LXI     D,13            ;this one's outside
+        DAD     D
+        SHLD    S3X
+        LHLD    S3Y
+        LXI     D,9
+        DAD     D
+        SHLD    S3Y
+        LDA     S3C
+        INR     A
+        STA     S3C
+        CPI     33
+        JNZ     S3LP1
+        XRA     A
+        STA     PHASE
+        JMP     S3STEP          ;load the first colours
+;
+S3STEP: LDA     PHASE           ;HL -> WHEEL + 3 * phase
+        MOV     L,A
+        MVI     H,0
+        MOV     D,H
+        MOV     E,L
+        DAD     H
+        DAD     D
+        LXI     D,WHEEL
+        DAD     D
+        MVI     A,1
+        STA     S3C
+S3PL:   MOV     B,M
+        INX     H
+        MOV     C,M
+        INX     H
+        MOV     E,M
+        INX     H
+        LDA     S3C
+        CALL    CZPALS          ;clobbers A
+        LDA     S3C
+        INR     A
+        STA     S3C
+        CPI     33
+        JNZ     S3PL
+        LDA     PHASE
+        INR     A
+        CPI     48
+        JNZ     S3X1
+        XRA     A
+S3X1:   STA     PHASE
+        RET
+;
+;
+; ================= screen 4: string art =================
+;
+; Line i joins (21*i, 0) to (0, 752-16*i), which makes the envelope curve
+; round the corner; the other three corners mirror it. One step draws line
+; i in all four corners. After 48 steps it starts again in new colours.
+;
+S4INIT: CALL    SCRINI
+        XRA     A
+        STA     S4N
+        STA     S4I
+        STA     S4C
+        LXI     H,0
+        SHLD    XA
+        LXI     H,752
+        SHLD    YB
+        RET
+;
+S4STEP: LDA     S4N             ;colour = 3 * step, never dark
+        MOV     B,A
+        ADD     A
+        ADD     B
+        ORI     18H
+        CALL    CZCOL
+        XRA     A
+        STA     S4C
+S4CL:   LDA     S4C             ;bit 0 mirrors X, bit 1 mirrors Y
+        MOV     B,A
+        LXI     H,0
+        LXI     D,1023
+        MOV     A,B
+        ANI     1
+        CALL    MIRR
+        SHLD    SEGV
+        LHLD    YB
+        LXI     D,767
+        MOV     A,B
+        ANI     2
+        CALL    MIRR
+        SHLD    SEGV+2
+        LHLD    XA
+        LXI     D,1023
+        MOV     A,B
+        ANI     1
+        CALL    MIRR
+        SHLD    SEGV+4
+        LXI     H,0
+        LXI     D,767
+        MOV     A,B
+        ANI     2
+        CALL    MIRR
+        SHLD    SEGV+6
+        LXI     H,SEGV
+        CALL    DRSEG
+        LDA     S4C
+        INR     A
+        STA     S4C
+        CPI     4
+        JNZ     S4CL
+        LDA     S4N
+        INR     A
+        STA     S4N
+        LHLD    XA
+        LXI     D,21
+        DAD     D
+        SHLD    XA
+        LHLD    YB
+        LXI     D,-16
+        DAD     D
+        SHLD    YB
+        LDA     S4I
+        INR     A
+        STA     S4I
+        CPI     48
+        RNZ
+        XRA     A               ;the fans are complete: round again
+        STA     S4I
+        LXI     H,0
+        SHLD    XA
+        LXI     H,752
+        SHLD    YB
+        RET
+;
+;
+; ================= screen 5: polygons =================
+;
+; PSQ, PHEX and PTRI each hold 48 rotated copies of a polygon, 13 words
+; apiece (ADTAB.INC), so step i is at table + 26*i. Nothing is erased: the
+; turning outlines pile up into a pattern and their colours move on.
+;
+S5INIT: CALL    SCRINI
+        XRA     A
+        STA     S5I
+        STA     S5N
+        RET
+;
+SHAPE   MACRO   TBL,COFS
+        LDA     S5N
+        MOV     B,A
+        ADD     A
+        ADD     B
+        ADI     COFS
+        ORI     18H
+        CALL    CZCOL
+        LHLD    S5OFF
+        LXI     D,TBL
+        DAD     D
+        CALL    CZPLG
+        ENDM
+;
+S5STEP: LDA     S5I             ;26 * i = 2i + 8i + 16i
+        MOV     L,A
+        MVI     H,0
+        DAD     H               ;2i
+        MOV     D,H
+        MOV     E,L
+        DAD     H
+        DAD     H               ;8i
+        PUSH    H
+        DAD     H               ;16i
+        POP     B
+        DAD     B
+        DAD     D
+        SHLD    S5OFF
+        SHAPE   PSQ,0
+        SHAPE   PHEX,64
+        SHAPE   PTRI,128
+        LDA     S5N
+        INR     A
+        STA     S5N
+        LDA     S5I
+        INR     A
+        CPI     48
+        JNZ     S5X
+        XRA     A
+S5X:    STA     S5I
+        RET
+;
+;
+; ================= screen 6: radar =================
+;
+; Rings, a cross and a few blips are drawn in replace mode, then the
+; sweep in EOR: the new ray is drawn and the one 8 steps behind it is
+; drawn again, which erases it and puts back what it covered.
+;
+S6INIT: CALL    SCRINI
+        GMODE   0
+        GCOLOR  CYAN+16
+        GMOVE   512,384
+        LXI     H,120
+        CALL    CZCRCL
+        LXI     H,240
+        CALL    CZCRCL
+        LXI     H,360
+        CALL    CZCRCL
+        GSEG    512,24,512,744
+        GSEG    152,384,872,384
+        GCOLOR  YELLOW+BRIGHT
+        MVI     A,6
+        STA     S6C
+S6BL:   CALL    RAND            ;x = 180..818, y = 100..674
+        MOV     A,H
+        ANI     1
+        MOV     H,A
+        LXI     D,180
+        DAD     D
+        PUSH    H
+        CALL    RAND
+        MOV     A,L
+        ANI     127
+        MOV     E,A
+        MVI     D,0
+        POP     H
+        DAD     D
+        SHLD    S6X
+        CALL    RAND
+        MOV     A,H
+        ANI     1
+        MOV     H,A
+        LXI     D,100
+        DAD     D
+        PUSH    H
+        CALL    RAND
+        MOV     A,L
+        ANI     63
+        MOV     E,A
+        MVI     D,0
+        POP     H
+        DAD     D
+        SHLD    S6Y
+        XCHG
+        LHLD    S6X
+        CALL    CZMOVE
+        LXI     D,8
+        DAD     D
+        PUSH    H
+        LHLD    S6Y
+        LXI     D,8
+        DAD     D
+        XCHG
+        POP     H
+        CALL    CZFRCT
+        LDA     S6C
+        DCR     A
+        STA     S6C
+        JNZ     S6BL
+        GWAIT
+        GMODE   OMEOR
+        LXI     H,512           ;every ray starts at the centre
+        SHLD    SEGV
+        LXI     H,384
+        SHLD    SEGV+2
+        XRA     A
+        STA     S6A
+        STA     S6N
+        RET
+;
+S6STEP: GCOLOR  GREEN+BRIGHT
+        LDA     S6N
+        CPI     8
+        JC      S6NE
+        LDA     S6A
+        SUI     24
+        CALL    RAYDRW          ;erase the oldest ray
+S6NE:   LDA     S6A
+        CALL    RAYDRW
+        LDA     S6A
+        ADI     3               ;3 of the 256 angles a step
+        STA     S6A
+        LDA     S6N
+        CPI     255
+        RZ
+        INR     A
+        STA     S6N
+        RET
+;
+RAYDRW: MOV     L,A             ;draw ray A (0..255): the centre to RAYS[A]
+        MVI     H,0
+        DAD     H
+        DAD     H
+        LXI     D,RAYS
+        DAD     D
+        LXI     D,SEGV+4
+        CALL    COPY4
+        LXI     H,SEGV
+        JMP     DRSEG
+;
+;
+; ================= screen 7: confetti =================
+;
+; Four random shapes a step in random colours, then a black band 24 wide
+; moves 11 pixels along and wipes out what it crosses.
+;
+S7INIT: CALL    SCRINI
+        LXI     H,0
+        SHLD    S7BX
+        RET
+;
+S7STEP: MVI     A,4
+        STA     S7C
+S7LP:   CALL    CONFET
+        LDA     S7C
+        DCR     A
+        STA     S7C
+        JNZ     S7LP
+        XRA     A
+        CALL    CZCOL
+        LHLD    S7BX
+        LXI     D,0
+        CALL    CZMOVE
+        LXI     D,23
+        DAD     D
+        LXI     D,767
+        CALL    CZFRCT
+        LHLD    S7BX
+        LXI     D,11
+        DAD     D
+        SHLD    S7BX
+        LXI     D,1000          ;past 1000: back to the left
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        RNC
+        LXI     H,0
+        SHLD    S7BX
+        RET
+;
+CONFET: CALL    RAND
+        MOV     A,H
+        ORI     18H
+        CALL    CZCOL
+        CALL    RAND            ;x, kept at 940 or less
+        MOV     A,H
+        ANI     3
+        MOV     H,A
+        LXI     D,940
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        JNC     CFX1
+        LXI     D,128
+        CALL    SUBHD
+CFX1:   SHLD    CFX
+        CALL    RAND            ;y, kept at 690 or less
+        MOV     A,H
+        ANI     3
+        MOV     H,A
+        LXI     D,690
+        MOV     A,E
+        SUB     L
+        MOV     A,D
+        SBB     H
+        JNC     CFY1
+        LXI     D,384
+        CALL    SUBHD
+CFY1:   SHLD    CFY
+        CALL    RAND
+        MOV     A,L
+        ANI     63
+        ADI     8
+        MOV     C,A             ;C = width 8..71
+        MOV     A,H
+        ANI     63
+        ADI     8
+        MOV     B,A             ;B = height 8..71
+        CALL    RAND
+        MOV     A,L
+        ANI     3               ;shape 0..3
+        JZ      CFFILL
+        DCR     A
+        JZ      CFOUT
+        DCR     A
+        JZ      CFCIRC
+        LHLD    CFY             ;3: a line
+        XCHG
+        LHLD    CFX
+        CALL    CZMOVE
+        CALL    CFFAR
+        JMP     CZLINE
+CFFILL: LHLD    CFY
+        XCHG
+        LHLD    CFX
+        CALL    CZMOVE
+        CALL    CFFAR
+        JMP     CZFRCT
+CFOUT:  LHLD    CFY
+        XCHG
+        LHLD    CFX
+        CALL    CZMOVE
+        CALL    CFFAR
+        JMP     CZRECT
+CFCIRC: LHLD    CFX             ;a circle at (x+24, y+24)
+        LXI     D,24
+        DAD     D
+        PUSH    H
+        LHLD    CFY
+        LXI     D,24
+        DAD     D
+        XCHG
+        POP     H
+        CALL    CZMOVE
+        MOV     A,C             ;radius 6..21
+        RRC
+        RRC
+        ANI     15
+        ADI     6
+        MOV     L,A
+        MVI     H,0
+        JMP     CZCRCL
+;
+CFFAR:  LHLD    CFX             ;HL,DE = x+width, y+height
+        MOV     E,C
+        MVI     D,0
+        DAD     D
+        PUSH    H
+        LHLD    CFY
+        MOV     E,B
+        MVI     D,0
+        DAD     D
+        XCHG
+        POP     H
+        RET
+;
+;
+; ================= data =================
+;
+        INCLUDE "ADTAB.INC"
+;
+BCOLS:  DB      RED+BRIGHT,GREEN+BRIGHT,CYAN+BRIGHT,YELLOW+BRIGHT
+;
+MSGHI:  DB      "AUTODEMO -- CADzilla free-running demo (z88dk z80asm)",CR,LF
+        DB      "  any key pauses, ESC / ^C / Q quits",CR,LF,'$'
+NM1:    DB      "1  bouncing vectors",CR,LF,'$'
+NM2:    DB      "2  circles to ellipses",CR,LF,'$'
+NM3:    DB      "3  palette tunnel",CR,LF,'$'
+NM4:    DB      "4  string art",CR,LF,'$'
+NM5:    DB      "5  polygons",CR,LF,'$'
+NM6:    DB      "6  radar",CR,LF,'$'
+NM7:    DB      "7  confetti",CR,LF,'$'
+MSGPAU: DB      "  paused -- any key resumes, ESC quits",CR,LF,'$'
+MSGRUN: DB      "  running",CR,LF,'$'
+MSGBYE: DB      "AUTODEMO done.",CR,LF,'$'
+;
+SEED:   DW      0ACE1H
+;
+; ---- variables ----
+;
+CURSCR: DS      2               ;the next SCRTAB row
+INITP:  DS      2
+STEPP:  DS      2
+STEPS:  DS      2
+DLYV:   DS      2
+MAP:    DS      2               ;MOVEA
+MAXV:   DS      2
+EPP:    DS      2               ;MOVEEP
+XMAXV:  DS      2
+YMAXV:  DS      2
+SEGV:   DS      8               ;x0,y0,x1,y1 for DRSEG
+SPDSH:  DS      1
+EP0:    DS      8               ;screen 1
+EP1:    DS      8
+RIDX:   DS      1
+LCOL:   DS      1
+RCOL:   DS      NRING
+RING:   DS      NRING*8
+BALLS:  DS      NBALL*BSZ       ;screen 2
+BP:     DS      2
+BCNT:   DS      1
+S2IDX:  DS      1
+MM:     DS      1
+ECX:    DS      2
+ECY:    DS      2
+ERX2:   DS      2
+ERY2:   DS      2
+S3X:    DS      2               ;screen 3
+S3Y:    DS      2
+S3XE:   DS      2
+S3YE:   DS      2
+S3C:    DS      1
+S3J:    DS      1
+PHASE:  DS      1
+XA:     DS      2               ;screen 4
+YB:     DS      2
+S4N:    DS      1
+S4I:    DS      1
+S4C:    DS      1
+S5OFF:  DS      2               ;screen 5
+S5I:    DS      1
+S5N:    DS      1
+S6A:    DS      1               ;screen 6
+S6N:    DS      1
+S6C:    DS      1
+S6X:    DS      2
+S6Y:    DS      2
+S7BX:   DS      2               ;screen 7
+S7C:    DS      1
+CFX:    DS      2
+CFY:    DS      2
+OLDSP:  DS      2
+        DS      64
+STACK:

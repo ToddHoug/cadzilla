@@ -45,7 +45,7 @@ could never have put together on my own.
     czbasic, testpat
   - `rmac/` — Digital Research RMAC + LINK: rhello, ddcz (GSX-80 driver)
   - `z88dk/` — z88dk z80asm (host cross-assembler): the cz88gfx graphics
-    library, zhello, z88demo
+    library, zhello, z88demo, autodemo
   - `zcc/` — z88dk zcc (C): chello, cgfxdemo, cgsxdemo, dxfview
 - `docs/` — design notes and reference datasheets
   - `docs/cadzilla-manual.pdf` — user reference manual
