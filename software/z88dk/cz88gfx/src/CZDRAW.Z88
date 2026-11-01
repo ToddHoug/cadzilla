@@ -16,7 +16,7 @@
 ;
         PUBLIC  CZCOL,CZMOVE,CZLINE,CZRECT,CZFRCT,CZDOT
         PUBLIC  CZRMOV,CZRLIN,CZRRCT,CZRFRC
-        EXTERN  CZPUTW,CZXY,CZXYM,CZCMD
+        EXTERN  CZPUTW,CZXY,CZXYM,CZCMD,CZSYNC
 ;
         SECTION code_user
 ;
@@ -24,7 +24,8 @@
 ; GINIT's pattern RAM, all ones, every pixel draws with CL1. At 8 bpp
 ; the index is replicated into both bytes of the color register.
 ;
-CZCOL:  PUSH    H
+CZCOL:  CALL    CZSYNC
+        PUSH    H
         PUSH    PSW
         LXI     H,0801H         ;WPR CL1
         CALL    CZPUTW

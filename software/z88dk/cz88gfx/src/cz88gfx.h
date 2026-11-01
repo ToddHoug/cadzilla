@@ -36,7 +36,7 @@
 
 #include <cadzilla.h>       /* the board's ports and the CZ_SR_ status bits */
 
-#define CZ88GFX_VERSION 0x0103  /* this header's release: major, minor */
+#define CZ88GFX_VERSION 0x0104  /* this header's release: major, minor */
 
 /* ---- setup ---- */
 
@@ -136,7 +136,9 @@ extern unsigned char cz_rearc_sq(unsigned int a, unsigned int b, int xc, int yc,
  * color c round x,y. Both also stop at CL0 and CL1 (the chip's rule).
  * They return when the fill is done -- re-painting from the seeds the
  * real chip hands back -- with the CP back at the start: 0, or 1 if more
- * than 32 seeds were pending and part of the area is unpainted. */
+ * than 32 seeds were pending and part of the area is unpainted, or the
+ * fill passed 4096 seeds (aborted). Only in CZ_CM_SEL (1.4): in another
+ * color mode the real chip never ends a fill, so 1, nothing drawn. */
 extern unsigned char cz_paint(int x, int y, unsigned char edge) __smallc __z88dk_callee;
 extern unsigned char cz_flood(int x, int y, unsigned char c) __smallc __z88dk_callee;
 extern unsigned char cz_paint_cp(unsigned char edge) __z88dk_fastcall;  /* from the CP */
@@ -239,6 +241,7 @@ extern void cz_tnl(void);       /* a new line */
 /* ---- raw ACRTC access ---- */
 
 extern void cz_putw(unsigned int w) __z88dk_fastcall;  /* a word to the FIFO */
+extern void cz_sync(void);  /* before your own command word: abort after a stop */
 extern void cz_cmd(unsigned char op) __z88dk_fastcall; /* command op + the mode */
 extern void cz_wpr(unsigned char r,
                    unsigned int v) __smallc __z88dk_callee;  /* drawing parameter */

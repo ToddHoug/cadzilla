@@ -11,12 +11,13 @@
         INCLUDE "CZ88GFX.INC"
 ;
         PUBLIC  _cz_wait,_cz_abort,_cz_setmode,_cz_putw,_cz_cmd,_cz_wpr
-        PUBLIC  _cz_wreg
+        PUBLIC  _cz_wreg,_cz_sync
 ;
         SECTION code_user
 ;
         DEFC    _cz_abort = CZABT       ;void cz_abort(void)
         DEFC    _cz_putw = CZPUTW       ;void cz_putw(unsigned w) fastcall
+        DEFC    _cz_sync = CZSYNC       ;void cz_sync(void)
 ;
 ; unsigned char cz_wait(void) -- the status register once drawing ends
 ;

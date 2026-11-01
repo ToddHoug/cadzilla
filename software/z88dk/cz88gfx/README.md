@@ -89,6 +89,7 @@ sources, or to release when the two version numbers disagree.
 | 1.1 | the C bindings (`cz88gfx.h`, the `CZC*` modules); the graphics modules are byte-for-byte 1.0's |
 | 1.2 | WPTN's count n is in words, as the real HD63484 counts it on the 8-bit bus (measured on two boards), not the manual's bytes: `CZINIT`'s pattern load, `CZLPAT`, `CZLSTY` and the text code. Before, a real board took twice the data each WPTN sent, so `GINIT` never set PRC, CL0, CL1, CCMP, EDG or MASK. Needs an altairsim that counts words too |
 | 1.3 | two real-HD63484 hangs, ported from czgfx 1.2/1.3: `CZELPS` keeps ELPS's parameter limit or draws a polygon, and `CZARC` fits an elliptical arc to it or refuses it (see *Curves and the ELPS limit*); `CZPANT`/`CZFLOD` read back PAINT's overflow seeds (see *PAINT*). New public `CZRDW`, equate `OPRPLG`. In C, `cz_paint`, `cz_flood`, their `_cp` forms and `cz_earc_sq`/`cz_rearc_sq` return 0/1. `CZCURV`, `CZFILL` and `CZMODE` are byte-for-byte czgfx 1.3's |
+| 1.4 | a third real-HD63484 hang: after a command cut short by an AREA stop mode the chip ignores every command, WPR and RPR until it is aborted, and sets no ARD. A drawing command sent in `AMSTOP`/`AMSTPI` is now marked (new public `CZMARK`, flag `CZSTPF`), and every routine that sends a command word starts with new public `CZSYNC` (C: `cz_sync`), which then waits and aborts (CCR ABT keeps the CP, the parameters and the depth). So whatever follows a stop line works, `GGETCP` included (see *Drawing modes*). `CZPANT`/`CZFLOD` fill only in CMSEL (CY, nothing drawn, in any other color mode: the real chip never ends such a fill) and abort a fill past 4096 seeds (CY); see *PAINT*. `CZINIT` returns only once its clears are done: a second program drawing straight behind them hung board B. `CZABT` (`GABORT`, `cz_abort`) aborts back to the CCR in force, kept in the new public `CZCCR` by `CZINIT`, `CZOVL` and `CZFRM`: before, it always went back to 8 bpp, which broke drawing on the overlay after an abort |
 
 ### Building the library
 
@@ -337,7 +338,7 @@ These are the macros' register forms, and can be called directly by name.
 | `CZFNT8`, `CZFN11` | the fonts: data `CZF8`, `CZF11` |
 | `CZOVL` | `CZOVON`, `CZOVOF` (show / hide), `CZOPAL` (B/C/E = R/G/B), `CZOVL` (draw on the overlay), `CZFRM` (draw on the frame) |
 | `CZPAL` | `CZPALD` (load the default palette), `CZPALS` (A = index, B/C/E = R/G/B) |
-| `CZCORE` | `CZWREG` (B = register, HL = value), `CZPUTW` (HL → FIFO), `CZWAIT`, `CZXY` (A = opcode, HL/DE), `CZXYM` (the same, with the drawing mode), `CZCMD` (A = opcode: the command word with the drawing mode), `CZWPR` (A = drawing parameter register, HL = value), `CZSEND` (HL = table, BC = words), `CZRTAB`, `CZLDW`, `CZABT`; data `CZDM`, the drawing mode byte |
+| `CZCORE` | `CZWREG` (B = register, HL = value), `CZPUTW` (HL → FIFO), `CZWAIT`, `CZXY` (A = opcode, HL/DE), `CZXYM` (the same, with the drawing mode), `CZCMD` (A = opcode: the command word with the drawing mode), `CZWPR` (A = drawing parameter register, HL = value), `CZSEND` (HL = table, BC = words), `CZRTAB`, `CZLDW`, `CZABT`, `CZSYNC` (abort if a stop-mode command went out: see *Drawing modes*), `CZMARK` (after a command word carrying `CZDM`); data `CZDM`, the drawing mode byte, `CZCCR`, the CCR's high byte in force, and `CZSTPF`, the stop flag (1.4) |
 
 ### Drawing modes
 
@@ -369,6 +370,25 @@ field and keep the other two.
   After a stop, the CP is the pixel where the drawing stopped. `GWAIT`
   returns the status, so `ANI SRARD` tests it. `GGETCP` reads the CP back
   and also clears ARD.
+- **A stop silences the chip (1.4).** On the real chip, after a command
+  that `AMSTOP` or `AMSTPI` cut short, every following command, WPR and
+  RPR is ignored until a CCR ABT (measured on board B: the next AMOVE and
+  color WPRs were lost, and RPR never answers); the clip modes don't do
+  this. altairsim doesn't model it. So every command word the library
+  sends in a stop mode is followed by `CZMARK`, and every routine that
+  sends a command word of its own (`CZCMD`, `CZXY`, `CZWPR`, `GCOLOR`,
+  the pattern and text loads, `GCLS`, the reads, `GOVL`/`GFRAME`, ...)
+  starts with `CZSYNC`: if a stop-mode command went out since the last
+  abort, it waits for it and calls `CZABT`, which keeps the CP, the
+  parameter registers and the depth. That clears ARD and CER, so test
+  them after your own `GWAIT`, before the next call. Outside the stop
+  modes nothing changes. Code that sends its own command words with
+  `CZPUTW` (`cz_putw`) should `CALL CZSYNC` (`cz_sync()`) first.
+- **The real chip sets no ARD for a stop.** Measured on board B: after an
+  `AMSTOP` line the status shows CED only, while `AMCLPD` sets ARD as the
+  manual says. altairsim (and the manual) set ARD for the stop modes too.
+  So on the board `GWAIT`'s ARD can't tell that a line stopped; compare
+  the CP (`GGETCP`) with the line's end point instead.
 
 ### The pattern RAM
 
@@ -401,6 +421,18 @@ color, recoloring it.
 - **CL0 and CL1 are edges too.** The chip also stops at any pixel already in
   CL0 or CL1. `GINIT`'s CL0 is 0, so to paint over black, `GBCOL` something
   else first. For a solid fill, set CL0 to the fill color.
+- **CMSEL only (1.4).** The real chip knows a pixel is done only when it
+  is an edge: CL0, CL1 or the edge color. In CMSEL every painted pixel
+  is CL0 or CL1. In CMPRAM it paints the tile's colors, and in CMCL1 or
+  CMCL0 it leaves pixels alone, so it seeds its own fill again forever
+  (board B ran a CMPRAM PAINT past 10,000 seeds). So `GPAINT` and
+  `GFLOOD` refuse any other color mode: CY, nothing drawn. A two-color
+  pattern in CMSEL is fine (`GCOLOR` and `GBCOL` its colors). For a
+  tile, paint the shape solid in a marker color used nowhere else, then
+  draw the tile over a rectangle round it in CMPRAM with `GOPM OMEQ` and
+  `GCCMP` the marker: only the marker's pixels take it (z88demo screen
+  7). As a last guard, a fill past 4096 seeds in all is aborted (CY).
+  altairsim's PAINT ends in any mode.
 - **Outlines must be closed.** The fill is 4-connected. Lines don't draw
   their end point, so run spokes a pixel or two past the circle they meet.
 - **The seed stack (1.3).** The real chip keeps only four pending seeds
@@ -674,7 +706,7 @@ example: z88demo's ten screens, call for call.
 | `GFONT f` | `cz_font(CZ_F8)` / `cz_font(CZ_F11)` |
 | `GTPOS x,y` / `GTATTR s,d,f` | `cz_tpos(x, y)` / `cz_tattr(s, d, f)` |
 | `GTEXT "text"` / `GTSTR` / `GTCHR c` / `GTNL` | `cz_text("text")` / `cz_tstr(s, n)` / `cz_tchr(c)` / `cz_tnl()` |
-| `CZPUTW` `CZCMD` `CZWPR` `CZWREG` | `cz_putw(w)` `cz_cmd(op)` `cz_wpr(r, v)` `cz_wreg(r, v)` |
+| `CZPUTW` `CZCMD` `CZWPR` `CZWREG` `CZSYNC` | `cz_putw(w)` `cz_cmd(op)` `cz_wpr(r, v)` `cz_wreg(r, v)` `cz_sync()` |
 
 ## Changing the library
 

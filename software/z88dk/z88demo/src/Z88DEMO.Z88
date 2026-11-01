@@ -67,6 +67,8 @@
 ;
         INCLUDE "CZ88GFX.INC"
 ;
+TMARK   EQU     MAGENTA+3       ;screen 7's tile-wedge marker color
+;
 BDOS    EQU     0005H
 CONIN   EQU     1               ;console input (waits, echoes)
 CONOUT  EQU     2
@@ -677,7 +679,8 @@ SCR7:   GCLS    0
 ; centre outwards in AMSTOP stop as they leave it: a red ring on the CP
 ; each left (read back with GGETCP). Eight cyan lines from outside
 ; inwards in AMSTPI stop as they enter it, a pixel further in: a
-; smaller yellow ring there.
+; smaller yellow ring there. A line stopped if its CP is short of its
+; end point (the real chip sets no ARD for a stop).
 ;
         GBOX    111,59,369,281
         GAREA   112,60,368,280
@@ -703,13 +706,14 @@ S7LN:   PUSH    B
         XCHG
         LHLD    GX
         CALL    CZLINE
-        GWAIT
-        ANI     SRARD
+        GGETCP                  ;HL,DE = where it stopped
+        CALL    S7EQ            ;short of GX,GY?
         JZ      S7L1
+        PUSH    H
         LXI     H,NSTOP
         INR     M
-S7L1:   GGETCP                  ;HL,DE = where it stopped
-        MOV     A,C
+        POP     H
+S7L1:   MOV     A,C
         CPI     8
         JNZ     S7L2
         SHLD    FSTX            ;(the first line's, to print)
@@ -726,13 +730,16 @@ S7L2:   GMODE   0
         LHLD    GX
         CALL    CZMOVE
         GLINE   240,170
-        GWAIT
-        ANI     SRARD
+        LXI     H,240           ;the end point
+        SHLD    GX
+        LXI     H,170
+        SHLD    GY
+        GGETCP
+        CALL    S7EQ
         JZ      S7L3
         LXI     H,NSTPI
         INR     M
-S7L3:   GGETCP
-        GMODE   0
+S7L3:   GMODE   0
         GCOLOR  YELLOW+BRIGHT
         LXI     H,3
         CALL    CZCRCL
@@ -744,10 +751,15 @@ S7L3:   GGETCP
 ;
 ; Top right: a pie chart -- a white circle and five spokes, then each
 ; wedge PAINTed out to the white: red and green solid, the ring
-; pattern in two colors, the color tile in CMPRAM, and blue -- which
-; GFLOOD then paints over, blue pixels only, with yellow rings (CMCL1).
-; PAINT also stops at CL0 and CL1, so CL0 must never be the black
+; pattern in two colors, the color tile, and blue -- which GFLOOD then
+; paints over, blue pixels only, with yellow rings on a blue a level
+; down. PAINT also stops at CL0 and CL1, so CL0 must never be the black
 ; being painted over: GBCOL sets it for each wedge.
+; PAINT works only in CMSEL: the real chip stops at nothing but CL0,
+; CL1 and the edge, so in CMPRAM it would re-seed its own tile colors
+; forever. So the tile wedge is painted solid in a marker color (TMARK,
+; used nowhere else), then the tile is drawn in CMPRAM with OMEQ over a
+; rectangle round the wedge: only the marker pixels take it.
 ;
         GCOLOR  WHITE+BRIGHT
         GCIRC   760,580,150
@@ -766,19 +778,24 @@ S7L3:   GGETCP
         GCOLOR  YELLOW+BRIGHT
         GBCOL   ORANGE+12
         GPAINT  703,523,WHITE+BRIGHT
+        GCOLOR  TMARK
+        GBCOL   TMARK
+        GPAINT  781,503,WHITE+BRIGHT
         GLDPAT  TILE1,0
         GPSCAN  0,0,3,3,3,3
         GCMODE  CMPRAM
-        GPAINT  781,503,WHITE+BRIGHT
+        GOPM    OMEQ
+        GCCMP   TMARK
+        GMOVE   700,425
+        GFRECT  880,585
         GMODE   0
         CALL    SOLID
         GCOLOR  BLUE+BRIGHT
         GBCOL   BLUE+BRIGHT
         GPAINT  835,553,WHITE+BRIGHT
         GLDPAT  RING,0
-        GCMODE  CMCL1
         GCOLOR  YELLOW+BRIGHT
-        GBCOL   RED+4
+        GBCOL   BLUE+BRIGHT-1
         GFLOOD  835,553,BLUE+BRIGHT
         GMODE   0
         CALL    SOLID
@@ -840,6 +857,21 @@ S7L3:   GGETCP
         LXI     D,MSGF
         JMP     PRINT
 ;
+; S7EQ -- Z if HL,DE is GX,GY. Preserves BC, DE, HL.
+;
+S7EQ:   LDA     GX
+        CMP     L
+        RNZ
+        LDA     GX+1
+        CMP     H
+        RNZ
+        LDA     GY
+        CMP     E
+        RNZ
+        LDA     GY+1
+        CMP     D
+        RET
+;
 ; S7CIR -- 12 circles round (240,560), radius 16 to 192, and two
 ; diagonals, in the current color and mode
 ;
@@ -865,7 +897,9 @@ S7CL:   PUSH    H
 ; ring pattern and a solid one, and a crosshair stepped across in OMEOR
 ; -- each drawn, then drawn again to undraw it, the last one left. At
 ; 1 bpp the colors are OVSET and OVCLR; PAINT also stops at CL0 and
-; CL1, so CL0 goes to OVSET too, never the 0 being painted over.
+; CL1, so CL0 goes to OVSET too, never the 0 being painted over. PAINT
+; works only in CMSEL, so the ring box is PAINTed solid, then the ring
+; pattern's 0 bits are cleared again by a filled rectangle in CMCL0.
 ;
 SCR8:   CALL    SCR1
         GOVPAL  255,255,0
@@ -873,10 +907,14 @@ SCR8:   CALL    SCR1
         GCOLOR  OVSET
         GBCOL   OVSET
         GBOX    96,96,288,256   ;(PAINTed before the grid crosses it)
-        GLDPAT  RING,0
-        GCMODE  CMCL1
         GPAINT  192,176,OVSET
+        GLDPAT  RING,0
+        GCMODE  CMCL0
+        GBCOL   OVCLR
+        GMOVE   97,97
+        GFRECT  287,255
         GMODE   0
+        GBCOL   OVSET
         CALL    SOLID
         GMOVE   736,96
         GFRECT  928,256

@@ -34,7 +34,7 @@
         INCLUDE "CZ88GFX.INC"
 ;
         PUBLIC  CZTFNT,CZTSTR,CZTST
-        EXTERN  CZDM,CZPSCN,CZPUTW,CZWPR,CZMOVE,CZPTN,CZPDEF
+        EXTERN  CZDM,CZPSCN,CZPUTW,CZWPR,CZMOVE,CZPTN,CZPDEF,CZSYNC
 ;
         SECTION code_user
 ;
@@ -206,7 +206,8 @@ TSTEP:  LXI     H,0
 ; UNPK -- unpack the glyph at DE straight into the pattern RAM (WPTN
 ; from row 0): the glyph's rows, then blank ones up to the cell height
 ;
-UNPK:   LXI     H,1800H         ;WPTN PRA=0
+UNPK:   CALL    CZSYNC
+        LXI     H,1800H         ;WPTN PRA=0
         CALL    CZPUTW
         LDA     FCH             ;n: the cell's rows, in words (the real
                                 ;chip; not the manual's bytes)

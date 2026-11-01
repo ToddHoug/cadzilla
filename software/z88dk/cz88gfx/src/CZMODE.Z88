@@ -2,8 +2,8 @@
 ; Copyright (C) 2026 Todd Houg
 ;
 ; CZMODE.Z88 -- cz88gfx: drawing mode, CL0/CCMP, the area, reading back
-; (A port of czgfx 1.3's CZMODE.MAC to z88dk's z80asm.)
 ; (the CP, a pixel)
+; (A port of czgfx 1.3's CZMODE.MAC to z88dk's z80asm; CZSYNC, 1.4.)
 ;
 ; The drawing mode byte CZDM (in CZCORE) is the low byte of every
 ; drawing command: AREA (bits 7-5), COL (4-3), OPM (2-0), with the
@@ -14,7 +14,7 @@
 ;
         PUBLIC  CZOPM,CZCMOD,CZAMOD,CZCOL0,CZCCMP
         PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP,CZRDOT,CZRDW
-        EXTERN  CZDM,CZWPR,CZPUTW,CZXMAX,CZYMAX
+        EXTERN  CZDM,CZWPR,CZPUTW,CZXMAX,CZYMAX,CZSYNC
 ;
         SECTION code_user
 ;
@@ -95,10 +95,11 @@ CZAFUL: PUSH    D
         RET
 ;
 ; CZGCP -- read the drawing pointer back: HL = X, DE = Y (RPR CPX,
-; CPY through the read FIFO). RPR also clears ARD in the status.
-; Preserves BC.
+; CPY through the read FIFO), after CZSYNC: straight after a stop it is
+; the stop point. Preserves BC.
 ;
-CZGCP:  LXI     H,0C12H         ;RPR CPX
+CZGCP:  CALL    CZSYNC
+        LXI     H,0C12H         ;RPR CPX
         CALL    CZPUTW
         CALL    RDW
         PUSH    H
@@ -117,7 +118,8 @@ CZGCP:  LXI     H,0C12H         ;RPR CPX
 ; Pr0C = 40H (the base screen) + address bits 19-12, Pr0D = bits 11-0
 ; shifted left 4. Leaves RWP past the word. Preserves BC, DE, HL.
 ;
-CZRDOT: PUSH    B
+CZRDOT: CALL    CZSYNC
+        PUSH    B
         PUSH    D
         PUSH    H
         MOV     B,H             ;BC = X

@@ -49,12 +49,12 @@
 ; <major>.<minor>/ (CZ88GFX.LIB and this file); each project pins one in
 ; its software/<toolchain>/<project>/cz88gfx.version.
 ;
-CZ88VER EQU     0103H           ;1.3
+CZ88VER EQU     0104H           ;1.4
 ;
 ; ---- the library's symbols (see each module for its entry conditions) ----
 ;
         EXTERN  CZWREG,CZPUTW,CZWAIT,CZXY,CZSEND,CZRTAB,CZLDW,CZABT
-        EXTERN  CZDM,CZCMD,CZXYM,CZWPR
+        EXTERN  CZDM,CZCMD,CZXYM,CZWPR,CZCCR,CZSYNC,CZMARK,CZSTPF
         EXTERN  CZINIT,CZM640,CZM800,CZM1K,CZXMAX,CZYMAX,CZCLS,CZPDEF
         EXTERN  CZOCLS,CZMREG,CZDPB
         EXTERN  CZPALD,CZPALS
@@ -361,7 +361,8 @@ GWAIT   MACRO
         CALL    CZWAIT
         ENDM
 ;
-; GABORT -- abort the ACRTC (clears a command error, flushes the FIFOs)
+; GABORT -- abort the ACRTC (clears a command error, flushes the FIFOs;
+; keeps the CP, the parameters and the overlay or frame depth, 1.4)
 ;
 GABORT  MACRO
         CALL    CZABT
@@ -424,7 +425,9 @@ GAFULL  MACRO
 ;
 ; GGETCP -- read back the drawing pointer: HL = X, DE = Y. Where an
 ; AREA stop mode stopped. Also clears ARD, so GWAIT and test SRARD
-; first.
+; first. Straight after a stop-mode line it is the stop point (the
+; library has aborted the chip; 1.4). On the real chip the stop modes
+; set no ARD: compare the CP with the line's end.
 ;
 GGETCP  MACRO
         CALL    CZGCP
@@ -714,7 +717,11 @@ GREARC  MACRO   RX,RY,XC,YC,XE,YE,DV
 ; color 0 with GINIT's CL0 = 0, GBCOL something else first.
 ; Both return when the fill is done, re-painting from the seeds the
 ; chip hands back (see CZFILL.Z88), with CP back at x,y. Carry set if
-; there were too many seeds (32) and part of the area is unpainted.
+; there were too many seeds (32) and part of the area is unpainted, or
+; past 4096 seeds in all (aborted). Only in CMSEL (1.4): in any other
+; color mode the real chip never ends a fill, so carry, nothing drawn.
+; For a pattern, paint solid, then load the pattern and fill in CMSEL
+; with its colors as CL1 and CL0 (GCOLOR, GBCOL).
 ;
 GPAINT  MACRO   XV,YV,EV
         GMOVE   XV,YV

@@ -13,7 +13,7 @@
         INCLUDE "CZ88GFX.INC"
 ;
         PUBLIC  CZLPAT,CZLSTY,CZPTN,CZPSCN
-        EXTERN  CZPUTW,CZSEND,CZLDW,CZWPR,CZCMD
+        EXTERN  CZPUTW,CZSEND,CZLDW,CZWPR,CZCMD,CZSYNC
 ;
         SECTION code_user
 ;
@@ -21,7 +21,8 @@
 ; HL: DW n (1-16), then n words, as GPAT and GTILE build it. Returns
 ; HL just past the table.
 ;
-CZLPAT: PUSH    B
+CZLPAT: CALL    CZSYNC
+        PUSH    B
         PUSH    D
         PUSH    H
         ANI     0FH             ;WPTN, PRA = A
@@ -45,7 +46,8 @@ CZLPAT: PUSH    B
 ; columns 0-15 of row 0 only, each bit drawn A+1 times (A = 0-15),
 ; pointer at the start
 ;
-CZLSTY: PUSH    B
+CZLSTY: CALL    CZSYNC
+        PUSH    B
         PUSH    H
         ANI     0FH             ;C = Pr07 low: PEX=15, PZX=A
         ORI     0F0H

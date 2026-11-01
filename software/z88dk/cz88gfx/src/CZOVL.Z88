@@ -2,7 +2,7 @@
 ; Copyright (C) 2026 Todd Houg
 ;
 ; CZOVL.Z88 -- cz88gfx: the 1 bpp overlay
-; (A port of czgfx 1.0's CZOVL.MAC to z88dk's z80asm.)
+; (A port of czgfx 1.0's CZOVL.MAC to z88dk's z80asm; CZCCR, CZSYNC, 1.4.)
 ;
 ; The board's overlay is a one-bit plane over the 8-bit picture, in its
 ; own SRAM: one bit per frame pixel, shown as the Bt453's overlay color 2
@@ -19,7 +19,7 @@
         INCLUDE "CZ88GFX.INC"
 ;
         PUBLIC  CZOVON,CZOVOF,CZOPAL,CZOVL,CZFRM
-        EXTERN  CZWAIT,CZWREG,CZSEND,CZMREG,CZDPB
+        EXTERN  CZWAIT,CZWREG,CZSEND,CZMREG,CZDPB,CZCCR,CZSYNC
 ;
         SECTION code_user
 ;
@@ -62,8 +62,11 @@ CZFRM:  PUSH    D
 SWITCH: PUSH    B
         PUSH    H
         PUSH    PSW
+        CALL    CZSYNC          ;(a stop's abort at the old depth)
         CALL    CZWAIT          ;nothing left to draw at the old depth
         XCHG
+        MOV     A,H             ;CZABT's copy
+        STA     CZCCR
         MVI     B,02H           ;CCR (no interrupts, as CZINIT)
         CALL    CZWREG
         POP     PSW

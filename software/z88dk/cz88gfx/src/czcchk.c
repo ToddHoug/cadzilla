@@ -97,6 +97,7 @@ int main(void)
     cz_tchr('A');
     cz_tnl();
 
+    cz_sync();
     cz_putw(CZ88GFX_VERSION);
     cz_cmd(0xCC);
     cz_wpr(1, 2);

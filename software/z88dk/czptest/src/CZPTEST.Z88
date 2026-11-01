@@ -1,10 +1,10 @@
 ; SPDX-License-Identifier: GPL-3.0-or-later
 ; Copyright (C) 2026 Todd Houg
 ;
-; CZPTEST.Z88 -- cz88gfx 1.3 on the real HD63484: PAINT's seeds and
-; ELPS's parameter limit (8080 code)
+; CZPTEST.Z88 -- cz88gfx 1.3/1.4 on the real HD63484: PAINT's seeds,
+; ELPS's parameter limit, and reading back after an AREA stop (8080 code)
 ;
-; altairsim models neither limit, so there this only shows the code paths
+; altairsim models none of these, so there this only shows the code paths
 ; run and draw correctly; the real board is the test. Each step is named
 ; on the console before it starts, so a hang shows where it stopped.
 ;
@@ -20,6 +20,39 @@
 ;          nn points missed.
 ;   EARC   a small elliptical arc (drawn: '.') and one whose X semi-axis
 ;          is 9000 (refused: 'C').
+;   STOP   (1.4) a command cut short by AMSTOP or AMSTPI leaves the real
+;          chip's read side dead until an ABT, so each read here comes
+;          straight after a stopped line (area 112,60-368,280, the line
+;          along y=170): GGETCP after AMSTOP and after AMSTPI ("A x,y":
+;          A if ARD was set -- altairsim; the real chip sets none for a
+;          stop, '-' -- then the stop point), then GPAINT, GRDOT and
+;          an AEARC from the CP. "PAINT . ." the fill's flag and its
+;          read-back, "RDOT ." the read-back, "EARC ." the flag; 'X' for
+;          a wrong pixel. On 1.3, and on 1.4's first build (which aborted
+;          only on ARD), the board hangs at the first GGETCP.
+;   PDIAG  why STOP's "PAINT . X" (board B): a WALL box painted FILL1
+;          without a stop line first ("BOX"), then another straight after
+;          one ("STP"), as STOP does. Each prints the fill's flag, where
+;          the PAINT started (the CP it restores), CL0, CL1 and EDG in
+;          hex as the chip holds them afterwards, and the pixels in the
+;          box, then outside it at 100,700, in hex. Right: "x,y 9F 9F
+;          FF 9F 00" (FILL1 9F, WALL FF), x,y the box's 830/690,550.
+;          1.4's first builds printed "STP . 110,170 00 5F FF 00 00" on
+;          board B: the chip had ignored the AMOVE and WPRs after the
+;          stop, so the library now aborts before the next command.
+;          Then " PRAM C": a GPAINT in CMPRAM is refused (1.4: the real
+;          chip never ends one), and the box under it stays black.
+;   OVL    (1.4) the same stop and GGETCP on the overlay ("A x,y"), then a
+;          line across y=300. The abort must keep the overlay's 1 bpp, so
+;          the line shows in the overlay color (yellow, left on) and not
+;          in the frame: "." if the frame under it is still black. Look
+;          at it too: one pixel high is right; an 8 bpp abort (1.3's
+;          CZABT) draws it into the overlay as a band 8 rows high
+;          (y=293-300 on altairsim), with the console still showing ".".
+;          "CZPTEST N" skips this case.
+;
+; At the end it waits for a key (the overlay is left on to look at), then
+; GINITs the board, so CP/M gets it back as CZINIT leaves it.
 ;
         INCLUDE "CZ88GFX.INC"
 ;
@@ -36,7 +69,18 @@ INK     EQU     GREEN+BRIGHT
 ;
         ORG     0100H
 ;
-START:  LXI     D,MHELLO
+START:  LXI     H,0080H         ;the command tail: an N skips OVL
+        MOV     B,M
+TAIL:   INX     H
+        MOV     A,B
+        ORA     A
+        JZ      TAILX
+        DCR     B
+        MOV     A,M
+        CPI     'N'
+        JNZ     TAIL
+        STA     NOOVL
+TAILX:  LXI     D,MHELLO
         CALL    PRINT
         GINIT   CZM1K
 ;
@@ -172,9 +216,228 @@ EL2:    CALL    PCHR
         GEARC   90,1,512,284,612,284,DIRCCW     ;dX 9000: refused
         CALL    FLAG
         GWAIT
-        LXI     D,MDONE
+        LXI     D,MNL
         CALL    PRINT
+;
+; ---- STOP: reads straight after an AREA stop ----
+;
+        LXI     D,MSTOP
+        CALL    PRINT
+        GCLS    0
+        GCOLOR  WALL
+        GBOX    500,500,600,600
+        GCOLOR  INK
+        GAREA   112,60,368,280
+        GAMODE  AMSTOP          ;out of the area: stops leaving it
+        GMOVE   240,170
+        GLINE   40,170
+        CALL    ARDCP
+        GAMODE  AMSTPI          ;into it: stops entering it
+        GMOVE   40,170
+        GLINE   240,170
+        CALL    ARDCP
+        CALL    STOPLN          ;a stop, then GPAINT
+        LXI     D,MPAINT
+        CALL    PRINT
+        GCOLOR  FILL1
+        GBCOL   FILL1
+        GPAINT  550,550,WALL
+        CALL    FLAG
+        MVI     A,' '
+        CALL    PCHR
+        GRDOT   550,550
+        MVI     B,FILL1
+        CALL    ISCOL
+        GBCOL   0
+        GCOLOR  INK
+        CALL    STOPLN          ;a stop, then GRDOT
+        LXI     D,MRDOT
+        CALL    PRINT
+        GRDOT   500,550
+        MVI     B,WALL
+        CALL    ISCOL
+        CALL    STOPLN          ;a stop, then an AEARC from the CP
+        LXI     D,MEARC
+        CALL    PRINT
+        GEARC   4,3,97,170,69,170,DIRCCW
+        CALL    FLAG
+        GWAIT
+;
+; ---- PDIAG: PAINT with and without a stop line before it ----
+;
+        LXI     D,MPDIAG
+        CALL    PRINT
+        GCOLOR  WALL
+        GBOX    640,500,740,600
+        GBOX    780,500,880,600
+        GBCOL   0
+        GCOLOR  INK
+        LXI     D,MPBOX         ;no stop first
+        CALL    PRINT
+        GCOLOR  FILL1
+        GBCOL   FILL1
+        GPAINT  830,550,WALL
+        LXI     H,830
+        CALL    PDREP
+        GBCOL   0
+        GCOLOR  INK
+        GAREA   112,60,368,280
+        CALL    STOPLN          ;a stop, then the same
+        LXI     D,MPSTP
+        CALL    PRINT
+        GCOLOR  FILL1
+        GBCOL   FILL1
+        GPAINT  690,550,WALL
+        LXI     H,690
+        CALL    PDREP
+        GBCOL   0
+        GAFULL
+        LXI     D,MPRAM         ;CMPRAM: refused, nothing drawn
+        CALL    PRINT
+        GCOLOR  WALL
+        GBOX    920,500,1000,600
+        GCMODE  CMPRAM
+        GPAINT  960,550,WALL
+        CALL    FLAG
+        GCMODE  CMSEL
+        MVI     A,' '
+        CALL    PCHR
+        GRDOT   960,550
+        MVI     B,0
+        CALL    ISCOL
+        LXI     D,MNL
+        CALL    PRINT
+;
+; ---- OVL: a stop on the overlay, then a line ----
+;
+        LDA     NOOVL
+        ORA     A
+        JNZ     OVLX
+        LXI     D,MOVL
+        CALL    PRINT
+        GAREA   112,60,368,280  ;(set on the frame, as STOP's)
+        GOVCLS
+        GOVPAL  255,255,0
+        GOVON
+        GOVL
+        GCOLOR  OVSET
+        GAMODE  AMSTOP
+        GMOVE   240,170
+        GLINE   40,170
+        CALL    ARDCP           ;CZRDY aborts here
+        GAMODE  AMNONE
+        GMOVE   0,300
+        GLINE   1023,300
+        GWAIT
+        GFRAME
+        GRDOT   512,300         ;the frame under the line
+        MVI     B,0
+        CALL    ISCOL
+        GAFULL
+OVLX:   LXI     D,MDONE
+        CALL    PRINT
+        MVI     C,1             ;a key, then the board as CZINIT leaves it
+        CALL    BDOS
+        GINIT   CZM1K
+        LXI     D,MNL
+        JMP     PRINT
+;
+; STOPLN -- an AMSTOP line out of the area (CP: the stop point), then
+; back to AMNONE
+;
+STOPLN: GAMODE  AMSTOP
+        GMOVE   240,170
+        GLINE   40,170
+        GAMODE  AMNONE
         RET
+;
+; ARDCP -- wait; print "A " if ARD is set ("- " if not), then the CP as
+; "xxx,yyy "
+;
+ARDCP:  GWAIT
+        ANI     SRARD
+        MVI     A,'-'
+        JZ      AC1
+        MVI     A,'A'
+AC1:    CALL    PCHR
+        MVI     A,' '
+        CALL    PCHR
+        GGETCP
+        PUSH    D
+        CALL    P3
+        MVI     A,','
+        CALL    PCHR
+        POP     H
+        CALL    P3
+        MVI     A,' '
+        JMP     PCHR
+;
+; PDREP -- after a GPAINT at HL,550: print the flag, the CP, CL0, CL1,
+; EDG, the pixel at HL,550 and at 100,700
+;
+PDREP:  PUSH    H
+        CALL    FLAG
+        MVI     A,' '
+        CALL    PCHR
+        GGETCP
+        PUSH    D
+        CALL    P3
+        MVI     A,','
+        CALL    PCHR
+        POP     H
+        CALL    P3
+        MVI     A,00H           ;CL0, CL1, EDG
+        CALL    PRPR
+        MVI     A,01H
+        CALL    PRPR
+        MVI     A,03H
+        CALL    PRPR
+        POP     H
+        LXI     D,550
+        CALL    CZRDOT
+        CALL    PHEXS
+        GRDOT   100,700
+        CALL    PHEXS
+        LXI     D,MNL
+        JMP     PRINT
+;
+; PRPR -- print " hh", the low byte of drawing parameter register A
+;
+PRPR:   PUSH    PSW
+        CALL    CZSYNC          ;as the library's own reads
+        POP     PSW
+        MOV     L,A
+        MVI     H,0CH           ;RPR
+        CALL    CZPUTW
+        CALL    CZRDW
+        MOV     A,L
+PHEXS:  PUSH    PSW
+        MVI     A,' '
+        CALL    PCHR
+        POP     PSW
+PHEX:   PUSH    PSW
+        RRC
+        RRC
+        RRC
+        RRC
+        CALL    PHEX1
+        POP     PSW
+PHEX1:  ANI     0FH
+        ADI     90H
+        DAA
+        ACI     40H
+        DAA
+        JMP     PCHR
+;
+; ISCOL -- print '.' if A = B, else 'X'; then a space
+;
+ISCOL:  CMP     B
+        MVI     A,'.'
+        JZ      IC1
+        MVI     A,'X'
+IC1:    CALL    PCHR
+        MVI     A,' '
+        JMP     PCHR
 ;
 ; FLAG -- print '.' for NC, 'C' for CY
 ;
@@ -266,6 +529,15 @@ PCHR:   PUSH    B
         POP     D
         POP     B
         RET
+P3:     LXI     B,-100          ;HL (0-999) as three decimal digits
+        MVI     A,'0'-1
+P3L:    INR     A
+        DAD     B
+        JC      P3L
+        LXI     B,100
+        DAD     B
+        CALL    PCHR
+        MOV     A,L
 P2:     MVI     B,'0'-1         ;A as two decimal digits
 P2L:    INR     B
         SUI     10
@@ -284,15 +556,23 @@ ELTAB:  DW      240,20, 480,300, 20,240, 511,383, 100,60
         DW      100,100, 8,6, 30,30
         DW      0,0
 ;
-MHELLO: DB      "CZPTEST -- cz88gfx PAINT seeds and ELPS limits",CR,LF,'$'
+MHELLO: DB      "CZPTEST -- cz88gfx PAINT seeds, ELPS limits, AREA stops",CR,LF,'$'
 MCOMB:  DB      "comb... ",'$'
 MPAINT: DB      "PAINT ",'$'
 MFLOOD: DB      "FLOOD ",'$'
 MELPS:  DB      "ELPS ",'$'
 MEARC:  DB      "EARC ",'$'
-MDONE:  DB      CR,LF,"done",CR,LF,'$'
+MSTOP:  DB      "STOP ",'$'
+MRDOT:  DB      "RDOT ",'$'
+MPDIAG: DB      CR,LF,"PDIAG",CR,LF,'$'
+MPBOX:  DB      " BOX ",'$'
+MPSTP:  DB      " STP ",'$'
+MPRAM:  DB      " PRAM ",'$'
+MOVL:   DB      "OVL ",'$'
+MDONE:  DB      CR,LF,"done -- a key resets the board and exits ",'$'
 MNL:    DB      CR,LF,'$'
 ;
+NOOVL:  DB      0
 WANT:   DS      1
 MISS:   DS      1
 CERR:   DS      1

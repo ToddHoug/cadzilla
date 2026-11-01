@@ -2,7 +2,8 @@
 ; Copyright (C) 2026 Todd Houg
 ;
 ; CZCORE.Z88 -- cz88gfx: ACRTC low-level access
-; (A port of czgfx 1.0's CZCORE.MAC to z88dk's z80asm.)
+; (A port of czgfx 1.0's CZCORE.MAC to z88dk's z80asm; CZCCR, CZSYNC,
+; 1.4.)
 ;
 ; Control register writes, the write FIFO, the drawing mode byte, and
 ; the end-of-drawing wait. Every other cz88gfx module is built on these.
@@ -11,7 +12,7 @@
         INCLUDE "CZ88GFX.INC"
 ;
         PUBLIC  CZWREG,CZPUTW,CZWAIT,CZXY,CZSEND,CZRTAB,CZLDW,CZABT
-        PUBLIC  CZDM,CZCMD,CZXYM,CZWPR
+        PUBLIC  CZDM,CZCMD,CZXYM,CZWPR,CZCCR,CZSYNC,CZMARK,CZSTPF
 ;
         SECTION code_user
 ;
@@ -87,7 +88,8 @@ WAITLP: IN      ACRSR
 ; CZXY -- send graphic command A (command high byte) with parameters
 ; X = HL, Y = DE.
 ;
-CZXY:   PUSH    H
+CZXY:   CALL    CZSYNC
+        PUSH    H
         MOV     H,A
         MVI     L,0
         CALL    CZPUTW
@@ -101,11 +103,13 @@ CZXY:   PUSH    H
 ; CZCMD -- send the drawing command with high byte A and the current
 ; drawing mode (CZDM) as its low byte
 ;
-CZCMD:  PUSH    H
+CZCMD:  CALL    CZSYNC
+        PUSH    H
         MOV     H,A
         LDA     CZDM
         MOV     L,A
         CALL    CZPUTW
+        CALL    CZMARK
         POP     H
         RET
 ;
@@ -121,7 +125,8 @@ CZXYM:  CALL    CZCMD
 ; CZWPR -- write drawing parameter register A (WPR: 0 CL0, 1 CL1,
 ; 2 CCMP, 3 EDG, 4 MASK, 5-7 PRC, 8-0BH area, 0CH-0DH RWP) with HL
 ;
-CZWPR:  PUSH    H
+CZWPR:  CALL    CZSYNC
+        PUSH    H
         MVI     H,08H
         MOV     L,A
         CALL    CZPUTW
@@ -133,6 +138,51 @@ CZWPR:  PUSH    H
 ; no area checking); GMODE and CZMODE.Z88's routines change it.
 ;
 CZDM:   DB      0
+;
+; CZCCR -- the high byte of the CCR value in force (the low byte is 0:
+; no interrupts): 03H, GBM=011 8 bpp, or 00H, GBM=000 1 bpp on the
+; overlay. The CCR is write-only, so CZINIT, CZOVL and CZFRM keep this
+; copy for CZABT (1.4).
+;
+CZCCR:  DB      03H
+;
+; The stop modes (1.4). After a command cut short by AREA AMSTOP or
+; AMSTPI, the real HD63484 ignores every command, WPR and RPR sent to it
+; until a CCR ABT, and sets no ARD to say so (measured on board B). So
+; every command word that carries the drawing mode is followed by
+; CZMARK, which notes a stop mode in CZSTPF, and everything that sends a
+; command word of its own (CZCMD, CZXY, CZWPR, the reads, ...) starts
+; with CZSYNC: if CZSTPF is set, wait for the command to end and abort
+; (CZABT), which keeps the CP, the parameters and the depth. The stop
+; is lost to ARD; compare the CP with the end point to see it.
+; altairsim models none of it.
+;
+; CZMARK -- after a command word carrying CZDM: note a stop mode.
+; Preserves all registers.
+;
+CZMARK: PUSH    PSW
+        LDA     CZDM
+        ANI     60H             ;AREA x01: AMSTOP 20H, AMSTPI 0A0H
+        CPI     20H
+        JNZ     MARKX
+        STA     CZSTPF
+MARKX:  POP     PSW
+        RET
+;
+; CZSYNC -- before a new command word: if a stop-mode command went out
+; since the last abort, wait for it and abort. A program sending its
+; own command words (CZPUTW) calls it first. Preserves all registers.
+;
+CZSYNC: PUSH    PSW
+        LDA     CZSTPF
+        ORA     A
+        JZ      SYNCX
+        CALL    CZWAIT
+        CALL    CZABT
+SYNCX:  POP     PSW
+        RET
+;
+CZSTPF: DB      0
 ;
 ; CZRTAB -- load ACRTC control registers from the table at HL.
 ; Entries: DB register / DW value; DB 0FFH ends. Returns HL past it.
@@ -154,15 +204,23 @@ RTDONE: POP     D
         RET
 ;
 ; CZABT -- abort: stop drawing, flush the FIFOs and clear a command
-; error (CCR ABT), then back to 8 bpp with no interrupts.
+; error (CCR ABT), then back to the CCR in force, CZCCR (1.4: before,
+; always 8 bpp, which left an overlay drawing at the wrong depth). Keeps
+; the CP and the drawing parameters.
 ;
 CZABT:  PUSH    B
         PUSH    H
         MVI     B,02H
-        LXI     H,8300H
+        LDA     CZCCR
+        ORI     80H             ;ABT, then the same value without it
+        MOV     H,A
+        MVI     L,0
         CALL    CZWREG
-        LXI     H,0300H
+        LDA     CZCCR
+        MOV     H,A
         CALL    CZWREG
+        XRA     A               ;nothing stopped now
+        STA     CZSTPF
         POP     H
         POP     B
         RET

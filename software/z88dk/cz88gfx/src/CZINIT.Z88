@@ -37,7 +37,8 @@
 ;
         PUBLIC  CZINIT,CZM640,CZM800,CZM1K,CZXMAX,CZYMAX,CZCLS,CZPDEF
         PUBLIC  CZOCLS,CZMREG,CZDPB
-        EXTERN  CZRTAB,CZSEND,CZPUTW,CZLDW,CZPALD,CZDM
+        EXTERN  CZRTAB,CZSEND,CZPUTW,CZLDW,CZPALD,CZDM,CZCCR,CZSTPF
+        EXTERN  CZSYNC,CZWAIT
 ;
 DPMLEN  EQU     7               ;words in a mode drawing parameter block
 ;
@@ -46,10 +47,14 @@ DPMLEN  EQU     7               ;words in a mode drawing parameter block
 ; CZINIT -- set up the board for the mode descriptor at HL and clear
 ; the screen to color 0. The drawing mode, colors, pattern RAM and area
 ; go back to their defaults; the overlay is cleared and hidden, overlay
-; color 2 is white, and drawing is on the frame. Clobbers all registers.
+; color 2 is white, and drawing is on the frame. Returns once the clears
+; are done (1.4). Clobbers all registers.
 ;
 CZINIT: XRA     A               ;drawing mode: replace, CMSEL, no area
         STA     CZDM
+        STA     CZSTPF          ;RPRE aborts: nothing stopped
+        MVI     A,03H           ;CCR: 8 bpp (RPRE), for CZABT
+        STA     CZCCR
         MOV     A,M             ;MODE: sync polarity, access mode;
         INX     H               ;OLEN (overlay hidden), OLSEL 0
         STA     CZMREG
@@ -93,11 +98,15 @@ CZINIT: XRA     A               ;drawing mode: replace, CMSEL, no area
         OUT     DACOVL
         CALL    CZOCLS
         XRA     A
-;       JMP     CZCLS           ;(falls through)
+        CALL    CZCLS
+        JMP     CZWAIT          ;the clears done before anything is drawn
+                                ;(1.4: a second program on board B hung
+                                ;drawing straight behind them)
 ;
 ; CZCLS -- clear the whole base screen to palette index A
 ;
-CZCLS:  PUSH    B
+CZCLS:  CALL    CZSYNC
+        PUSH    B
         PUSH    D
         PUSH    H
         MOV     B,A
@@ -126,7 +135,8 @@ CLSLP:  CALL    CZLDW
 ; whether drawing is on the frame or the overlay (CLR goes by RWP's
 ; screen, not ORG's, and doesn't care about GBM).
 ;
-CZOCLS: PUSH    B
+CZOCLS: CALL    CZSYNC
+        PUSH    B
         PUSH    D
         PUSH    H
         LXI     H,OCLTAB        ;RWP: upper screen, top raster; CLR 0
@@ -175,7 +185,8 @@ NEGYM:  LHLD    CZYMAX
 ; leaves them: all ones, 0..15 x 0..15, no zoom, at 0,0 (the first
 ; part of DPCOM). Preserves BC, DE, HL.
 ;
-CZPDEF: PUSH    B
+CZPDEF: CALL    CZSYNC
+        PUSH    B
         PUSH    D
         PUSH    H
         LXI     H,DPCOM

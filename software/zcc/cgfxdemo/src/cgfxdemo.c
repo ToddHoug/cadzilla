@@ -69,6 +69,7 @@
 #define NL      "\015\012"
 
 #define WHITE_B (CZ_WHITE + CZ_BRIGHT)
+#define TMARK   (CZ_MAGENTA + 3)   /* screen 7's tile-wedge marker color */
 
 static int gx, gy;      /* a panel's corner (screens 5-7), the crosshair (8) */
 
@@ -555,7 +556,9 @@ static void scr7(void)
     /* Bottom left: an area (112,60)-(368,280). Eight green lines from its
      * centre outwards in CZ_AM_STOP stop as they leave it: a red ring on
      * each one's CP. Eight cyan lines from outside inwards in CZ_AM_STPI
-     * stop as they enter it: a smaller yellow ring there. */
+     * stop as they enter it: a smaller yellow ring there. A line stopped
+     * if its CP is short of its end point (the real chip sets no ARD for
+     * a stop). */
     cz_box(111, 59, 369, 281);
     cz_area(112, 60, 368, 280);
     cz_getcp(&x, &y);
@@ -567,9 +570,9 @@ static void scr7(void)
         cz_color(CZ_GREEN + CZ_BRIGHT);
         cz_move(240, 170);
         cz_line(gx, gy);
-        if (cz_wait() & CZ_SR_ARD)
-            nstop++;
         cz_getcp(&x, &y);           /* where it stopped */
+        if (x != gx || y != gy)
+            nstop++;
         if (i == 0) {
             fstx = x;
             fsty = y;
@@ -581,9 +584,9 @@ static void scr7(void)
         cz_color(CZ_CYAN + CZ_BRIGHT);
         cz_move(gx, gy);
         cz_line(240, 170);
-        if (cz_wait() & CZ_SR_ARD)
-            nstpi++;
         cz_getcp(&x, &y);
+        if (x != 240 || y != 170)
+            nstpi++;
         cz_setmode(0);
         cz_color(CZ_YELLOW + CZ_BRIGHT);
         cz_circle_cp(3);
@@ -592,7 +595,12 @@ static void scr7(void)
 
     /* Top right: a pie chart -- a white circle and five spokes, then each
      * wedge painted out to the white. PAINT also stops at CL0 and CL1, so
-     * cz_bcol sets CL0 for each wedge. */
+     * cz_bcol sets CL0 for each wedge. PAINT works only in CZ_CM_SEL (the
+     * real chip would re-seed a tile's colors forever), so the tile wedge
+     * is painted solid in a marker color (TMARK, used nowhere else), then
+     * the tile is drawn in CZ_CM_PRAM with CZ_OM_EQ over a rectangle round
+     * it: only the marker pixels take it. The blue wedge is flooded with
+     * yellow rings on a blue a level down. */
     cz_color(WHITE_B);
     cz_circle(760, 580, 150);
     cz_seg(760, 580, 912, 580);
@@ -610,19 +618,24 @@ static void scr7(void)
     cz_color(CZ_YELLOW + CZ_BRIGHT);
     cz_bcol(CZ_ORANGE + 12);
     cz_paint(703, 523, WHITE_B);
+    cz_color(TMARK);
+    cz_bcol(TMARK);
+    cz_paint(781, 503, WHITE_B);
     cz_ldpat(tile1, 0);
     cz_pscan(0, 0, 3, 3, 3, 3);
     cz_cmode(CZ_CM_PRAM);
-    cz_paint(781, 503, WHITE_B);
+    cz_opm(CZ_OM_EQ);
+    cz_ccmp(TMARK);
+    cz_move(700, 425);
+    cz_frect(880, 585);
     cz_setmode(0);
     solid();
     cz_color(CZ_BLUE + CZ_BRIGHT);
     cz_bcol(CZ_BLUE + CZ_BRIGHT);
     cz_paint(835, 553, WHITE_B);
     cz_ldpat(ring, 0);
-    cz_cmode(CZ_CM_CL1);
     cz_color(CZ_YELLOW + CZ_BRIGHT);
-    cz_bcol(CZ_RED + 4);
+    cz_bcol(CZ_BLUE + CZ_BRIGHT - 1);
     cz_flood(835, 553, CZ_BLUE + CZ_BRIGHT);
     cz_setmode(0);
     solid();
@@ -698,10 +711,14 @@ static void scr8(void)
     cz_color(CZ_OVSET);
     cz_bcol(CZ_OVSET);
     cz_box(96, 96, 288, 256);       /* (painted before the grid crosses it) */
-    cz_ldpat(ring, 0);
-    cz_cmode(CZ_CM_CL1);
-    cz_paint(192, 176, CZ_OVSET);
+    cz_paint(192, 176, CZ_OVSET);   /* solid (CZ_CM_SEL only), then */
+    cz_ldpat(ring, 0);              /* the rings' 0 bits cleared again */
+    cz_cmode(CZ_CM_CL0);
+    cz_bcol(CZ_OVCLR);
+    cz_move(97, 97);
+    cz_frect(287, 255);
     cz_setmode(0);
+    cz_bcol(CZ_OVSET);
     solid();
     cz_move(736, 96);
     cz_frect(928, 256);
