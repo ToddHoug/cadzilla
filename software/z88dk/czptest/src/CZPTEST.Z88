@@ -50,6 +50,13 @@
 ;          CZABT) draws it into the overlay as a band 8 rows high
 ;          (y=293-300 on altairsim), with the console still showing ".".
 ;          "CZPTEST N" skips this case.
+;   CAP    dense combs of 50 to 450 one-pixel pockets, PAINTed from one
+;          strip, to meet the seed cap: "nnn:f mmm r" is the pocket count,
+;          '.' (done) or 'C' (aborted past PCAP seeds), pockets missed,
+;          and '.' if a line drawn straight afterwards reads back. Built
+;          against a cz88gfx dev build with PCAP lowered to 256, the first
+;          'C' shows how many seeds a tooth costs; against a release
+;          (PCAP 4096) all five should finish ('.', 000).
 ;
 ; At the end it waits for a key (the overlay is left on to look at), then
 ; GINITs the board, so CP/M gets it back as CZINIT leaves it.
@@ -308,6 +315,113 @@ EL2:    CALL    PCHR
         LXI     D,MNL
         CALL    PRINT
 ;
+; ---- CAP: dense combs against the seed cap ----
+;
+; N teeth, each a pocket one pixel wide and two apart, PAINTed from the
+; strip above them, for N = 50 to 450. "nnn:f mmm r": f is '.' (NC) or
+; 'C' (the fill was aborted past PCAP seeds: 4096 in 1.4, so a release
+; build prints '.' throughout; a dev build may lower PCAP); mmm the
+; pockets left unpainted; r '.' if a line drawn straight afterwards reads
+; back. The seeds a tooth costs aren't known: the first C shows where
+; the cap falls.
+;
+        LXI     D,MCAP
+        CALL    PRINT
+        LXI     H,CAPTAB
+        SHLD    CAPP
+CAPLP:  LHLD    CAPP
+        MOV     E,M
+        INX     H
+        MOV     D,M             ;DE = N; 0 ends the table
+        INX     H
+        SHLD    CAPP
+        MOV     A,D
+        ORA     E
+        JZ      CAPEND
+        XCHG
+        SHLD    CAPN
+        DAD     H               ;the right wall is at 60 + 2N
+        LXI     D,60
+        DAD     D
+        SHLD    CAPR
+        GCLS    0
+        GCOLOR  WALL
+        LXI     H,60
+        LXI     D,100
+        CALL    CZMOVE
+        LHLD    CAPR
+        LXI     D,400
+        CALL    CZRECT
+        LXI     H,62            ;inner walls, 2 apart, from y=160 to the floor
+CAPW:   PUSH    H
+        LXI     D,160
+        CALL    CZMOVE
+        LXI     D,401
+        CALL    CZLINE
+        POP     H
+        INX     H
+        INX     H
+        XCHG
+        LHLD    CAPR
+        XCHG                    ;DE = right wall, HL = the next wall
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        JC      CAPW
+        LHLD    CAPN
+        CALL    P3
+        MVI     A,':'
+        CALL    PCHR
+        GCOLOR  FILL1
+        GBCOL   FILL1
+        GPAINT  70,130,WALL
+        CALL    FLAG
+        GBCOL   0
+        MVI     A,' '
+        CALL    PCHR
+        LXI     H,0
+        SHLD    CAPM
+        LXI     H,61            ;the middle of each pocket, y=300
+CAPRD:  PUSH    H
+        LXI     D,300
+        CALL    CZRDOT
+        POP     H
+        CPI     FILL1
+        JZ      CAPOK
+        PUSH    H
+        LHLD    CAPM
+        INX     H
+        SHLD    CAPM
+        POP     H
+CAPOK:  INX     H
+        INX     H
+        XCHG
+        LHLD    CAPR
+        XCHG
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        JC      CAPRD
+        LHLD    CAPM
+        CALL    P3
+        MVI     A,' '
+        CALL    PCHR
+        GCLS    0
+        GCOLOR  INK
+        GMOVE   10,10
+        GLINE   20,10
+        GWAIT
+        JZ      CAPG
+        GABORT
+CAPG:   GRDOT   15,10
+        MVI     B,INK
+        CALL    ISCOL
+        JMP     CAPLP
+CAPEND: LXI     D,MNL
+        CALL    PRINT
+;
 ; ---- OVL: a stop on the overlay, then a line ----
 ;
         LDA     NOOVL
@@ -556,6 +670,8 @@ ELTAB:  DW      240,20, 480,300, 20,240, 511,383, 100,60
         DW      100,100, 8,6, 30,30
         DW      0,0
 ;
+CAPTAB: DW      50,150,250,350,450,0
+;
 MHELLO: DB      "CZPTEST -- cz88gfx PAINT seeds, ELPS limits, AREA stops",CR,LF,'$'
 MCOMB:  DB      "comb... ",'$'
 MPAINT: DB      "PAINT ",'$'
@@ -568,6 +684,7 @@ MPDIAG: DB      CR,LF,"PDIAG",CR,LF,'$'
 MPBOX:  DB      " BOX ",'$'
 MPSTP:  DB      " STP ",'$'
 MPRAM:  DB      " PRAM ",'$'
+MCAP:   DB      "CAP ",'$'
 MOVL:   DB      "OVL ",'$'
 MDONE:  DB      CR,LF,"done -- a key resets the board and exits ",'$'
 MNL:    DB      CR,LF,'$'
@@ -577,6 +694,10 @@ WANT:   DS      1
 MISS:   DS      1
 CERR:   DS      1
 NAX:    DS      1
+CAPP:   DS      2
+CAPN:   DS      2
+CAPR:   DS      2
+CAPM:   DS      2
 TP:     DS      2
 ERX:    DS      2
 ERY:    DS      2
