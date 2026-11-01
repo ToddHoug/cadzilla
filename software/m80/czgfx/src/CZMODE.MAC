@@ -12,8 +12,8 @@
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZOPM,CZCMOD,CZAMOD,CZCOL0,CZCCMP
-        PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP,CZRDOT,CZRDW
-        EXTRN   CZDM,CZWPR,CZPUTW,CZXMAX,CZYMAX
+        PUBLIC  CZAMIN,CZAMAX,CZAFUL,CZGCP,CZRDOT,CZRDW,CZRDY
+        EXTRN   CZDM,CZWPR,CZPUTW,CZXMAX,CZYMAX,CZWAIT,CZABT
 ;
         CSEG
 ;
@@ -93,11 +93,28 @@ CZAFUL: PUSH    D
         POP     D
         RET
 ;
+; CZRDY -- make the read side safe to use. After a command cut short
+; by an AREA stop mode (AMSTOP, AMSTPI) the real HD63484 answers no
+; RPR or RD until it is aborted: RFR never sets. Nor does it set ARD
+; then, so there is no telling: wait for the queue to end, then always
+; abort (CZABT). With both FIFOs empty that loses nothing, and keeps
+; the CP, the drawing parameters and the pixel depth; it clears ARD and
+; CER, so a caller tests those after its own GWAIT, first. altairsim
+; doesn't model the dead read side. Every RPR and RD in the library
+; comes after this. Preserves all registers.
+;
+CZRDY:  PUSH    PSW
+        CALL    CZWAIT
+        CALL    CZABT
+        POP     PSW
+        RET
+;
 ; CZGCP -- read the drawing pointer back: HL = X, DE = Y (RPR CPX,
-; CPY through the read FIFO). RPR also clears ARD in the status.
+; CPY through the read FIFO), after CZRDY, so ARD is clear after it.
 ; Preserves BC.
 ;
-CZGCP:  LXI     H,0C12H         ;RPR CPX
+CZGCP:  CALL    CZRDY
+        LXI     H,0C12H         ;RPR CPX
         CALL    CZPUTW
         CALL    RDW
         PUSH    H
@@ -114,9 +131,11 @@ CZGCP:  LXI     H,0C12H         ;RPR CPX
 ; byte. A raster is 16*m words (m = (CZXMAX+1)/32: 20, 25 or 32), so
 ; RWP, the address shifted left 4, is rows*m*256 + (X AND NOT 1)*8:
 ; Pr0C = 40H (the base screen) + address bits 19-12, Pr0D = bits 11-0
-; shifted left 4. Leaves RWP past the word. Preserves BC, DE, HL.
+; shifted left 4. Leaves RWP past the word. Calls CZRDY first.
+; Preserves BC, DE, HL.
 ;
-CZRDOT: PUSH    B
+CZRDOT: CALL    CZRDY
+        PUSH    B
         PUSH    D
         PUSH    H
         MOV     B,H             ;BC = X

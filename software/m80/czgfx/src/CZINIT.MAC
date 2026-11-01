@@ -36,7 +36,7 @@
 ;
         PUBLIC  CZINIT,CZM640,CZM800,CZM1K,CZXMAX,CZYMAX,CZCLS,CZPDEF
         PUBLIC  CZOCLS,CZMREG,CZDPB
-        EXTRN   CZRTAB,CZSEND,CZPUTW,CZLDW,CZPALD,CZDM
+        EXTRN   CZRTAB,CZSEND,CZPUTW,CZLDW,CZPALD,CZDM,CZCCR,CZSTF,CZWAIT
 ;
 DPMLEN  EQU     7               ;words in a mode drawing parameter block
 ;
@@ -45,10 +45,14 @@ DPMLEN  EQU     7               ;words in a mode drawing parameter block
 ; CZINIT -- set up the board for the mode descriptor at HL and clear
 ; the screen to color 0. The drawing mode, colors, pattern RAM and area
 ; go back to their defaults; the overlay is cleared and hidden, overlay
-; color 2 is white, and drawing is on the frame. Clobbers all registers.
+; color 2 is white, and drawing is on the frame. Returns when the
+; clears are done. Clobbers all registers.
 ;
 CZINIT: XRA     A               ;drawing mode: replace, CMSEL, no area
         STA     CZDM
+        STA     CZSTF           ;(RPRE aborts)
+        MVI     A,03H           ;CCR: 8 bpp (RPRE sets it)
+        STA     CZCCR
         MOV     A,M             ;MODE: sync polarity, access mode;
         INX     H               ;OLEN (overlay hidden), OLSEL 0
         STA     CZMREG
@@ -92,7 +96,11 @@ CZINIT: XRA     A               ;drawing mode: replace, CMSEL, no area
         OUT     DACOVL
         CALL    CZOCLS
         XRA     A
-;       JMP     CZCLS           ;(falls through)
+        CALL    CZCLS
+        JMP     CZWAIT          ;and wait for both CLRs: on the real chip,
+                                ;commands queued behind them when another
+                                ;program ran first end in a command error
+                                ;and a stalled FIFO
 ;
 ; CZCLS -- clear the whole base screen to palette index A
 ;

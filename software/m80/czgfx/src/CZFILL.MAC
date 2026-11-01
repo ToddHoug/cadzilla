@@ -16,10 +16,18 @@
 ; onto a stack of seeds, and PAINT again from each one. altairsim's
 ; PAINT has no seed limit, so there the stack stays empty.
 ;
+; The chip also counts a pixel already in CL0 or CL1 as an edge: that
+; is how it knows what it has painted. In any color mode but CMSEL the
+; pixels it paints needn't be either (CMPRAM's tile colors, the pixels
+; CMCL1 and CMCL0 leave alone), so it re-seeds them forever. So both
+; refuse to PAINT except in CMSEL; and, as a last resort for any other
+; endless case, both give up at PMAXT seeds, aborting the chip.
+;
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZPANT,CZFLOD,CZGCPY
-        EXTRN   CZPUTW,CZSEND,CZWPR,CZCMD,CZDM,CZXY,CZGCP,CZRDW
+        EXTRN   CZPUTW,CZSEND,CZWPR,CZCMD,CZDM,CZXY,CZGCP,CZRDW,CZABT
+        EXTRN   CZPUTC,CZSTM
 ;
         CSEG
 ;
@@ -29,11 +37,16 @@
 ; other color (EDG = A, PAINT E=1)
 ;
 ; Both wait for the fill to end, then leave CP where it started and the
-; pattern pointer as it was. NC; CY if more than PMAX seeds were
-; pending at once, when the parts they lead to stay unpainted. The read
-; FIFO must be empty when they start. Preserve BC, DE, HL.
+; pattern pointer as it was. NC; or CY if
+;   - the color mode isn't CMSEL: nothing is painted;
+;   - more than PMAX seeds were pending at once: the parts they lead to
+;     stay unpainted;
+;   - PMAXT seeds came back in all: the chip is aborted (CP,
+;     parameters and pixel depth kept) and the fill left part done.
+; The read FIFO must be empty when they start. Preserve BC, DE, HL.
 ;
 PMAX    EQU     32              ;seeds the stack holds
+PMAXT   EQU     4096            ;seeds in all before giving up
 ;
 CZPANT: PUSH    B
         MVI     B,OPPANT
@@ -42,7 +55,14 @@ CZFLOD: PUSH    B
         MVI     B,OPPANT+1
 PAINT:  PUSH    D
         PUSH    H
-        PUSH    PSW
+        MOV     C,A
+        LDA     CZDM            ;CMSEL only
+        ANI     18H
+        MOV     A,C
+        JZ      PCMS
+        STC                     ;refused: nothing sent
+        JMP     PRET
+PCMS:   PUSH    PSW
         MOV     A,B
         STA     PCMD
         CALL    CZGCP           ;the start point
@@ -60,6 +80,8 @@ PAINT:  PUSH    D
         CALL    CZWPR
         LXI     H,PSTK
         SHLD    PSP
+        LXI     H,0
+        SHLD    PTOT
         XRA     A
         STA     PCNT
         STA     POVF
@@ -103,7 +125,13 @@ PPOP:   MOV     A,M
         MVI     A,OPMOVE
         CALL    CZXY
         JMP     PGO
-PSEED:  LDA     PCNT            ;a seed: X, Y, PP
+PSEED:  LHLD    PTOT            ;a seed: too many in all?
+        INX     H
+        SHLD    PTOT
+        MOV     A,H
+        CPI     HIGH PMAXT
+        JNC     PRUN
+        LDA     PCNT            ;no: X, Y, PP
         CPI     PMAX
         JNC     PFULL
         INR     A
@@ -129,6 +157,11 @@ PFL:    CALL    CZRDW
         DCR     C
         JNZ     PFL
         JMP     PDRN
+PRUN:   CALL    CZABT           ;endless: stop it, and drop the stack
+        MVI     A,1
+        STA     POVF
+        XRA     A
+        STA     PCNT
 PEND:   LHLD    PP0             ;put PP and CP back
         MVI     A,05H
         CALL    CZWPR
@@ -139,7 +172,7 @@ PEND:   LHLD    PP0             ;put PP and CP back
         CALL    CZXY
         LDA     POVF            ;CY if seeds were dropped
         ADI     0FFH
-        POP     H
+PRET:   POP     H
         POP     D
         POP     B
         RET
@@ -159,10 +192,11 @@ CZGCPY: PUSH    B
         LDA     CZDM
         ANI     0E7H            ;COL = 00
         MOV     L,A
-        CALL    CZPUTW
+        CALL    CZPUTC
         POP     H
         LXI     B,4
         CALL    CZSEND
+        CALL    CZSTM           ;(a stop mode cuts a copy short too)
         POP     D
         POP     B
         RET
@@ -175,6 +209,7 @@ PSX:    DS      2               ;a seed popped: X, Y, PP
 PSY:    DS      2
 PSPP:   DS      2
 PCNT:   DS      1               ;seeds on the stack
+PTOT:   DS      2               ;seeds in all
 POVF:   DS      1               ;nonzero once one was dropped
 PSP:    DS      2               ;the stack's top
 PSTK:   DS      PMAX*6          ;X, Y, PP each

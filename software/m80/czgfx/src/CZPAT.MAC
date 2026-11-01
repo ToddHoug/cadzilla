@@ -12,7 +12,7 @@
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZLPAT,CZLSTY,CZPTN,CZPSCN
-        EXTRN   CZPUTW,CZSEND,CZLDW,CZWPR,CZCMD
+        EXTRN   CZPUTW,CZSEND,CZLDW,CZWPR,CZCMD,CZPUTC
 ;
         CSEG
 ;
@@ -26,7 +26,7 @@ CZLPAT: PUSH    B
         ANI     0FH             ;WPTN, PRA = A
         MOV     L,A
         MVI     H,18H
-        CALL    CZPUTW
+        CALL    CZPUTC
         POP     H
         CALL    CZLDW           ;DE = n
         XCHG
@@ -49,7 +49,7 @@ CZLSTY: PUSH    B
         ORI     0F0H
         MOV     C,A
         LXI     H,1800H         ;WPTN PRA=0, 1 word: row 0
-        CALL    CZPUTW
+        CALL    CZPUTC
         LXI     H,1
         CALL    CZPUTW
         POP     H

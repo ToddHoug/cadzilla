@@ -54,7 +54,7 @@ attach. That is for trying an unreleased library in a program.
 
 ### Versions and releases
 
-`CZGFX.INC` carries the version: `CZVERS EQU 0103H` (1.3), the major number in the
+`CZGFX.INC` carries the version: `CZVERS EQU 0104H` (1.4), the major number in the
 high byte and the minor in the low one, so a program can check it at
 assembly time. To release:
 1. raise `CZVERS`;
@@ -71,6 +71,7 @@ release a build disk older than its sources. `git add` the new release.
 | 1.1 | WPTN's count is in words, as the real HD63484 takes it, even on the 8-bit bus. The manual's WPTN-1 says bytes; 1.0 sent byte counts, which made `GINIT` swallow its own setup words on the real board. `GINIT`, `GLDPAT`, `GLSTYL` and text are fixed. Needs an altairsim that counts words too (fork master from 2026-10-27); an older altairsim draws 1.1 wrongly |
 | 1.2 | ellipses and elliptical arcs keep to the HD63484's ELPS parameter limit (see *Ellipses and the ELPS limit*), which 1.0 and 1.1 broke for all but small ellipses: the real board hangs (CED never sets), and altairsim doesn't check it. `GELLIP` uses ELPS only where it fits to within a pixel, and otherwise draws a polygon of 64-256 sides. `GEARC`/`GREARC` coarsen the rx:ry ratio to fit the arc's size, and refuse one too big for the chip (carry set, nothing drawn). New equate `OPRPLG` |
 | 1.3 | `GPAINT`/`GFLOOD` (`CZPANT`/`CZFLOD`) finish the fill on the real chip. The chip keeps four pending seeds and hands any more to the host through the read FIFO, then stalls until they are read; 1.2 and earlier never read them, so a complex fill hung the board. They now drain the seeds and re-PAINT from each, return when the fill is done (CP back at the start point, the pattern pointer as it was), and return carry set if more than 32 seeds were pending at once. New public `CZRDW` (read a word from the read FIFO) |
+| 1.4 | After an AREA stop mode (`AMSTOP`, `AMSTPI`) cuts a command short, the real HD63484 answers no RPR or RD until it is aborted, so in 1.3 `GGETCP`, `GRDOT`, `GPAINT`/`GFLOOD` and `GEARC`/`GREARC` (which read the CP) could hang the board (gfxdemo screen 7 did). The chip in fact drops every command after a stop until it is aborted, so after any command drawn in a stop mode czgfx aborts before sending the next one (`CZSTA`), and every read-back goes through `CZRDY`, which waits and always aborts (the real chip sets no ARD for a stop); the abort keeps the CP and the drawing parameters. `GINIT` now waits for its own screen and overlay clears before returning: on the real chip, commands queued behind them ended in a command error and a stalled FIFO whenever another program had run since the last hardware reset. `GABORT`/`CZABT` now keep the pixel depth too: they used to put the chip back to 8 bpp even while drawing on the overlay. `GPAINT`/`GFLOOD` refuse any color mode but `CMSEL` (carry set, nothing painted), because on the real chip a PAINT whose pixels aren't CL0 or CL1 never ends (gfxdemo screen 7's CMPRAM wedge hung the board), and give up with carry set at 4096 seeds. New public `CZRDY`, `CZPUTC` (send a command word), `CZSTA`, `CZSTM` and data `CZCCR`, `CZSTF` |
 
 ### Building the library
 
@@ -195,7 +196,7 @@ Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
 
 | Macro | Does | Notes |
 |---|---|---|
-| `GINIT [mode]` | set up board, palette and drawing parameters; clear to 0 | `CZM640` (640×480, the default when omitted), `CZM800` (800×600) or `CZM1K` (1024×768). Must match the monitor the project's machine is strapped for — see *Display resolution* below. For your own descriptor use `LXI H,yours` / `CALL CZINIT##`. Clobbers all |
+| `GINIT [mode]` | set up board, palette and drawing parameters; clear to 0 | `CZM640` (640×480, the default when omitted), `CZM800` (800×600) or `CZM1K` (1024×768). Must match the monitor the project's machine is strapped for — see *Display resolution* below. For your own descriptor use `LXI H,yours` / `CALL CZINIT##`. Returns once the clears are done. Clobbers all |
 | `GCLS [c]` | clear the screen to color c (default 0) | |
 | `GCOLOR [c]` | set the drawing color | |
 | `GPAL i,r,g,b` | set palette entry i | clobbers BC, E |
@@ -213,7 +214,7 @@ Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
 | `GPTS name,<x0,y0,...>` | define a named point table (in data) | |
 | `GPLT tbl` / `GPLG tbl` | polyline / polygon from a table | HL ends up past the table |
 | `GWAIT` | wait for drawing to finish | A = status; Z = OK, NZ = command error (CER) |
-| `GABORT` | abort: flush the FIFOs, clear CER | |
+| `GABORT` | abort: flush the FIFOs, clear CER and ARD | keeps the CP, the drawing parameters and the pixel depth (frame or overlay) |
 | `GCIRC x,y,r` | circle of radius r centred on x,y | CP is left at the centre |
 | `GELLIP x,y,rx,ry` | ellipse with semi-axes rx (X) and ry (Y), 0..4095 | ELPS or a polygon: see *Ellipses and the ELPS limit* |
 | `GARC xc,yc,xe,ye[,DIRCW]` | arc from the CP round xc,yc to the ray through xe,ye | radius = the CP's distance from the centre; counter-clockwise unless `DIRCW`; CP = xe,ye (not drawn). Clobbers HL |
@@ -228,7 +229,7 @@ Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
 | `GCCMP [c]` | set CCMP, the compare color of `OMEQ`/`OMNE` | |
 | `GAREA x1,y1,x2,y2` | set the area rectangle (low corner, high corner; both inside) | |
 | `GAFULL` | the area is the whole screen again | |
-| `GGETCP` | read the CP back: HL = X, DE = Y | clears ARD |
+| `GGETCP` | read the CP back: HL = X, DE = Y | clears ARD; safe after a stop mode (see *Area modes*) |
 | `GRDOT x,y` | read the pixel at x,y: A = its color | C (A = 0) if x,y is off the screen; moves RWP |
 | `GPAT name,<w0,...>` | define a pattern table (data) | `DW n`, then n words |
 | `GTILE name,<c0,...,c15>` | define a `CMPRAM` 4x4 color tile (data) | c0..c3 is the bottom row |
@@ -269,13 +270,13 @@ macros are thin wrappers around them.
 | `CZCURV` | `CZCRCL` (HL = radius, round the CP), `CZELPS` (HL = rx, DE = ry, round the CP), `CZARC` (A = `OPAARC`/`OPRARC`/`OPAEAR`/`OPREAR` + `DIRCW`, HL = parameter table; returns HL past it, C if an elliptical arc was refused) |
 | `CZFILL` | `CZPANT` (A = edge color), `CZFLOD` (A = region color), `CZGCPY` (A = transform, +10H for RGCPY; HL = Xs,Ys,DX,DY table) |
 | `CZPAT` | `CZLPAT` (A = start word, HL = table), `CZLSTY` (HL = pattern, A = zoom), `CZPTN` (HL = size: H = height-1, L = width-1; A = direction), `CZPSCN` (HL = table: DB x0,y0,x1,y1,zx,zy -- the scan window at run time) |
-| `CZMODE` | `CZOPM`, `CZCMOD`, `CZAMOD` (A = field value), `CZCOL0`, `CZCCMP` (A = color), `CZAMIN`, `CZAMAX` (HL = X, DE = Y), `CZAFUL`, `CZGCP` (returns HL = X, DE = Y), `CZRDW` (HL = the next read-FIFO word), `CZRDOT` (HL = X, DE = Y: A = the pixel's color; C if off the screen) |
+| `CZMODE` | `CZOPM`, `CZCMOD`, `CZAMOD` (A = field value), `CZCOL0`, `CZCCMP` (A = color), `CZAMIN`, `CZAMAX` (HL = X, DE = Y), `CZAFUL`, `CZGCP` (returns HL = X, DE = Y), `CZRDW` (HL = the next read-FIFO word), `CZRDY` (make a read-back safe: wait, and abort if ARD), `CZRDOT` (HL = X, DE = Y: A = the pixel's color; C if off the screen) |
 | `CZTXT` | `CZTFNT` (HL = font), `CZTSTR` (HL = text, B = length); data `CZTST`, the text state |
 | `CZTXL` | `CZTPOS` (HL = X, DE = Y), `CZTATR` (A = scale, B = direction, C = flags), `CZTCHR` (A = character), `CZTNL` |
 | `CZFNT8`, `CZFN11` | the fonts: data `CZF8`, `CZF11` |
 | `CZOVL` | `CZOVON`, `CZOVOF` (show / hide), `CZOPAL` (B/C/E = R/G/B), `CZOVL` (draw on the overlay), `CZFRM` (draw on the frame) |
 | `CZPAL` | `CZPALD` (load the default palette), `CZPALS` (A = index, B/C/E = R/G/B) |
-| `CZCORE` | `CZWREG` (B = register, HL = value), `CZPUTW` (HL → FIFO), `CZWAIT`, `CZXY` (A = opcode, HL/DE), `CZXYM` (the same, with the drawing mode), `CZCMD` (A = opcode: the command word with the drawing mode), `CZWPR` (A = drawing parameter register, HL = value), `CZSEND` (HL = table, BC = words), `CZRTAB`, `CZLDW`, `CZABT`; data `CZDM`, the drawing mode byte |
+| `CZCORE` | `CZWREG` (B = register, HL = value), `CZPUTW` (HL → FIFO), `CZWAIT`, `CZXY` (A = opcode, HL/DE), `CZXYM` (the same, with the drawing mode), `CZCMD` (A = opcode: the command word with the drawing mode), `CZWPR` (A = drawing parameter register, HL = value), `CZSEND` (HL = table, BC = words), `CZRTAB`, `CZLDW`, `CZABT`, `CZPUTC` (`CZPUTW` for a command word), `CZSTA`, `CZSTM` (the stop-mode abort); data `CZDM`, the drawing mode byte, `CZCCR`, CCR's high byte (the pixel depth), and `CZSTF` |
 
 ### Ellipses and the ELPS limit
 
@@ -347,12 +348,32 @@ field and keep the other two.
   | `AMCLIP` | draw only inside the area |
   | `AMHOLE` | draw only outside it |
   | `AMCLPD` / `AMHOLD` | as `AMCLIP` / `AMHOLE`, and set ARD if a pixel was dropped |
-  | `AMSTOP` | stop at the first pixel outside the area and set ARD |
-  | `AMSTPI` | stop at the first pixel inside the area and set ARD |
+  | `AMSTOP` | stop at the first pixel outside the area |
+  | `AMSTPI` | stop at the first pixel inside the area |
 
   After a stop, the CP is the pixel where the drawing stopped. `GWAIT`
-  returns the status, so `ANI SRARD` tests it. `GGETCP` reads the CP back
-  and also clears ARD.
+  returns the status, so `ANI SRARD` tests ARD (for the clip modes).
+  `GGETCP` reads the CP back and also clears ARD. The manual says the
+  stop modes set ARD too, and altairsim does, but the real chip doesn't.
+  So to tell whether a line stopped, compare `GGETCP`'s CP with its end
+  point (gfxdemo screen 7 does).
+
+  **After a stop, the real chip ignores everything.** Once `AMSTOP` or
+  `AMSTPI` has cut a command short, the HD63484 takes the commands that
+  follow (drawing, WPR, RPR, RD) and silently drops them until it is
+  aborted: RPR and RD never answer (RFR never sets). The clip modes don't
+  do this. So after any command drawn in a stop mode, czgfx waits for it
+  to end and aborts before it sends the next command (`CZSTA`, from
+  `CZCMD`, `CZXY`, `CZWPR`, `CZPUTC` and the overlay switch). A command
+  word a program sends itself should go through `CZPUTC##` (or
+  `CZCMD##`) rather than `CZPUTW##`. And since no ARD shows a stop happened, every czgfx read-back
+  (`GGETCP`, `GRDOT`, and the CP reads inside `GPAINT`, `GFLOOD`, `GEARC`
+  and `GREARC`) first calls `CZRDY`, which waits for drawing to end and
+  then always aborts. With both FIFOs empty nothing is lost, and the
+  abort keeps the CP, the drawing parameters and the pixel depth. It
+  clears ARD and CER, so test those after `GWAIT`, before a read-back. A
+  program sending its own RPR or RD should call `CZRDY##` first.
+  altairsim doesn't model the dead read side.
 
 ### The pattern RAM
 
@@ -410,6 +431,22 @@ region of one color, recoloring it.
   returns carry set, and those parts stay unpainted. The read FIFO must
   be empty when they start. The altairsim model has no seed limit, so
   this path runs only on the board.
+- **CMSEL only.** The chip knows what it has painted only because the
+  pixels it paints are CL0 or CL1, which it treats as edges. In any other
+  color mode they needn't be: `CMPRAM` paints the tile's own colors, and
+  `CMCL1`/`CMCL0` leave the pattern's other bits alone. So on the real
+  chip the PAINT re-seeds its own pixels forever. `GPAINT` and `GFLOOD`
+  therefore paint nothing in those modes and return carry set. altairsim
+  fills them fine, so a program that works there can still hang the
+  board without this check. For a tiled fill, PAINT solid in a marker
+  color used nowhere near it, then draw the tile over a rectangle round
+  the area with `GOPM OMEQ` and `GCCMP` the marker: only the marker's
+  pixels take it (gfxdemo screen 7). A two-color pattern with holes
+  (screen 8) can PAINT solid and clear the holes with a `CMCL0` filled
+  rectangle.
+- **A last resort.** If 4096 seeds come back in one `GPAINT` or
+  `GFLOOD` (some other endless case), they abort the chip and return
+  carry set, the fill part done. A real fill needs far fewer.
 
 ### The overlay
 

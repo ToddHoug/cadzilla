@@ -15,7 +15,7 @@
 ;
         PUBLIC  CZCOL,CZMOVE,CZLINE,CZRECT,CZFRCT,CZDOT
         PUBLIC  CZRMOV,CZRLIN,CZRRCT,CZRFRC
-        EXTRN   CZPUTW,CZXY,CZXYM,CZCMD
+        EXTRN   CZPUTW,CZXY,CZXYM,CZCMD,CZPUTC
 ;
         CSEG
 ;
@@ -26,7 +26,7 @@
 CZCOL:  PUSH    H
         PUSH    PSW
         LXI     H,0801H         ;WPR CL1
-        CALL    CZPUTW
+        CALL    CZPUTC
         POP     PSW
         MOV     H,A
         MOV     L,A

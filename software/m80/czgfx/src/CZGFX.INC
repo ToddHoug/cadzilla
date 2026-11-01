@@ -42,7 +42,7 @@
 ; one in its software/<toolchain>/<project>/czgfx.version and builds against its own
 ; copy of it (tools/altairsim/scripts/attach_libdisk.sh).
 ;
-CZVERS  EQU     0103H           ;1.3
+CZVERS  EQU     0104H           ;1.4
 ;
 ;
 ; ---- board I/O map: one 8-port block, base set by SW1-1..SW1-5 ----
@@ -129,10 +129,12 @@ CMPRAM  EQU     18H             ;pattern RAM direct: a 4x4 color tile
 ; Area mode: against the area rectangle (GAREA; GINIT sets the screen).
 ;
 AMNONE  EQU     00H             ;no checking
-AMSTOP  EQU     20H             ;stop at the first pixel outside; ARD
+AMSTOP  EQU     20H             ;stop at the first pixel outside
 AMCLIP  EQU     40H             ;draw only inside
 AMCLPD  EQU     60H             ;draw only inside; ARD if any outside
-AMSTPI  EQU     0A0H            ;stop at the first pixel inside; ARD
+AMSTPI  EQU     0A0H            ;stop at the first pixel inside
+;       (the real chip sets no ARD for a stop: compare GGETCP's CP
+;       with the end point; and see GGETCP)
 AMHOLE  EQU     0C0H            ;draw only outside
 AMHOLD  EQU     0E0H            ;draw only outside; ARD if any inside
 ;
@@ -195,7 +197,9 @@ CZAT    MACRO   XV,YV
 ; monitor the project's machine is strapped for (cad0 `mode`; 1024x768
 ; unless the project's machine.toml says otherwise), so name it
 ; explicitly. For a descriptor of your own, LXI H,yours / CALL CZINIT##
-; instead. Clobbers all registers.
+; instead. It returns once the screen and overlay are cleared (on the
+; real chip, commands queued behind those clears can fail). Clobbers
+; all registers.
 ;
 GINIT   MACRO   MV
         IFB     <MV>
@@ -359,7 +363,8 @@ GWAIT   MACRO
         CALL    CZWAIT##
         ENDM
 ;
-; GABORT -- abort the ACRTC (clears a command error, flushes the FIFOs)
+; GABORT -- abort the ACRTC (clears a command error and ARD, flushes
+; the FIFOs; keeps the CP, the drawing parameters and the pixel depth)
 ;
 GABORT  MACRO
         CALL    CZABT##
@@ -434,7 +439,14 @@ GAFULL  MACRO
 ;
 ; GGETCP -- read back the drawing pointer: HL = X, DE = Y. Where an
 ; AREA stop mode stopped. Also clears ARD, so GWAIT and test SRARD
-; first.
+; first. After a stop mode (AMSTOP, AMSTPI) has cut a command short,
+; the real chip ignores every command after it -- drawing, WPR, RPR --
+; until it is aborted, and sets no ARD to say so. So czgfx aborts after
+; every command drawn in a stop mode, before the next command goes out
+; (CZSTA), and before every read-back (CZRDY). The abort keeps the CP
+; and the parameters but clears ARD and CER. A command word you send
+; yourself goes through CZPUTC## (or CZCMD##), not CZPUTW##; an RPR or
+; RD of your own needs CZRDY## first.
 ;
 GGETCP  MACRO
         CALL    CZGCP##
@@ -753,6 +765,12 @@ GREARC  MACRO   RX,RY,XC,YC,XE,YE,DV
 ; Both return when the fill is done, re-painting from the seeds the
 ; chip hands back (see CZFILL.MAC), with CP back at x,y. Carry set if
 ; there were too many seeds (32) and part of the area is unpainted.
+; They need color mode CMSEL: the chip stops only at pixels in CL0 or
+; CL1, so in any other mode it re-seeds its own painted pixels forever.
+; In CMPRAM, CMCL1 or CMCL0 they paint nothing and return carry set.
+; As a last resort they give up at 4096 seeds in all (aborting the
+; chip; carry set). For a tiled fill, paint solid in a marker color,
+; then draw the tile with GOPM OMEQ (GCCMP the marker) over the area.
 ;
 GPAINT  MACRO   XV,YV,EV
         CZAT    XV,YV

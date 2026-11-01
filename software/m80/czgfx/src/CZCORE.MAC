@@ -10,7 +10,7 @@
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZWREG,CZPUTW,CZWAIT,CZXY,CZSEND,CZRTAB,CZLDW,CZABT
-        PUBLIC  CZDM,CZCMD,CZXYM,CZWPR
+        PUBLIC  CZDM,CZCMD,CZXYM,CZWPR,CZCCR,CZPUTC,CZSTA,CZSTM,CZSTF
 ;
         CSEG
 ;
@@ -83,10 +83,46 @@ WAITLP: IN      ACRSR
         POP     B
         RET
 ;
+; Stop modes. Once AMSTOP or AMSTPI (AREA 001, 101) has cut a command
+; short, the real HD63484 ignores everything after it -- commands,
+; WPRs, RPRs -- until it is aborted, and sets no ARD to say so. So a
+; drawing command sent in a stop mode sets CZSTF (CZSTM), and the start
+; of the next command waits for it to end and aborts (CZSTA), which
+; keeps the CP and the drawing parameters. Every command word goes out
+; through CZCMD, CZXY, CZWPR or CZPUTC, which call CZSTA first.
+;
+; CZSTA -- if CZSTF, wait for the drawing to end, then CZABT (which
+; clears CZSTF). Preserves all registers.
+;
+CZSTA:  PUSH    PSW
+        LDA     CZSTF
+        ORA     A
+        JZ      STA1
+        CALL    CZWAIT
+        CALL    CZABT
+STA1:   POP     PSW
+        RET
+;
+; CZSTM -- set CZSTF if the drawing mode's AREA is a stop mode.
+; Clobbers A.
+;
+CZSTM:  LDA     CZDM
+        ANI     60H             ;AREA bits 1-0 = 01: 001 or 101
+        CPI     20H
+        RNZ
+        STA     CZSTF
+        RET
+;
+; CZPUTC -- CZPUTW for a command word: CZSTA first
+;
+CZPUTC: CALL    CZSTA
+        JMP     CZPUTW
+;
 ; CZXY -- send graphic command A (command high byte) with parameters
 ; X = HL, Y = DE.
 ;
-CZXY:   PUSH    H
+CZXY:   CALL    CZSTA
+        PUSH    H
         MOV     H,A
         MVI     L,0
         CALL    CZPUTW
@@ -98,15 +134,16 @@ CZXY:   PUSH    H
         RET
 ;
 ; CZCMD -- send the drawing command with high byte A and the current
-; drawing mode (CZDM) as its low byte
+; drawing mode (CZDM) as its low byte. Clobbers A.
 ;
-CZCMD:  PUSH    H
+CZCMD:  CALL    CZSTA
+        PUSH    H
         MOV     H,A
         LDA     CZDM
         MOV     L,A
         CALL    CZPUTW
         POP     H
-        RET
+        JMP     CZSTM
 ;
 ; CZXYM -- as CZXY, the command carrying the drawing mode
 ;
@@ -120,7 +157,8 @@ CZXYM:  CALL    CZCMD
 ; CZWPR -- write drawing parameter register A (WPR: 0 CL0, 1 CL1,
 ; 2 CCMP, 3 EDG, 4 MASK, 5-7 PRC, 8-0BH area, 0CH-0DH RWP) with HL
 ;
-CZWPR:  PUSH    H
+CZWPR:  CALL    CZSTA
+        PUSH    H
         MVI     H,08H
         MOV     L,A
         CALL    CZPUTW
@@ -153,17 +191,34 @@ RTDONE: POP     D
         RET
 ;
 ; CZABT -- abort: stop drawing, flush the FIFOs and clear a command
-; error (CCR ABT), then back to 8 bpp with no interrupts.
+; error and ARD (CCR ABT), keeping the pixel depth (CZCCR) and no
+; interrupts. The CP and the drawing parameters are kept.
 ;
 CZABT:  PUSH    B
         PUSH    H
         MVI     B,02H
-        LXI     H,8300H
+        LDA     CZCCR
+        ORI     80H             ;ABT
+        MOV     H,A
+        MVI     L,0
         CALL    CZWREG
-        LXI     H,0300H
+        LDA     CZCCR
+        MOV     H,A
         CALL    CZWREG
+        XRA     A               ;no stop pending now
+        STA     CZSTF
         POP     H
         POP     B
         RET
+;
+; CZCCR -- CCR's high byte as the library last set it: 03H (GBM=011,
+; 8 bpp, the frame) or 00H (1 bpp, the overlay). CZINIT, CZOVL and
+; CZFRM keep it.
+;
+CZCCR:  DB      03H
+;
+; CZSTF -- nonzero once a command has gone out in a stop mode
+;
+CZSTF:  DB      0
 ;
         END

@@ -33,7 +33,7 @@
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZTFNT,CZTSTR,CZTST
-        EXTRN   CZDM,CZPSCN,CZPUTW,CZWPR,CZMOVE,CZPTN,CZPDEF
+        EXTRN   CZDM,CZPSCN,CZPUTW,CZWPR,CZMOVE,CZPTN,CZPDEF,CZPUTC
 ;
         CSEG
 ;
@@ -206,7 +206,7 @@ TSTEP:  LXI     H,0
 ; from row 0): the glyph's rows, then blank ones up to the cell height
 ;
 UNPK:   LXI     H,1800H         ;WPTN PRA=0
-        CALL    CZPUTW
+        CALL    CZPUTC
         LDA     FCH             ;n: the cell's rows, in words (WPTN
         MOV     L,A             ;counts words: CZINIT.MAC, DPCOM)
         MVI     H,0

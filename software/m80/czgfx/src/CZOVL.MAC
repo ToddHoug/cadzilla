@@ -18,7 +18,7 @@
         INCLUDE CZGFX.INC
 ;
         PUBLIC  CZOVON,CZOVOF,CZOPAL,CZOVL,CZFRM
-        EXTRN   CZWAIT,CZWREG,CZSEND,CZMREG,CZDPB
+        EXTRN   CZWAIT,CZWREG,CZSEND,CZMREG,CZDPB,CZCCR,CZSTA
 ;
         CSEG
 ;
@@ -61,8 +61,11 @@ CZFRM:  PUSH    D
 SWITCH: PUSH    B
         PUSH    H
         PUSH    PSW
+        CALL    CZSTA           ;(a stop line before: abort first)
         CALL    CZWAIT          ;nothing left to draw at the old depth
         XCHG
+        MOV     A,H             ;(for CZABT)
+        STA     CZCCR
         MVI     B,02H           ;CCR (no interrupts, as CZINIT)
         CALL    CZWREG
         POP     PSW

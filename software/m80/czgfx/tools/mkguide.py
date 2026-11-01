@@ -598,7 +598,8 @@ A0>MYPROG'''))
         'if the drawing ended cleanly, <b>NZ</b> on a command error (CER, '
         'status bit 7: an undefined command or a bad parameter). A program '
         'normally ends each picture with ' + C('GWAIT') + '. '
-        + C('GABORT') + ' stops the chip, flushes the FIFOs and clears CER. '
+        + C('GABORT') + ' stops the chip, flushes the FIFOs and clears CER and '
+        'ARD, keeping the CP, the parameters and the pixel depth. '
         'On the real board, and in altairsim with ' + C('draw_rate = "real"')
         + ', drawing takes time, and ' + C('GWAIT') + ' is also how a '
         'program knows it has finished.'))
@@ -611,7 +612,8 @@ A0>MYPROG'''))
         C('GINIT mode') + ' sets up the whole board for one display mode: '
         'the MODE register, the ACRTC\'s timing and display registers, the '
         'default palette, the drawing parameters, the overlay, and a clear '
-        'screen. The mode is a descriptor in the library:'))
+        'screen. It returns once the screen and overlay are cleared. The '
+        'mode is a descriptor in the library:'))
     story.append(ctable([
         ['Descriptor', 'Mode', 'Screen'],
         ['CZM640', 'VESA 640x480 @ 60 Hz', 'X 0-639, Y 0-479'],
@@ -824,15 +826,31 @@ A0>MYPROG'''))
         ['AMHOLE', 'draw only outside it'],
         ['AMCLPD / AMHOLD', 'as AMCLIP / AMHOLE, and set ARD if a pixel was '
          'dropped'],
-        ['AMSTOP', 'stop at the first pixel outside the area, and set ARD'],
-        ['AMSTPI', 'stop at the first pixel inside the area, and set ARD']],
+        ['AMSTOP', 'stop at the first pixel outside the area'],
+        ['AMSTPI', 'stop at the first pixel inside the area']],
         [1.6 * inch, 5.3 * inch]))
     story.append(Spacer(1, 6))
     story.append(P(
         'ARD is status bit 6: after ' + C('GWAIT') + ', ' + C('ANI SRARD') +
         ' tests it. After a stop the CP is the pixel where the drawing '
         'stopped; ' + C('GGETCP') + ' reads it back into HL and DE, and also '
-        'clears ARD.'))
+        'clears ARD. The manual says the stop modes set ARD too, and '
+        'altairsim does, but the real chip does not: to tell whether a line '
+        'stopped, compare the CP with its end point.'))
+    story.append(P(
+        '<b>On the real board</b>, once ' + C('AMSTOP') + ' or ' + C('AMSTPI')
+        + ' has cut a command short, the chip silently drops every command '
+        'after it (drawing, WPR, RPR) until it is aborted. So after any '
+        'command drawn in a stop mode czgfx aborts before the next command '
+        'goes out, and every czgfx read-back (' + C('GGETCP') + ', '
+        + C('GRDOT') + ', and the CP reads inside ' + C('GPAINT') + ', '
+        + C('GFLOOD') + ' and ' + C('GEARC') + ') first waits for drawing to '
+        'end and then always aborts (' + C('CZRDY') + '). The abort keeps '
+        'the CP, the drawing parameters and the pixel depth, but clears ARD '
+        'and CER, so test those after GWAIT, first. A program that '
+        'sends its own command words should use ' + C('CZPUTC##') + ' or '
+        + C('CZCMD##') + ', and call ' + C('CZRDY##') + ' before its own RPR or RD. '
+        'altairsim does not model this.'))
 
     # ================================================== 8. pattern RAM
     story.append(CondPageBreak(4 * inch))
@@ -927,7 +945,17 @@ A0>MYPROG'''))
         'fill is done. The CP is then back at x,y and the pattern pointer '
         'is as it was. With more than 32 pending at once they return carry '
         'set, and those parts stay unpainted. altairsim has no seed limit, '
-        'so this runs only on the board.']))
+        'so this runs only on the board.',
+        '<b>CMSEL only.</b> The chip knows what it has painted only because '
+        'those pixels are CL0 or CL1. In ' + C('CMPRAM') + ', ' + C('CMCL1')
+        + ' or ' + C('CMCL0') + ' they needn\'t be, and on the real board '
+        'the PAINT never ends, so ' + C('GPAINT') + ' and ' + C('GFLOOD')
+        + ' paint nothing in those modes and return carry set (altairsim '
+        'would fill them). For a tiled fill, PAINT solid in a marker color, '
+        'then draw the tile over a rectangle round the area with '
+        + C('GOPM OMEQ') + ' and ' + C('GCCMP') + ' the marker. As a last '
+        'resort, at 4096 seeds in one fill they abort the chip and return '
+        'carry set.']))
     story.append(P('9.2 Copying blocks', H2))
     story.append(P(
         C('GCOPY x1,y1,x2,y2,xd,yd[,t]') + ' copies the rectangle with '
@@ -1112,8 +1140,8 @@ A0>MYPROG'''))
         'it, and a program\'s ' + C('work/') + ' directory is self-contained.'))
     story.append(table([
         ['Where', 'What'],
-        [C('CZGFX.INC: CZVERS'), 'the version: ' + C('CZVERS EQU 0103H') +
-         ' is 1.3, major in the high byte, minor in the low. A program can '
+        [C('CZGFX.INC: CZVERS'), 'the version: ' + C('CZVERS EQU 0104H') +
+         ' is 1.4, major in the high byte, minor in the low. A program can '
          'check it at assembly time.'],
         [C('software/m80/czgfx/releases/CZGFXLIB-<v>.DSK'), 'the releases: '
          'library disks, one per version, tracked and never changed'],
@@ -1155,7 +1183,7 @@ tools/altairsim/scripts/attach_libdisk.sh software/m80/myprog/work'''))
         ('GCCMP [c]', 'compare color for OMEQ/OMNE'),
         ('GPAL i,r,g,b', 'set a palette entry. Clobbers BC, E'),
         ('GWAIT', 'wait for the drawing to finish: A = status, Z = OK'),
-        ('GABORT', 'abort: flush the FIFOs, clear CER'),
+        ('GABORT', 'abort: flush the FIFOs, clear CER and ARD'),
         ('GMOVE x,y  GRMOVE dx,dy', 'move the CP'),
         ('GLINE x,y  GRLINE dx,dy', 'line from the CP (end not drawn)'),
         ('GRECT x,y  GRRECT dx,dy', 'rectangle outline from the CP'),
@@ -1211,11 +1239,12 @@ tools/altairsim/scripts/attach_libdisk.sh software/m80/myprog/work'''))
         'links only the modules it uses, plus the ones those call.'))
     rows = [['Module', 'Bytes', 'Routines and data']]
     for m, b, r in [
-        ('CZCORE', 167, 'CZWREG (B = register, HL = value), CZPUTW (HL to the '
+        ('CZCORE', 224, 'CZWREG (B = register, HL = value), CZPUTW (HL to the '
          'FIFO), CZWAIT, CZXY / CZXYM (A = opcode, HL, DE), CZCMD (A = '
          'opcode, with the mode), CZWPR (A = drawing register, HL), CZSEND '
-         '(HL = table, BC = words), CZRTAB, CZLDW, CZABT; data CZDM'),
-        ('CZINIT', 566, 'CZINIT (HL = descriptor), CZCLS (A), CZOCLS, CZPDEF; '
+         '(HL = table, BC = words), CZRTAB, CZLDW, CZABT, CZPUTC, CZSTA, CZSTM; '
+         'data CZDM, CZCCR, CZSTF'),
+        ('CZINIT', 580, 'CZINIT (HL = descriptor), CZCLS (A), CZOCLS, CZPDEF; '
          'data CZM640 CZM800 CZM1K, CZXMAX, CZYMAX, CZMREG (the MODE '
          'register), CZDPB'),
         ('CZPAL', 129, 'CZPALD (default palette), CZPALS (A = index, B/C/E = '
@@ -1226,14 +1255,14 @@ tools/altairsim/scripts/attach_libdisk.sh software/m80/myprog/work'''))
         ('CZCURV', 1105, 'CZCRCL (HL = r), CZELPS (HL = rx, DE = ry), CZARC '
          '(A = OPAARC/OPRARC/OPAEAR/OPREAR + DIRCW, HL = table; C if '
          'refused)'),
-        ('CZFILL', 460, 'CZPANT (A = edge), CZFLOD (A = region; both C if '
+        ('CZFILL', 510, 'CZPANT (A = edge), CZFLOD (A = region; both C if '
          'seeds were dropped), CZGCPY (A = '
          'transform, +10H relative; HL = table)'),
         ('CZPAT', 149, 'CZLPAT (A = word, HL = table), CZLSTY (HL = style, A = '
          'zoom), CZPTN (HL = size, A = direction), CZPSCN (HL = 6-byte table)'),
-        ('CZMODE', 246, 'CZOPM, CZCMOD, CZAMOD (A), CZCOL0, CZCCMP (A), '
-         'CZAMIN, CZAMAX (HL, DE), CZAFUL, CZGCP, CZRDW, CZRDOT'),
-        ('CZOVL', 78, 'CZOVON, CZOVOF, CZOPAL (B/C/E = R/G/B), CZOVL, CZFRM'),
+        ('CZMODE', 263, 'CZOPM, CZCMOD, CZAMOD (A), CZCOL0, CZCCMP (A), '
+         'CZAMIN, CZAMAX (HL, DE), CZAFUL, CZGCP, CZRDW, CZRDY, CZRDOT'),
+        ('CZOVL', 85, 'CZOVON, CZOVOF, CZOPAL (B/C/E = R/G/B), CZOVL, CZFRM'),
         ('CZTXT', 444, 'CZTFNT (HL = font), CZTSTR (HL = text, B = length); '
          'data CZTST'),
         ('CZTXL', 149, 'CZTPOS (HL, DE), CZTATR (A = scale, B = direction, '
@@ -1265,7 +1294,7 @@ tools/altairsim/scripts/attach_libdisk.sh software/m80/myprog/work'''))
         ('Opcodes', 'OPMOVE OPRMOV OPLINE OPRLIN OPRECT OPRRCT OPAPLL OPAPLG '
          'OPRPLG OPCRCL OPELPS OPAARC OPRARC OPAEAR OPREAR OPFRCT OPRFRC OPPANT OPDOT '
          'OPPTN OPAGCP OPRGCP OPRD (command high bytes); CMDDOT'),
-        ('Version', 'CZVERS (0103H for 1.3)')]:
+        ('Version', 'CZVERS (0104H for 1.4)')]:
         rows.append([g, C(n)])
     story.append(table(rows, [1.5 * inch, 5.4 * inch]))
 
