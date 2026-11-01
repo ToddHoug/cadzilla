@@ -297,7 +297,7 @@ cz_wait();
   which would be bigger and slower (see [Port I/O](#port-io)). So a C
   program draws exactly what the assembly one does: `software/zcc/cgfxdemo`
   draws z88demo's ten screens pixel for pixel.
-- **Further reading:** `software/z88dk/cz88gfx/README.md`, "Using it from C", has
+- **Further reading:** `software/z88dk/cz88gfx/REFERENCE.md`, "Using it from C", has
   the API, the conventions and the sizes. `docs/cz88gfx-guide.pdf` is the
   user guide, for assembly and C alike.
 

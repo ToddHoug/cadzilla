@@ -10,7 +10,7 @@
 # hashes, licence) is tracked. The tools themselves are tracked only as part
 # of pristine/CPM22SYS.DSK. This script recreates the cache on a fresh clone,
 # for re-checking the tools or for R-ing them onto an existing project's
-# work/ disk (see "The DRI RMAC/LINK toolchain" in tools/altairsim/README.md).
+# work/ disk (see "The DRI RMAC/LINK toolchain" in tools/altairsim/REFERENCE.md).
 #
 # Every download and every extracted tool is checked against a pinned
 # SHA-256; any mismatch is an error. Already-present files that match are

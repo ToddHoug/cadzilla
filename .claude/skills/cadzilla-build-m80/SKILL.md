@@ -186,7 +186,7 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 30000}
     otherwise), `picture` as that mode's full size `at (0,0)` (e.g.
     `1024x768 at (0,0)`), and `wiring` as `ok`. A picture that's smaller
     or offset means the `GINIT` descriptor and the strap disagree — see
-    "Display resolution" in `tools/altairsim/README.md`
+    "Display resolution" in `tools/altairsim/REFERENCE.md`
 - **Key waits.**
   - Type a key with `run {input: " "}`.
   - To stop mid-way, match `until` on unique prompt text.

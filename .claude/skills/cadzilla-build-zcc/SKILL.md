@@ -215,7 +215,7 @@ unless asked.
   - **Under the hood:** each function is a few instructions of assembly
     jumping into the library routine. Draw with these, not with C loops
     over `<cadzilla.h>` ports, which are bigger and slower.
-  - **Reference:** `software/z88dk/cz88gfx/README.md`, "Using it from C", has the
+  - **Reference:** `software/z88dk/cz88gfx/REFERENCE.md`, "Using it from C", has the
     API table.
   - **To verify a drawing,** snapshot the machine and decode it with
     `tools/altairsim/scripts/cadzilla_png.py`.

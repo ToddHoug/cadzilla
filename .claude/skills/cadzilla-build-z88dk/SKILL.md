@@ -97,7 +97,7 @@ software/z88dk/cz88gfx/tools/build.sh      # -> software/z88dk/cz88gfx/build/CZ8
   - a call in `czcchk.c`;
   - a row in the README's C table.
 
-  `software/z88dk/cz88gfx/README.md`, "How the bindings work", has the calling
+  `software/z88dk/cz88gfx/REFERENCE.md`, "How the bindings work", has the calling
   conventions.
 - Try it in a program pinned to `dev` (`software/z88dk/z88demo`;
   `software/zcc/cgfxdemo` for C). Check the pictures as well as the build

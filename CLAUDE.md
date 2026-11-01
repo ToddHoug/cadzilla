@@ -158,7 +158,7 @@ Software toolchains (`tools/altairsim/README.md`):
   project's tracked `src/<NAME>.SUB` (`SUBMIT <NAME>`). `LINK [OP]` writes
   the `.PRL` files a GSX-80 driver needs, which L80 can't (`rhello`; skill
   `cadzilla-build-rmac`; "The DRI RMAC/LINK toolchain" in
-  `tools/altairsim/README.md`).
+  `tools/altairsim/REFERENCE.md`).
   `software/rmac/ddcz` is the CADzilla GSX-80 screen driver built this way
   (`DDCZ1K`/`DDCZ800`/`DDCZ640.PRL`, linked with czgfx); `software/zcc/cgsxdemo`
   is a zcc GSX client. The GSX runtime is local-only
@@ -192,6 +192,36 @@ Software toolchains (`tools/altairsim/README.md`):
 
 _TBD — fill in as tooling is chosen: KiCAD version, GAL assembler
 (e.g. WinCUPL/GALasm), default git branch, commit attribution._
+
+## Working in sessions
+
+Keep sessions short and task-sized: start fresh from git and the memory
+notes, finish with a commit (when the owner asks), and end. A long session
+re-sends its whole history every turn.
+
+- **Read the quick reference, not the whole README.** Each big library or
+  tool README has a short `README.md` and a `REFERENCE.md` beside it holding
+  the detail. Read `README.md` first and open a `REFERENCE.md` section only
+  for the thing the task changes. Likewise open one `.MAC`/`.Z88` module
+  (`CZCORE`, `CZFILL`, `CZCURV`), not all of them, and skip
+  `tools/mkguide.py` unless the guide PDF is the task.
+- **Stay in your library.** A czgfx/M80 session never edits cz88gfx, and a
+  cz88gfx session never edits czgfx. Frozen `releases/` are never edited.
+- **Commit explicit paths only** (`git add <path>`, never `-A`/`.`):
+  another session may have left files staged. Check `git status` first.
+- **Real board sessions** (boards A and B on the Altair, serial MCP): confirm
+  with the owner that the Altair is connected and booted before sending
+  anything. It boots a copy of the disk from the fdcsds server, so local
+  rebuilds don't reach it. After a hang, stop and reboot without a bus
+  reset. Send paced keystrokes, and CR as hex 0D.
+- **altairsim is not the real chip.** It models none of the real-chip hangs
+  (ELPS limit, PAINT seeds, stop-mode read-back, second-program hang); see
+  the `acrtc-*` memory notes and verify with I/O traces.
+- **Only load the MCP servers a task needs**: altairsim for build/run/debug,
+  serial for the real board, konnect for schematics (read-only). Always idle
+  and unmount altairsim when done.
+- **Model choice**: a cheaper model for builds, reruns and doc fixes; the
+  stronger one for real-chip debugging and timing.
 
 ## Git attribution
 

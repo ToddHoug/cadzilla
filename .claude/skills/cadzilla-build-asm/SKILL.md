@@ -102,7 +102,7 @@ run {input: "<NAME>\r", until: "A0>", timeout_ms: 20000}
     says otherwise), and `picture` should be that mode's full size
     `at (0,0)` -- smaller or offset means the program's register table and
     the strap disagree (see "Display resolution" in
-    `tools/altairsim/README.md`)
+    `tools/altairsim/REFERENCE.md`)
   - `wiring` should be `ok`
 - If a program waits for a key, type one with `run {input: " "}`. To stop
   mid-way, match `until` on a unique piece of its prompt text.

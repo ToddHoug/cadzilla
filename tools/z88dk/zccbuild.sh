@@ -30,7 +30,7 @@
 #                    against ("1.1" or later, or "dev"). Puts cz88gfx.h on the
 #                    include path (#include <cz88gfx.h>) and links CZ88GFX.LIB;
 #                    only the modules the program uses go into the .COM. See
-#                    software/z88dk/cz88gfx/README.md, "Using it from C".
+#                    software/z88dk/cz88gfx/REFERENCE.md, "Using it from C".
 #
 # Writes into build/ (gitignored), uppercase like every other build artifact:
 #   <NAME>.COM   the program, ready for `R <NAME>.COM` in CP/M

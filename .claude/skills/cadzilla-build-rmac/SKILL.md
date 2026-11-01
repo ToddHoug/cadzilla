@@ -18,7 +18,7 @@ build: one `RMAC` line per module, then the `LINK`.
 - **Reference project:** `software/rmac/rhello`, with two modules (`RHELLO.ASM`
   calls `PRINT` in `PRINT.ASM`).
 
-Background is in "The DRI RMAC/LINK toolchain" in `tools/altairsim/README.md`.
+Background is in "The DRI RMAC/LINK toolchain" in `tools/altairsim/REFERENCE.md`.
 
 ## 0. Before touching the emulator
 
