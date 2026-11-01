@@ -791,6 +791,7 @@ S3LJ:   LHLD    S3Y
         JNZ     S3LP1
         XRA     A
         STA     PHASE
+        GWAIT                   ;the boxes drawn before any palette write
         JMP     S3STEP          ;load the first colours
 ;
 S3STEP: LDA     PHASE           ;HL -> WHEEL + 3 * phase
@@ -802,20 +803,13 @@ S3STEP: LDA     PHASE           ;HL -> WHEEL + 3 * phase
         DAD     D
         LXI     D,WHEEL
         DAD     D
-        MVI     A,1
-        STA     S3C
-S3PL:   MOV     B,M
+        MVI     A,1             ;entry 1, then 96 bytes in a row: the Bt453
+        OUT     DACADR          ;steps to the next entry itself (as CZPALD
+        MVI     B,96            ;does). A new address per entry (CZPALS) is
+S3PL:   MOV     A,M             ;suspected of stalling the real ACRTC
+        OUT     DACPAL
         INX     H
-        MOV     C,M
-        INX     H
-        MOV     E,M
-        INX     H
-        LDA     S3C
-        CALL    CZPALS          ;clobbers A
-        LDA     S3C
-        INR     A
-        STA     S3C
-        CPI     33
+        DCR     B
         JNZ     S3PL
         LDA     PHASE
         INR     A
@@ -1288,3 +1282,14 @@ CFY:    DS      2
 OLDSP:  DS      2
         DS      64
 STACK:
+;
+; The library is linked straight after this module, so where this module
+; ends decides every library address. The board is sensitive to it: an
+; IN from the ACRTC status port followed by an opcode fetch from an address
+; with A1 = 1 is suspected of corrupting the fetch (RS changes before CS
+; ends), which would explain the hangs seen on the real board, in CZWAIT's
+; and CZPUTW's polling loops. This pad puts the library at a base of 2 mod 4,
+; where every IN in cz88gfx 1.4 is followed by a fetch with A1 = 0 (A1 = 1
+; after IN 72H). It depends on the 1.4 library's layout; run
+; tools/chkalign.py after a build, and if the library is changed.
+        DS      (6-(ASMPC%4))%4
