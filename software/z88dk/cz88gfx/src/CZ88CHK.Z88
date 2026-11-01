@@ -145,6 +145,7 @@ START:  RET                     ;nothing below is ever executed
         LXI     H,CZPALD
         LXI     H,CZWREG
         LXI     H,CZPUTW
+        LXI     H,CZRSR
         LXI     H,CZXY
         LXI     H,CZSEND
         LXI     H,CZRTAB
