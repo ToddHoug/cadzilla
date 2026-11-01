@@ -55,7 +55,7 @@ INC = os.path.join(LIBDIR, 'src', 'CZ88GFX.INC')
 HDR = os.path.join(LIBDIR, 'src', 'cz88gfx.h')
 STUBS = os.path.join(LIBDIR, 'src', 'CZC*.Z88')
 TITLE = 'cz88gfx Graphics Library User Guide'
-REVISION = '1.1'
+REVISION = '1.2'
 DATE = datetime.date.today().isoformat()
 
 
@@ -296,7 +296,7 @@ MACRO_OF = {
     'cz_frame': 'GFRAME', 'cz_ovcls': 'GOVCLS', 'cz_ovpal': 'GOVPAL',
     'cz_font': 'GFONT', 'cz_tpos': 'GTPOS', 'cz_tattr': 'GTATTR',
     'cz_text': 'GTEXT', 'cz_tstr': 'GTSTR', 'cz_tchr': 'GTCHR',
-    'cz_tnl': 'GTNL', 'cz_putw': 'CALL CZPUTW', 'cz_cmd': 'CALL CZCMD',
+    'cz_tnl': 'GTNL', 'cz_putw': 'CALL CZPUTW', 'cz_sync': 'CALL CZSYNC', 'cz_cmd': 'CALL CZCMD',
     'cz_wpr': 'CALL CZWPR', 'cz_wreg': 'CALL CZWREG'}
 
 
@@ -802,7 +802,8 @@ A0>MYPROG'''))
         + C('cz_wait() & CZ_SR_CER') + ' tests for the error (CER, status bit '
         '7: an undefined command or a bad parameter). ' + C('GABORT') + ' / '
         + C('cz_abort()') + ' stops the chip, flushes the FIFOs and clears '
-        'CER. On the real board, and in altairsim with '
+        'CER; from 1.4 it aborts back to the CCR in force, so the overlay '
+        'keeps its depth. On the real board, and in altairsim with '
         + C('draw_rate = "real"') + ', drawing takes time, and waiting is '
         'also how a program knows it has finished.'))
 
@@ -1064,6 +1065,18 @@ cz_polyline(sine);
         'the CP is the pixel where the drawing stopped; ' + C('GGETCP') +
         ' / ' + C('cz_getcp(&x, &y)') + ' reads it back (chapter 12), and '
         'also clears ARD.'))
+    story.append(P(
+        '<b>A stop silences the chip (1.4).</b> The real chip sets no ARD for '
+        'AMSTOP or AMSTPI. After a command it cut short, it ignores every '
+        'command, parameter write and read until it is aborted, so a '
+        'program that went on drawing, or called ' + C('GGETCP') + ', lost '
+        'it all. From 1.4 a drawing command sent in a stop mode is marked, '
+        'and every routine that sends a command word starts with '
+        + C('CZSYNC') + ' / ' + C('cz_sync()') + ', which waits and aborts '
+        '(the abort keeps the CP, the parameters and the CCR). So whatever '
+        'follows a stop line works. Code that sends its own words with '
+        + C('CZPUTW') + ' / ' + C('cz_putw') + ' calls ' + C('CZSYNC')
+        + ' first.'))
 
     # ================================================== 8. pattern RAM
     story.append(CondPageBreak(4 * inch))
@@ -1182,6 +1195,13 @@ cz_lstyle(0xFFFF, 0);    /* solid */
         '<b>Outlines must be closed.</b> The fill is 4-connected, so an '
         '8-connected outline (lines, circles) holds it, but a line\'s end '
         'point isn\'t drawn: run spokes a pixel past a circle.',
+        '<b>CMSEL only (1.4).</b> The real chip ends a fill only on an edge '
+        'pixel (an edge color, CL0 or CL1), and the pixels a fill paints '
+        'in the other color modes (CMPRAM, CMCL1, CMCL0) are not edges, so '
+        'it re-seeds forever. From 1.4 ' + C('GPAINT') + ' and '
+        + C('GFLOOD') + ' fill only in CMSEL (the color register): in any '
+        'other color mode they draw nothing and return carry (in C, 1). A '
+        'fill that reaches 4096 seeds is aborted, also with carry.',
         '<b>The seed stack.</b> The real chip keeps only four pending seed '
         'points; it hands the rest to the host through the read FIFO and '
         'stalls until they are read. From 1.3 the library reads them onto a '
@@ -1422,7 +1442,14 @@ cz_frame();
         ['1.2', 'WPTN counts words, as the real chip does on the 8-bit bus.'],
         ['1.3', 'two real-chip hangs fixed, as in czgfx 1.3: ellipses and '
          'elliptical arcs keep to ELPS\'s parameter limit (chapter 6), and '
-         'PAINT reads back its overflow seeds (9.1).']],
+         'PAINT reads back its overflow seeds (9.1).'],
+        ['1.4', 'a third real-chip hang fixed, as in czgfx 1.4: the chip '
+         'ignores everything after a command cut short by an AREA stop mode '
+         'until aborted, and sets no ARD, so stop-mode commands are marked '
+         'and the next command word aborts first (7.3, ' + C('CZSYNC') +
+         '). PAINT and flood fill only in CMSEL, and give up past 4096 '
+         'seeds (9.1). GINIT returns once its clears are done. '
+         + C('GABORT') + ' keeps the CCR in force.']],
         [0.9 * inch, 6.0 * inch]))
     story.append(P('13.1 Moving a program to another release', H2))
     story.append(code('''
@@ -1520,28 +1547,28 @@ tools/z88dk/z88build.sh software/z88dk/myprog        (or zccbuild.sh)''' % VERSI
         'the modules it uses, plus the ones those call.' % VERSION))
     rows = [['Module', 'Bytes', 'Routines and data']]
     for m, b, r in [
-        ('CZCORE', 167, 'CZWREG (B = register, HL = value), CZPUTW (HL to the '
+        ('CZCORE', 223, 'CZWREG (B = register, HL = value), CZPUTW (HL to the '
          'FIFO), CZWAIT, CZXY / CZXYM (A = opcode, HL, DE), CZCMD (A = '
          'opcode, with the mode), CZWPR (A = drawing register, HL), CZSEND '
-         '(HL = table, BC = words), CZRTAB, CZLDW, CZABT; data CZDM'),
-        ('CZINIT', 566, 'CZINIT (HL = descriptor), CZCLS (A), CZOCLS, CZPDEF; '
+         '(HL = table, BC = words), CZRTAB, CZLDW, CZABT, CZSYNC, CZMARK; data CZDM, CZCCR, CZSTPF'),
+        ('CZINIT', 589, 'CZINIT (HL = descriptor), CZCLS (A), CZOCLS, CZPDEF; '
          'data CZM640 CZM800 CZM1K, CZXMAX, CZYMAX, CZMREG (the MODE '
          'register), CZDPB'),
         ('CZPAL', 129, 'CZPALD (default palette), CZPALS (A = index, B/C/E = '
          'R/G/B)'),
-        ('CZDRAW', 66, 'CZCOL (A), CZMOVE, CZLINE, CZRECT, CZFRCT, CZDOT, '
+        ('CZDRAW', 69, 'CZCOL (A), CZMOVE, CZLINE, CZRECT, CZFRCT, CZDOT, '
          'CZRMOV, CZRLIN, CZRRCT, CZRFRC (HL = X, DE = Y)'),
         ('CZPOLY', 49, 'CZPLL, CZPLG (HL = point table)'),
-        ('CZCURV', 192, 'CZCRCL (HL = r), CZELPS (HL = rx, DE = ry), CZARC '
+        ('CZCURV', 1105, 'CZCRCL (HL = r), CZELPS (HL = rx, DE = ry), CZARC '
          '(A = OPAARC/OPRARC/OPAEAR/OPREAR + DIRCW, HL = table)'),
-        ('CZFILL', 51, 'CZPANT (A = edge), CZFLOD (A = region), CZGCPY (A = '
+        ('CZFILL', 508, 'CZPANT (A = edge), CZFLOD (A = region), CZGCPY (A = '
          'transform, +10H relative; HL = table Xs,Ys,DX,DY)'),
-        ('CZPAT', 149, 'CZLPAT (A = word, HL = table), CZLSTY (HL = style, A = '
+        ('CZPAT', 154, 'CZLPAT (A = word, HL = table), CZLSTY (HL = style, A = '
          'zoom), CZPTN (HL = size, A = direction), CZPSCN (HL = 6-byte table)'),
-        ('CZMODE', 246, 'CZOPM, CZCMOD, CZAMOD (A), CZCOL0, CZCCMP (A), '
+        ('CZMODE', 252, 'CZOPM, CZCMOD, CZAMOD (A), CZCOL0, CZCCMP (A), '
          'CZAMIN, CZAMAX (HL, DE), CZAFUL, CZGCP, CZRDOT'),
-        ('CZOVL', 78, 'CZOVON, CZOVOF, CZOPAL (B/C/E = R/G/B), CZOVL, CZFRM'),
-        ('CZTXT', 444, 'CZTFNT (HL = font), CZTSTR (HL = text, B = length); '
+        ('CZOVL', 85, 'CZOVON, CZOVOF, CZOPAL (B/C/E = R/G/B), CZOVL, CZFRM'),
+        ('CZTXT', 446, 'CZTFNT (HL = font), CZTSTR (HL = text, B = length); '
          'data CZTST'),
         ('CZTXL', 149, 'CZTPOS (HL, DE), CZTATR (A = scale, B = direction, '
          'C = flags), CZTCHR (A), CZTNL'),
@@ -1739,7 +1766,7 @@ software/z88dk/cz88gfx/tools/build.sh'''))
         'a pixel. The copy covers copying on the screen. For the rest, send '
         'the command yourself: ' + C('CZCMD') + ' and ' + C('CZPUTW') + ' in '
         'assembly, ' + C('cz_cmd') + ' and ' + C('cz_putw') + ' in C.',
-        'PAINT\'s seed stack holds 32 seeds (9.1); a fill that needs more at '
+        'PAINT\'s seed stack holds 32 seeds (9.1) and a fill stops at 4096; a fill that needs more at '
         'once returns carry and is left partly unpainted.',
         'It is 8080 code everywhere: a Z80 program runs the same code an 8080 '
         'one does.',
