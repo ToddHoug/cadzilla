@@ -1,0 +1,134 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; CZPORT.Z88 -- cz88gfx: every IN and OUT to the ACRTC (1.5)
+;
+; The routines that touch the ACRTC's ports, ACRSR (70H, status/address
+; register) and ACRDAT (72H, data/FIFO), and nothing else live here, so
+; that their addresses are fixed: CZWREG, CZPUTW, CZWAIT, CZRSR, CZRDW.
+; No other module has an IN or OUT to those ports (tools/build.sh checks).
+;
+; Why. On the real board U45 makes RS straight from the address bus, while
+; CS is still held from the S-100 status into the next machine cycle. So
+; the opcode fetch straight after an ACRTC access can be decoded as a
+; second, spurious access, and the chip may drive the bus during an IN's
+; fetch. It is a suspected cause of the hangs of AUTODEMO on board A (the
+; hang followed the address of that fetch), and the rule that keeps it
+; out is:
+;
+;     after an access to ACRSR (port 70H) the next opcode fetch has A1 = 0,
+;     after an access to ACRDAT (port 72H) it has A1 = 1.
+;
+; An IN or OUT is two bytes, so the opcode after one at address X is at
+; X+2: an access to ACRSR sits at X = 2 or 3 (mod 4), one to ACRDAT at
+; X = 0 or 1 (mod 4). Nothing in a program moves with respect to this
+; module, whose section is aligned to 4, so the rule holds wherever the
+; linker puts the library. The NOPs below only move an access to the right
+; address. Each routine starts at the address, mod 4, noted beside it; the
+; space before it is never executed. Change the code here and build.sh
+; checks the result (tools/chkalign.py).
+;
+; Keep to this: the register conventions of CZ88GFX.INC (BC, DE, HL
+; preserved, A and the flags clobbered), AR = r00 after CZWREG.
+;
+        INCLUDE "CZ88GFX.INC"
+;
+        PUBLIC  CZWREG,CZPUTW,CZWAIT,CZRSR,CZRDW
+;
+; The section is aligned to 4: ALIGN right after SECTION makes the
+; linker pad before the section, whatever precedes it in the program. It
+; has a section of its own because z80asm only aligns a section as a
+; whole, and nothing may come before this module in it. A name the C
+; startup code doesn't know would be placed after its BSS, where malloc's
+; heap overwrites it, so the section is code_home, which the startup knows
+; (it comes before the BSS) and which nothing in this tool chain uses.
+;
+        SECTION code_home
+        ALIGN   4
+;
+; CZWREG -- write a 16-bit ACRTC control register (8-bit bus mode).
+; B = register address (even), HL = value. Even AR takes the high
+; byte, odd AR the low byte. AR is set explicitly for both bytes, so
+; this works for r00-r7F (no auto-increment) and r80-rFF alike. Leaves
+; AR = r00, so the FIFO (CZPUTW) can be used straight afterwards.
+;
+; Starts at 0 (mod 4); the offsets are mod 4 of each instruction.
+;
+CZWREG: MOV     A,B             ;0
+        NOP                     ;1
+        OUT     ACRSR           ;2      next 0
+        MOV     A,H             ;0
+        OUT     ACRDAT          ;1      next 3
+        MOV     A,B             ;3
+        INR     A               ;0
+        NOP                     ;1
+        OUT     ACRSR           ;2      next 0
+        MOV     A,L             ;0
+        OUT     ACRDAT          ;1      next 3
+        XRA     A               ;3
+        NOP                     ;0
+        NOP                     ;1
+        OUT     ACRSR           ;2      next 0
+        RET                     ;0
+;
+; CZPUTW -- write the word in HL to the write FIFO, high byte first.
+; AR must be r00 (CZINIT and CZWREG leave it there). Waits for WFR.
+;
+        ALIGN   4
+        DEFS    2
+CZPUTW: IN      ACRSR           ;2      next 0
+        ANI     SRWFR           ;0
+        JZ      CZPUTW          ;2
+        NOP                     ;1
+        NOP                     ;2
+        NOP                     ;3
+        MOV     A,H             ;0
+        OUT     ACRDAT          ;1      next 3
+        MOV     A,L             ;3
+        OUT     ACRDAT          ;0      next 2
+        RET                     ;2
+;
+; CZWAIT -- wait until the write FIFO is empty and the last command
+; has ended. Returns A = status register, Z set if no command error.
+;
+        ALIGN   4
+        DEFS    1
+CZWAIT: PUSH    B               ;1
+WAITLP: IN      ACRSR           ;2      next 0
+        MOV     B,A             ;0
+        ANI     SRWFE
+        JZ      WAITLP
+        MOV     A,B
+        ANI     SRCED
+        JZ      WAITLP
+        MOV     A,B
+        ANI     SRCER
+        MOV     A,B
+        POP     B
+        RET
+;
+; CZRSR -- A = the status register (1.5: CZFILL's PAINT poll, which
+; had its own IN). Preserves BC, DE, HL.
+;
+        ALIGN   4
+        DEFS    2
+CZRSR:  IN      ACRSR           ;2      next 0
+        RET                     ;0
+;
+; CZRDW -- HL = the next word from the read FIFO, high byte first (AR is
+; r00, as CZPUTW needs it too). Waits for RFR.
+;
+CZRDW:  CALL    RDB
+        MOV     H,A
+        CALL    RDB
+        MOV     L,A
+        RET
+;
+        ALIGN   4
+        DEFS    2
+RDB:    IN      ACRSR           ;2      next 0
+        ANI     SRRFR           ;0
+        JZ      RDB             ;2
+        IN      ACRDAT          ;1      next 3
+        RET                     ;3
+;

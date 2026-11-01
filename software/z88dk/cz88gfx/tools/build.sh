@@ -22,6 +22,7 @@
 #   CZ*.O, CZ*.LIS           per-module objects and listings
 #   CHK8080.COM/.MAP, CHK8085..., CHKZ80...   the link check, per CPU
 #   CCHK8080.COM/.MAP, CCHK8085..., CCHKZ80...  the C check, per CPU
+#   PAD0.MAP .. PAD3.MAP     CZPORT linked behind 0..3 bytes of padding
 #
 # A project pinned to "dev" (cz88gfx.version) links this build directly;
 # tools/release.sh snapshots it as a numbered release.
@@ -124,6 +125,44 @@ for CPU in 8080 8085 z80; do
   fi
   echo "  check: build/$chk.COM links (C, $(stat -c %s "$BUILD/$chk.COM") bytes)"
 done
+
+# The ACRTC port accesses must be followed by an opcode fetch with the right
+# A1 wherever the linker puts the library (src/CZPORT.Z88 says why). Link
+# a stub that references CZPORT behind 0 to 3 bytes of padding, so its section
+# lands behind every residue mod 4, then check those, the check programs and
+# the listings (tools/chkalign.py).
+for PAD in 0 1 2 3; do
+  stub="PAD$PAD"
+  {
+    echo "        EXTERN  CZWREG,CZPUTW,CZWAIT,CZRSR,CZRDW"
+    echo "        ORG     0100H"
+    echo "        SECTION code_user"
+    echo "        DEFS    $PAD"
+    echo "        CALL    CZWREG"
+    echo "        CALL    CZPUTW"
+    echo "        CALL    CZWAIT"
+    echo "        CALL    CZRSR"
+    echo "        CALL    CZRDW"
+  } > "$BUILD/$stub.Z88"
+  OUT="$(
+    cd "$BUILD"
+    "$Z80ASM" -m8080 -O"$BUILD" -b -m -l="$BUILD/CZ88GFX.LIB" -o="$BUILD/$stub.COM" "$stub.Z88" 2>&1
+  )" || RC=$?
+  [ -n "$OUT" ] && printf '%s\n' "$OUT" >&2
+  rm -f "$BUILD/$stub.Z88" "$BUILD/$stub.o" "$BUILD/$stub.COM"
+  [ -f "$BUILD/$stub.map" ] && mv -f "$BUILD/$stub.map" "$BUILD/$stub.MAP"
+  if [ "$RC" -ne 0 ] || [ ! -f "$BUILD/$stub.MAP" ]; then
+    echo "error: the alignment stub $stub failed to link" >&2
+    exit "$(( RC ? RC : 1 ))"
+  fi
+done
+command -v python3 >/dev/null || { echo "error: python3 not found (the alignment check)" >&2; exit 1; }
+if ! ALIGN_OUT="$(python3 "$LIBDIR/tools/chkalign.py" -b "$BUILD" 2>&1)"; then
+  printf '%s\n' "$ALIGN_OUT" >&2
+  echo "error: an ACRTC port access can be followed by a wrong-A1 opcode fetch (above)" >&2
+  exit 1
+fi
+printf '%s\n' "$ALIGN_OUT" | sed -n '1p;$p' | sed 's/^/  align: /'
 
 SIZE="$(stat -c %s "$BUILD/CZ88GFX.LIB")"
 echo "  build/CZ88GFX.LIB  $SIZE bytes; build/CZ*.LIS listings"

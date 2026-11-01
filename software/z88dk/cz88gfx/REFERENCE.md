@@ -194,13 +194,49 @@ These are the macros' register forms, and can be called directly by name.
 | `CZCURV` | `CZCRCL` (HL = radius, round the CP), `CZELPS` (HL = rx, DE = ry, round the CP), `CZARC` (A = `OPAARC`/`OPRARC`/`OPAEAR`/`OPREAR` + `DIRCW`, HL = parameter table) |
 | `CZFILL` | `CZPANT` (A = edge color), `CZFLOD` (A = region color), `CZGCPY` (A = transform, +10H for RGCPY; HL = Xs,Ys,DX,DY table) |
 | `CZPAT` | `CZLPAT` (A = start word, HL = table), `CZLSTY` (HL = pattern, A = zoom), `CZPTN` (HL = size: H = height-1, L = width-1; A = direction), `CZPSCN` (HL = table: DB x0,y0,x1,y1,zx,zy -- the scan window at run time) |
-| `CZMODE` | `CZOPM`, `CZCMOD`, `CZAMOD` (A = field value), `CZCOL0`, `CZCCMP` (A = color), `CZAMIN`, `CZAMAX` (HL = X, DE = Y), `CZAFUL`, `CZGCP` (returns HL = X, DE = Y), `CZRDOT` (HL = X, DE = Y: A = the pixel's color; C if off the screen), `CZRDW` (HL = the next read-FIFO word) |
+| `CZMODE` | `CZOPM`, `CZCMOD`, `CZAMOD` (A = field value), `CZCOL0`, `CZCCMP` (A = color), `CZAMIN`, `CZAMAX` (HL = X, DE = Y), `CZAFUL`, `CZGCP` (returns HL = X, DE = Y), `CZRDOT` (HL = X, DE = Y: A = the pixel's color; C if off the screen) |
 | `CZTXT` | `CZTFNT` (HL = font), `CZTSTR` (HL = text, B = length); data `CZTST`, the text state |
 | `CZTXL` | `CZTPOS` (HL = X, DE = Y), `CZTATR` (A = scale, B = direction, C = flags), `CZTCHR` (A = character), `CZTNL` |
 | `CZFNT8`, `CZFN11` | the fonts: data `CZF8`, `CZF11` |
 | `CZOVL` | `CZOVON`, `CZOVOF` (show / hide), `CZOPAL` (B/C/E = R/G/B), `CZOVL` (draw on the overlay), `CZFRM` (draw on the frame) |
 | `CZPAL` | `CZPALD` (load the default palette), `CZPALS` (A = index, B/C/E = R/G/B) |
-| `CZCORE` | `CZWREG` (B = register, HL = value), `CZPUTW` (HL → FIFO), `CZWAIT`, `CZXY` (A = opcode, HL/DE), `CZXYM` (the same, with the drawing mode), `CZCMD` (A = opcode: the command word with the drawing mode), `CZWPR` (A = drawing parameter register, HL = value), `CZSEND` (HL = table, BC = words), `CZRTAB`, `CZLDW`, `CZABT`, `CZSYNC` (abort if a stop-mode command went out: see *Drawing modes*), `CZMARK` (after a command word carrying `CZDM`); data `CZDM`, the drawing mode byte, `CZCCR`, the CCR's high byte in force, and `CZSTPF`, the stop flag (1.4) |
+| `CZPORT` | the only code that touches the ACRTC's ports (1.5; see *The ACRTC port accesses*): `CZWREG` (B = register, HL = value), `CZPUTW` (HL → FIFO), `CZWAIT`, `CZRSR` (A = the status register), `CZRDW` (HL = the next read-FIFO word) |
+| `CZCORE` | `CZXY` (A = opcode, HL/DE), `CZXYM` (the same, with the drawing mode), `CZCMD` (A = opcode: the command word with the drawing mode), `CZWPR` (A = drawing parameter register, HL = value), `CZSEND` (HL = table, BC = words), `CZRTAB`, `CZLDW`, `CZABT`, `CZSYNC` (abort if a stop-mode command went out: see *Drawing modes*), `CZMARK` (after a command word carrying `CZDM`); data `CZDM`, the drawing mode byte, `CZCCR`, the CCR's high byte in force, and `CZSTPF`, the stop flag (1.4) |
+
+### The ACRTC port accesses
+
+On the real board the opcode fetched right after an `IN` or `OUT` to the
+ACRTC can be decoded as a second, spurious access (U45 makes RS straight
+from the address bus while CS is still held into the next machine cycle),
+and for an `IN` the chip may drive the bus during that fetch. The cause is
+suspected, not proven; the symptom was AUTODEMO hanging on board A at
+points that followed the address of that fetch, so that any edit to a
+program moved the hang. The rule that keeps it out (from 1.5):
+
+- after an access to `ACRSR` (port 70H, status/address) the next opcode
+  fetch has A1 = 0, and after one to `ACRDAT` (72H, data/FIFO) A1 = 1;
+- an `IN` or `OUT` is two bytes, so the opcode after the one at address X is
+  at X+2: an access to `ACRSR` sits at X = 2 or 3 (mod 4), one to `ACRDAT`
+  at X = 0 or 1 (mod 4).
+
+Only `CZPORT` touches those ports (`CZWREG`, `CZPUTW`, `CZWAIT`, `CZRSR`,
+`CZRDW`). It has a section of its own, `code_home`, aligned to 4, so the
+rule holds wherever the linker puts the library; NOPs inside the routines
+and dead space before each entry (a `DEFS` after `ALIGN 4`) put every
+access at the right address. `code_home` is a section z88dk's C startup
+code knows (it lays it out before the BSS, where the malloc heap can't
+overwrite it) and nothing else in this tool chain uses; an unknown section
+name would be placed after the BSS. The routines keep the register
+conventions of the other modules. A program that calls them is unaffected;
+one that has its own `IN`/`OUT` to those ports (`czdiag`, `dxfview`) has to
+follow the rule itself.
+
+`tools/build.sh` runs `tools/chkalign.py`, which fails the library build if
+a module but `CZPORT` has such an access, if an access in `CZPORT` breaks the
+rule, or if a linked program (the check programs, and a stub linked behind
+0 to 3 bytes of padding) did not put `CZPORT` on a multiple of 4. Run it on
+a program's map to check that too:
+`python3 software/z88dk/cz88gfx/tools/chkalign.py software/<toolchain>/<project>/build/<NAME>.MAP`.
 
 ### Drawing modes
 
@@ -580,6 +616,10 @@ example: z88demo's ten screens, call for call.
   - for C: a stub (or a `DEFC`) in the matching `CZC*.Z88` module, its
     prototype in `cz88gfx.h`, a call in `czcchk.c`, and a row in the
     table above.
+- **Code that touches the ACRTC's ports (70H, 72H):** put it in
+  `CZPORT.Z88` and keep each `IN`/`OUT` at the address the rule above wants
+  (the comments there give each instruction's address mod 4); `build.sh`
+  fails otherwise. Any other module calls `CZRSR`, `CZPUTW` and the rest.
 - **New module:**
   - create `src/CZxxxx.Z88`: `INCLUDE "CZ88GFX.INC"`, `SECTION code_user`,
     and its `PUBLIC`s;

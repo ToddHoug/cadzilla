@@ -18,14 +18,14 @@ cz88gfx comes in three parts:
   equates, an `EXTERN` for every library symbol, and the `G...` macros.
 - **`cz88gfx.h`**, the header a C program `#include`s (1.1 on): a
   prototype for every C entry point, and the constants.
-- **`CZ88GFX.LIB`**, a z80asm library of the fourteen graphics modules
-  (`CZCORE`, `CZINIT`, `CZPAL`, `CZDRAW`, `CZPOLY`, `CZMODE`, `CZPAT`,
+- **`CZ88GFX.LIB`**, a z80asm library of the fifteen graphics modules
+  (`CZPORT`, `CZCORE`, `CZINIT`, `CZPAL`, `CZDRAW`, `CZPOLY`, `CZMODE`, `CZPAT`,
   `CZCURV`, `CZFILL`, `CZOVL`, `CZTXT`, `CZTXL`, `CZFNT8`, `CZFN11`), plus,
   from 1.1, the C bindings' modules (`CZC*`). The linker takes only the
   modules a program references, so an assembly program never carries the
   C bindings. A program that only sets up the screen and draws a line is
-  953 bytes in all (CZCORE, CZINIT, CZPAL and CZDRAW), with no curve, text
-  or font code.
+  about 1,000 bytes in all (CZPORT, CZCORE, CZINIT, CZPAL and CZDRAW), with
+  no curve, text or font code.
 
 The library is **8080 code** in Intel mnemonics, assembled `-m8080`. z80asm
 links it unchanged into an 8080, 8085 or Z80 program, so one library serves
@@ -49,8 +49,8 @@ by side, with the demo's screens; regenerate it with
 | Where | What |
 |---|---|
 | `software/z88dk/cz88gfx/src/` | sources: `CZ88GFX.INC`, `CZ*.Z88` (one per module), `CZ88CHK.Z88` (the build check); the C bindings: `cz88gfx.h`, `CZC*.Z88`, `czcchk.c` (their build check) |
-| `software/z88dk/cz88gfx/tools/` | `build.sh`, `release.sh`, `mkfont.py`, `mkguide.py` (the user guide) |
-| `software/z88dk/cz88gfx/build/` | **the dev build**: `CZ88GFX.LIB`, module `.O`/`.LIS`, the checks' `.COM`/`.MAP` (gitignored) |
+| `software/z88dk/cz88gfx/tools/` | `build.sh`, `release.sh`, `chkalign.py` (the ACRTC alignment check), `mkfont.py`, `mkguide.py` (the user guide) |
+| `software/z88dk/cz88gfx/build/` | **the dev build**: `CZ88GFX.LIB`, module `.O`/`.LIS`, the checks' `.COM`/`.MAP`, `PAD0`-`PAD3.MAP` (gitignored) |
 | `software/z88dk/cz88gfx/releases/<major>.<minor>/` | **the releases**: `CZ88GFX.LIB`, `CZ88GFX.INC` and (1.1 on) `cz88gfx.h`, tracked, read-only, never changed |
 
 A program that uses cz88gfx pins a release in its tracked
@@ -90,6 +90,7 @@ sources, or to release when the two version numbers disagree.
 | 1.2 | WPTN's count n is in words, as the real HD63484 counts it on the 8-bit bus (measured on two boards), not the manual's bytes: `CZINIT`'s pattern load, `CZLPAT`, `CZLSTY` and the text code. Before, a real board took twice the data each WPTN sent, so `GINIT` never set PRC, CL0, CL1, CCMP, EDG or MASK. Needs an altairsim that counts words too |
 | 1.3 | two real-HD63484 hangs, ported from czgfx 1.2/1.3: `CZELPS` keeps ELPS's parameter limit or draws a polygon, and `CZARC` fits an elliptical arc to it or refuses it (see *Curves and the ELPS limit*); `CZPANT`/`CZFLOD` read back PAINT's overflow seeds (see *PAINT*). New public `CZRDW`, equate `OPRPLG`. In C, `cz_paint`, `cz_flood`, their `_cp` forms and `cz_earc_sq`/`cz_rearc_sq` return 0/1. `CZCURV`, `CZFILL` and `CZMODE` are byte-for-byte czgfx 1.3's |
 | 1.4 | a third real-HD63484 hang: after a command cut short by an AREA stop mode the chip ignores every command, WPR and RPR until it is aborted, and sets no ARD. A drawing command sent in `AMSTOP`/`AMSTPI` is now marked (new public `CZMARK`, flag `CZSTPF`), and every routine that sends a command word starts with new public `CZSYNC` (C: `cz_sync`), which then waits and aborts (CCR ABT keeps the CP, the parameters and the depth). So whatever follows a stop line works, `GGETCP` included (see *Drawing modes*). `CZPANT`/`CZFLOD` fill only in CMSEL (CY, nothing drawn, in any other color mode: the real chip never ends such a fill) and abort a fill past 4096 seeds (CY); see *PAINT*. `CZINIT` returns only once its clears are done: a second program drawing straight behind them hung board B. `CZABT` (`GABORT`, `cz_abort`) aborts back to the CCR in force, kept in the new public `CZCCR` by `CZINIT`, `CZOVL` and `CZFRM`: before, it always went back to 8 bpp, which broke drawing on the overlay after an abort |
+| 1.5 | every IN and OUT to the ACRTC is independent of where the linker puts the library. On the real board the opcode fetched right after an ACRTC access must have A1 = 0 after port 70H and A1 = 1 after port 72H (suspected cause of the AUTODEMO hangs on board A, which followed the address of that fetch; see *The ACRTC port accesses*). Those accesses now live in one new module, `CZPORT` (`CZWREG`, `CZPUTW`, `CZWAIT` and `CZRDW`, moved out of `CZCORE` and `CZMODE`, and new public `CZRSR`, the status read `CZFILL`'s PAINT poll used to do itself), in a section aligned to 4 with the accesses padded to the right address. `tools/build.sh` fails if any access could be followed by a fetch with the wrong A1, at any link base. No other change: pictures are identical to 1.4's, and the C bindings are unchanged |
 
 ### Building the library
 
@@ -99,14 +100,18 @@ Everything runs on the host:
 software/z88dk/cz88gfx/tools/build.sh
 ```
 
-It does four things:
+It does five things:
 1. assembles every module in `src/` (except the check program) into
    `build/CZ88GFX.LIB`, with listings;
 2. runs the repo's JP/CP lint over the sources (`tools/z88dk/z88common.sh`);
 3. links **`CZ88CHK.Z88`** against the new library for the 8080, 8085 and
    Z80;
 4. compiles **`czcchk.c`** with zcc for each CPU's C library and links it
-   against the new library.
+   against the new library;
+5. runs **`tools/chkalign.py`** (1.5): only `CZPORT` may touch the ACRTC's
+   ports, and every access there must be followed by an opcode fetch with
+   the right A1 at every link base, checked on the listings, on the check
+   programs and on a stub linked behind 0 to 3 bytes of padding.
 
 `CZ88CHK` expands every macro in the header, references every entry point,
 and makes every register-form `CALL`. `czcchk.c` calls every C entry point
@@ -114,7 +119,8 @@ in `cz88gfx.h` and names every constant. A broken macro, a wrong prototype
 or a missing `PUBLIC` therefore fails the library build rather than the
 first program that uses it, as czgfx's `LIB80 /U` and `CZCHK` link do. The
 build is good when it ends with six `check: ... links` lines (three
-assembly, three C) and the library size.
+assembly, three C), two `align:` lines (the last is `ok`) and the library
+size.
 
 ## Using it from assembly
 

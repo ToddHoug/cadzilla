@@ -49,11 +49,11 @@
 ; <major>.<minor>/ (CZ88GFX.LIB and this file); each project pins one in
 ; its software/<toolchain>/<project>/cz88gfx.version.
 ;
-CZ88VER EQU     0104H           ;1.4
+CZ88VER EQU     0105H           ;1.5
 ;
 ; ---- the library's symbols (see each module for its entry conditions) ----
 ;
-        EXTERN  CZWREG,CZPUTW,CZWAIT,CZXY,CZSEND,CZRTAB,CZLDW,CZABT
+        EXTERN  CZWREG,CZPUTW,CZWAIT,CZRSR,CZXY,CZSEND,CZRTAB,CZLDW,CZABT
         EXTERN  CZDM,CZCMD,CZXYM,CZWPR,CZCCR,CZSYNC,CZMARK,CZSTPF
         EXTERN  CZINIT,CZM640,CZM800,CZM1K,CZXMAX,CZYMAX,CZCLS,CZPDEF
         EXTERN  CZOCLS,CZMREG,CZDPB
