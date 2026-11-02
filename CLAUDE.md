@@ -32,7 +32,9 @@ board and can be assembled/run on real S100/Altair bus hardware or altairsim emu
   - `z88dk/`: cz88gfx, zhello, z88demo, autodemo (a free-running attract
     demo: seven animated screens, any key pauses), czdiag (the standalone board
     diagnostic: Bt453, ACRTC registers/FIFOs, clocks, video memory),
-    czptest (cz88gfx 1.3's PAINT-seed and ELPS-limit check for a real board)
+    czptest (cz88gfx 1.3's PAINT-seed and ELPS-limit check for a real board),
+    rockfall (a vector space rock shooter for the 8080: XOR-drawn RPLG
+    shapes, HUD on the overlay, its own FIFO-load ACRTC sender)
   - `zcc/`: chello, cgfxdemo, cgsxdemo, dxfview
 
   Each shared library lives with the toolchain that builds it. `rmac/ddcz`

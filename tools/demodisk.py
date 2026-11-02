@@ -98,6 +98,7 @@ DESCRIBE = {
     "ASSIGN.SYS": "GSX workstation numbers to drivers",
     "Z88DEMO.COM": "GFXDEMO ported to z80asm and cz88gfx",
     "AUTODEMO.COM": "free-running demo, seven animated screens (any key pauses)",
+    "ROCKFALL.COM": "space rock shooter: W thrust, A/D turn, space fire, Q",
     "CGFXDEMO.COM": "GFXDEMO in C, pixel-identical",
     "CGSXDEMO.COM": "a GSX-80 client in C, through DDCZ1K",
     "DXFVIEW.COM": "DXF viewer: DXFVIEW SHUTTLE; +- zoom, WASD pan, Q",
