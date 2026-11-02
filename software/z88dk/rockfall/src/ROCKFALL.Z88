@@ -1,0 +1,2483 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Copyright (C) 2026 Todd Houg
+;
+; ROCKFALL.Z88 -- a vector space rock shooter for CADzilla (z88dk z80asm,
+; cz88gfx 1.5, 8080)
+;
+; Fly a small ship through a field of drifting rocks and shoot them. A
+; large rock breaks into two medium ones, a medium one into three small
+; ones, and a small one is destroyed. There are always a few large or
+; medium rocks about: when they run short another drifts in, and when a
+; wave's quota of them is spent the next wave starts. Now and then a
+; raider crosses the screen and fires at the ship, aimed, and from wave 2
+; leading it. Hitting a rock, the raider or its shots costs a ship; there
+; are five, and a bonus ship every 10,000 points. Each wave is harder:
+; more rocks at once, faster, and raiders that come sooner, fire faster
+; and aim closer.
+;
+;   W  thrust        A  turn left        D  turn right      space  fire
+;   P  pause         Q, ESC or ^C  back to CP/M
+;
+; The keys come from the CP/M console (BDOS 6), which has no key-up, so a
+; key works for HOLDT/HOLDR frames after each character and the
+; terminal's auto-repeat keeps it going while it is held.
+;
+; Drawing. Everything on the playfield is drawn in EOR (XOR) with the
+; area clip on: each frame an object is drawn again where it was, which
+; erases it, then moved and drawn anew. Shapes are RPLG polygons from
+; RFTAB.INC (tools/mktables.py), so the 8080 sends a move and a fixed
+; list of deltas, with no per-vertex sums. An object near an edge is also
+; drawn at the far side, and the clip trims both, so it slides across the
+; wrap. The score, wave, ships left and all messages are on the overlay,
+; out of the XOR picture's way.
+;
+; Speed. Drawing is mostly the 8080 feeding the ACRTC's FIFO, so DRAW1
+; sends its words with FSEND: wait until the 8-word write FIFO is empty,
+; then fill it with no status check between words (about 45 T-states a
+; word, against 140 through CZPUTW).
+;
+; Timing. The board has no timer, so each frame ends with a GWAIT and a
+; delay of FRAMED loops less OBJK for every object drawn or erased, which
+; keeps the speed roughly even until the delay runs out; a crowded screen
+; then slows down. Tuned in altairsim under work/cadzilla-real.toml (2 MHz,
+; draw_rate = "real"): about 18 frames a second on wave 1.
+;
+; Real-chip notes: no PAINT, ELPS, arcs or AREA stop modes. FSWAIT and
+; FSBLK are the only code here that touches the ACRTC's ports, and they
+; keep cz88gfx 1.5's A1 rule (see the comment above FSWAIT).
+;
+; Build on the host, then R ROCKFALL.COM onto the disk and run it:
+;   software/z88dk/rockfall/build.sh
+;
+        INCLUDE "CZ88GFX.INC"
+;
+; ---- tuning ----
+;
+FRAMED  EQU     2400            ;delay loops a frame with nothing drawn
+OBJK    EQU     80              ;fewer loops per object drawn or erased
+HOLDT   EQU     4               ;frames a W keeps thrusting
+HOLDR   EQU     2               ;frames an A or D keeps turning
+FCOOLV  EQU     3               ;frames between shots
+SHOTL   EQU     45              ;frames a shot lives
+RSHL    EQU     70              ;frames a raider shot lives
+VMAXH   EQU     8               ;ship speed limit, pixels a frame
+KBASE   EQU     8               ;large rock speed on wave 1, 1/4 pixels a frame
+KSMALL  EQU     6               ;added for a small rock
+KMAX    EQU     32              ;rock speed limit
+DEADF   EQU     30              ;frames from the last ship lost to GAME OVER
+INVULF  EQU     56              ;frames a new ship can't be hit (3 s),
+CLRAD   EQU     100             ;unless nothing is this near it
+QBASE   EQU     4               ;large rocks in wave n: n+QBASE,
+QMAX    EQU     14              ;but no more than QMAX
+TOPD    EQU     25              ;frames before another big rock comes in
+KMED    EQU     3               ;added for a medium rock
+RSPDV   EQU     0400H           ;raider speed, 8.8
+RLEFTV  EQU     256             ;frames to cross the screen at RSPDV
+RVYV    EQU     0100H           ;raider vertical drift, 8.8
+RTURN   EQU     30              ;frames between raider course changes
+RTBASE  EQU     300             ;frames between raiders on wave 1
+RTSTEP  EQU     25              ;fewer each wave
+RTMIN   EQU     100             ;but no fewer than this
+RFBASE  EQU     30              ;frames between raider shots, less 2 a wave
+RFMIN   EQU     12
+PRESSH  EQU     2               ;pressure step every PRESSH*256 frames
+PRESMX  EQU     6               ;pressure steps a wave, at most
+NSTARS  EQU     80
+BOXSZ   EQU     2               ;shots and debris: 3x3 boxes
+;
+NPSHOT  EQU     8               ;table sizes (player shots in flight)
+NRSHOT  EQU     3
+NROCKS  EQU     36
+NDEBR   EQU     24
+;
+; An object record, 16 bytes. ACT is the kind, 0 = free, plus DRAWN
+; while it is on the screen. X and Y are 16.8 fixed point (the fraction
+; byte first), VX and VY signed 8.8. SHP is its RPLG shape (0: a box),
+; AUX its radius (0..3: no wrap ghosts). LIFE counts down to its end (0:
+; it lives until hit).
+;
+R_ACT   EQU     0
+R_XF    EQU     1
+R_X     EQU     2
+R_YF    EQU     4
+R_Y     EQU     5
+R_VX    EQU     7
+R_VY    EQU     9
+R_SHP   EQU     11
+R_COL   EQU     13
+R_LIFE  EQU     14
+R_AUX   EQU     15
+RSZ     EQU     16
+;
+K_ROCK  EQU     1
+K_SHOT  EQU     2
+K_DEB   EQU     3
+K_RAID  EQU     4
+K_SHIP  EQU     5
+K_RSH   EQU     6
+DRAWN   EQU     80H
+;
+BDOS    EQU     0005H
+DIRIO   EQU     6               ;direct console I/O: E = 0FFH reads, no wait
+PSTRING EQU     9
+CR      EQU     0DH
+LF      EQU     0AH
+ESC     EQU     1BH
+CTLC    EQU     03H
+;
+        ORG     0100H
+;
+START:  LXI     H,0             ;keep CCP's stack, run on our own
+        DAD     SP
+        SHLD    OLDSP
+        LXI     SP,STACK
+        LXI     D,MSGHI
+        CALL    PRINT
+        GINIT   CZM1K
+        GOVPAL  96,255,128      ;the overlay: a light green
+        GOVON
+        GFONT   CZF11
+        CALL    CLRALL
+        CALL    NEWSCR
+        CALL    TITLSC
+;
+; The frame loop
+;
+FRAME:  XRA     A
+        STA     NDRAW
+        LHLD    FRAMEC
+        INX     H
+        SHLD    FRAMEC
+        CALL    KEYS
+        LDA     GSTATE
+        ORA     A
+        CNZ     SHIPST
+        LXI     H,PSHOTS
+        MVI     B,NPSHOT
+        CALL    STEPAR
+        LXI     H,ROCKS
+        MVI     B,NROCKS
+        CALL    STEPAR
+        CALL    RAIDST
+        LXI     H,RSHOTS
+        MVI     B,NRSHOT
+        CALL    STEPAR
+        LXI     H,DEBR
+        MVI     B,NDEBR
+        CALL    STEPAR
+        LDA     GSTATE
+        ORA     A
+        JZ      FRM2
+        CALL    COLLID
+        CALL    RAIDCK
+        CALL    PRESCK
+FRM2:   CALL    ROCKCK
+        CALL    HUDUPD
+        GWAIT
+        JZ      FRM3
+        GABORT                  ;a command error: clear it and go on
+        MVI     A,1
+        STA     LCOL
+FRM3:   CALL    PACE
+        JMP     FRAME
+;
+EXIT:   GCLS    0
+        GOVCLS
+        GOVOFF
+        LXI     D,MSGBYE
+        CALL    PRINT
+        LHLD    OLDSP
+        SPHL
+        RET
+;
+;
+; ================= keys =================
+;
+; KEYS -- take every waiting key (up to 8). On the title screen, space
+; starts a game; in a game, W A D set their hold counts, space asks for
+; a shot and P pauses. ESC, ^C and Q quit everywhere.
+;
+KEYS:   MVI     A,8
+        STA     KCNT
+KEYLP:  MVI     C,DIRIO
+        MVI     E,0FFH
+        CALL    BDOS
+        ORA     A
+        RZ
+        CPI     'a'             ;upper case
+        JC      KEY1
+        CPI     'z'+1
+        JNC     KEY1
+        SUI     20H
+KEY1:   CALL    ISQ
+        JZ      EXIT
+        MOV     B,A
+        LDA     GSTATE
+        ORA     A
+        MOV     A,B
+        JNZ     KEYPL
+        CPI     ' '
+        JNZ     KEYNX
+        JMP     STARTG          ;a new game: the rest can wait
+KEYPL:  CPI     'W'
+        JNZ     KEY2
+        MVI     A,HOLDT
+        STA     KTHR
+        JMP     KEYNX
+KEY2:   CPI     'A'
+        JNZ     KEY3
+        MVI     A,HOLDR
+        STA     KLEFT
+        XRA     A
+        STA     KRIGHT
+        JMP     KEYNX
+KEY3:   CPI     'D'
+        JNZ     KEY4
+        MVI     A,HOLDR
+        STA     KRIGHT
+        XRA     A
+        STA     KLEFT
+        JMP     KEYNX
+KEY4:   CPI     ' '
+        JNZ     KEY5
+        MVI     A,1
+        STA     KFIRE
+        JMP     KEYNX
+KEY5:   CPI     'P'
+        CZ      PAUSE
+KEYNX:  LDA     KCNT
+        DCR     A
+        STA     KCNT
+        JNZ     KEYLP
+        RET
+;
+ISQ:    CPI     ESC             ;Z if A is a quit key
+        RZ
+        CPI     CTLC
+        RZ
+        CPI     'Q'
+        RZ
+        CPI     'q'
+        RET
+;
+; PAUSE -- until the next key (a quit key quits)
+;
+PAUSE:  CALL    OVON1
+        GTATTR  4,0,0
+        GTPOS   404,360
+        GTEXT   "PAUSED"
+        CALL    OVOFF1
+PAUSLP: MVI     C,DIRIO
+        MVI     E,0FFH
+        CALL    BDOS
+        ORA     A
+        JZ      PAUSLP
+        CALL    ISQ
+        JZ      EXIT
+        GOVCLS
+        MVI     A,0FH
+        STA     HUDDRT
+        XRA     A
+        STA     KTHR
+        STA     KLEFT
+        STA     KRIGHT
+        STA     KFIRE
+        RET
+;
+PRINT:  MVI     C,PSTRING
+        JMP     BDOS
+;
+; DELAY -- spin HL times, 24 T-states a time
+;
+DELAY:  MOV     A,H
+        ORA     L
+        RZ
+DLP:    DCX     H
+        MOV     A,H
+        ORA     L
+        JNZ     DLP
+        RET
+;
+; PACE -- the end of a frame: FRAMED less OBJK per object drawn
+;
+PACE:   LXI     H,FRAMED
+        LXI     D,0-OBJK
+        LDA     NDRAW
+        ORA     A
+        JZ      PC2
+PCL:    DAD     D
+        DCR     A
+        JNZ     PCL
+PC2:    MOV     A,H
+        ORA     A
+        JM      PCX
+        JMP     DELAY
+PCX:    RET
+;
+;
+; ================= game states =================
+;
+; TITLSC -- the title over drifting rocks
+;
+TITLSC: XRA     A
+        STA     GSTATE
+        MVI     A,3             ;rocks drifting behind the title
+        STA     MINBIG
+        MVI     A,0FH
+        STA     HUDDRT
+        CALL    OVON1
+        GTATTR  8,0,0
+        GTPOS   224,520
+        GTEXT   "ROCKFALL"
+        CALL    HELPTX
+        JMP     OVOFF1
+;
+HELPTX: GTATTR  2,0,0
+        GTPOS   152,400
+        GTEXT   "W THRUST   A LEFT   D RIGHT   SPACE FIRE"
+        GTPOS   206,340
+        GTEXT   "SPACE TO PLAY    P PAUSE    Q QUIT"
+        RET
+;
+; STARTG -- a new game. The frame count so far (how long the player
+; took to press space) stirs the random numbers.
+;
+STARTG: LHLD    FRAMEC
+        XCHG
+        LHLD    SEED
+        MOV     A,L
+        XRA     E
+        MOV     L,A
+        MOV     A,H
+        XRA     D
+        MOV     H,A
+        ORA     L
+        JNZ     STG1
+        INX     H
+STG1:   SHLD    SEED
+        CALL    CLRALL
+        CALL    NEWSCR
+        GOVCLS
+        XRA     A
+        STA     SCORE
+        STA     SCORE+1
+        STA     SCORE+2
+        STA     WAVE
+        STA     TOPT
+        MVI     A,5
+        STA     LIVES
+        MVI     A,0FH
+        STA     HUDDRT
+        MVI     A,1
+        STA     GSTATE
+        CALL    NEXTWV
+        JMP     SPAWNC
+;
+; GAMEOV -- the last ship is gone: keep the high score, say so
+;
+GAMEOV: XRA     A
+        STA     GSTATE
+        STA     SSTATE
+        LXI     H,SCORE+2       ;compare, high byte first
+        LXI     D,HISC+2
+        MVI     B,3
+GOLP:   LDAX    D
+        CMP     M
+        JC      GONEW
+        JNZ     GOTXT
+        DCX     H
+        DCX     D
+        DCR     B
+        JNZ     GOLP
+        JMP     GOTXT
+GONEW:  LHLD    SCORE
+        SHLD    HISC
+        LDA     SCORE+2
+        STA     HISC+2
+GOTXT:  GOVCLS
+        MVI     A,0FH
+        STA     HUDDRT
+        CALL    OVON1
+        GTATTR  6,0,0
+        GTPOS   269,520
+        GTEXT   "GAME OVER"
+        CALL    HELPTX
+        JMP     OVOFF1
+;
+; NEWSCR -- clear the frame and scatter the stars (drawn once, in
+; replace mode; the XOR drawing passes over them unharmed)
+;
+NEWSCR: GCLS    0
+        GMODE   0
+        MVI     B,NSTARS
+NSLP:   PUSH    B
+        CALL    RAND
+        MOV     A,L
+        ANI     3
+        MOV     E,A
+        MVI     D,0
+        LXI     H,STARC
+        DAD     D
+        MOV     A,M
+        CALL    CZCOL
+        CALL    RAND
+        MOV     A,H
+        ANI     3
+        MOV     H,A             ;X 0..1023
+        CALL    RANDY           ;Y 0..766
+        CALL    CZDOT
+        POP     B
+        DCR     B
+        JNZ     NSLP
+        GMODE   OMEOR+AMCLIP
+        MVI     A,1             ;the colour cache is stale
+        STA     LCOL
+        RET
+;
+; CLRALL -- free every object
+;
+CLRALL: LXI     H,ARRBEG
+        LXI     B,ARREND-ARRBEG
+CLLP:   MVI     M,0
+        INX     H
+        DCX     B
+        MOV     A,B
+        ORA     C
+        JNZ     CLLP
+        RET
+;
+;
+; ================= waves, rocks, pressure =================
+;
+; A wave has a quota of large rocks, MIN(WAVE+QBASE, QMAX). It starts by
+; letting MINBIG+1 of them in; after that ROCKCK lets one more in, TOPD
+; frames apart, whenever fewer than MINBIG large or medium rocks are
+; left. Once the quota is spent, the next wave starts as soon as the big
+; rocks run short again, so the screen never runs out of them. MINBIG
+; is 2 on wave 1 and grows by one every other wave, to 5.
+;
+; NEXTWV -- the next wave
+;
+NEXTWV: LDA     WAVE
+        INR     A
+        STA     WAVE
+        XRA     A
+        STA     PRESS
+        LXI     H,0
+        SHLD    PRESSC
+        LDA     WAVE
+        ADI     QBASE
+        CPI     QMAX+1
+        JC      NW1
+        MVI     A,QMAX
+NW1:    STA     WQUOTA
+        LDA     WAVE            ;MINBIG = 2 + (WAVE-1)/2, 5 at most
+        DCR     A
+        ORA     A
+        RAR
+        ADI     2
+        CPI     6
+        JC      NW2
+        MVI     A,5
+NW2:    STA     MINBIG
+        INR     A
+        MOV     B,A
+NWLP:   PUSH    B
+        CALL    RELL
+        POP     B
+        DCR     B
+        JNZ     NWLP
+        CALL    SETRT
+        LDA     HUDDRT
+        ORI     4
+        STA     HUDDRT
+        RET
+;
+; RELL -- let in one large rock of the wave's quota, if any is left
+;
+RELL:   LDA     WQUOTA
+        ORA     A
+        RZ
+        DCR     A
+        STA     WQUOTA
+        MVI     A,TOPD
+        STA     TOPT
+        JMP     SPAWNL
+;
+; ROCKCK -- count the large and medium rocks; when there are fewer than
+; MINBIG, wait TOPT frames, then let in another large rock, or start the
+; next wave if the quota is spent. On the title screen there is no
+; quota: the rocks just keep coming.
+;
+ROCKCK: LXI     H,ROCKS
+        MVI     B,NROCKS
+        MVI     C,0
+RCLP:   MOV     A,M
+        ORA     A
+        JZ      RCNX
+        CALL    GETAUX
+        CPI     18
+        JC      RCNX
+        INR     C
+RCNX:   LXI     D,RSZ
+        DAD     D
+        DCR     B
+        JNZ     RCLP
+        LDA     MINBIG
+        MOV     B,A
+        MOV     A,C
+        CMP     B
+        RNC
+        LXI     H,TOPT
+        MOV     A,M
+        ORA     A
+        JZ      RC1
+        DCR     M
+        RET
+RC1:    LDA     GSTATE
+        ORA     A
+        JNZ     RC2
+        MVI     A,TOPD
+        STA     TOPT
+        JMP     SPAWNL
+RC2:    LDA     WQUOTA
+        ORA     A
+        JNZ     RELL
+        JMP     NEXTWV
+;
+; PRESCK -- every PRESSH*256 frames of a wave the rocks that come next
+; are faster
+;
+PRESCK: LHLD    PRESSC
+        INX     H
+        SHLD    PRESSC
+        MOV     A,H
+        CPI     PRESSH
+        RC
+        LXI     H,0
+        SHLD    PRESSC
+        LDA     PRESS
+        CPI     PRESMX
+        RNC
+        INR     A
+        STA     PRESS
+        RET
+;
+; SPAWNL -- one large rock on a random course, on the left edge at least
+; 192 pixels above or below the ship, or on the bottom edge at least 256
+; pixels to its side
+;
+SPAWNL: CALL    RAND
+        MOV     A,L
+        ANI     1
+        JZ      SL1
+        LXI     H,0
+        SHLD    NEWXP
+        CALL    RAND
+        MOV     A,H             ;DE = 0..382
+        ANI     127
+        ADD     L
+        MOV     E,A
+        MVI     A,0
+        ADC     A
+        MOV     D,A
+        LHLD    SHIPR+R_Y
+        DAD     D
+        LXI     D,192
+        DAD     D
+        MOV     A,H             ;mod 768 (it is below 1536)
+        CPI     3
+        JC      SL0
+        SUI     3
+        MOV     H,A
+SL0:    SHLD    NEWYP
+        JMP     SL2
+SL1:    LXI     H,0
+        SHLD    NEWYP
+        CALL    RAND
+        MOV     A,H
+        ANI     1
+        MOV     H,A             ;0..511
+        LXI     D,256
+        DAD     D
+        XCHG
+        LHLD    SHIPR+R_X
+        DAD     D
+        MOV     A,H             ;mod 1024
+        ANI     3
+        MOV     H,A
+        SHLD    NEWXP
+SL2:    CALL    RAND
+        MOV     A,L
+        ANI     31
+        STA     SPDIR
+        XRA     A
+;
+; NEWROCK -- a rock (A = 0 large, 1 medium, 2 small) at NEWXP,NEWYP
+; heading SPDIR, at speed KBASE+WAVE-1+PRESS+0..3 quarter pixels a frame
+; (KMED more for a medium one, KSMALL for a small one, KMAX at most).
+; Dropped if the table is full.
+;
+NEWROCK: STA    NRSZ
+        CALL    NCLR
+        LHLD    NEWXP
+        SHLD    NX
+        LHLD    NEWYP
+        SHLD    NY
+        MVI     A,K_ROCK
+        STA     NACT
+        LDA     WAVE
+        ADI     KBASE-1
+        MOV     B,A
+        LDA     PRESS
+        ADD     B
+        MOV     B,A
+        CALL    RAND
+        MOV     A,L
+        ANI     3
+        ADD     B
+        MOV     B,A
+        LDA     NRSZ
+        ORA     A
+        MOV     A,B
+        JZ      NRK1
+        ADI     KMED
+        MOV     B,A
+        LDA     NRSZ
+        CPI     2
+        MOV     A,B
+        JC      NRK1
+        ADI     KSMALL-KMED
+NRK1:   CPI     KMAX
+        JC      NRK2
+        MVI     A,KMAX
+NRK2:   STA     NRK
+        LXI     H,DIRV
+        LDA     SPDIR
+        CALL    TIDX
+        CALL    LDW             ;DE = X of the unit vector
+        PUSH    H
+        LDA     NRK
+        CALL    MULK
+        SHLD    NVX
+        POP     H
+        CALL    LDW
+        LDA     NRK
+        CALL    MULK
+        SHLD    NVY
+        CALL    RAND            ;which of four shapes and colours
+        MOV     A,L
+        ANI     3
+        STA     NRV
+        LXI     H,SHPTBS
+        CALL    SZTAB           ;DE = the size's shape table
+        LDA     NRV
+        ADD     A
+        MOV     L,A
+        MVI     H,0
+        DAD     D
+        CALL    LDW
+        XCHG
+        SHLD    NSHP
+        LXI     H,COLTBS
+        CALL    SZTAB
+        LDA     NRV
+        MOV     L,A
+        MVI     H,0
+        DAD     D
+        MOV     A,M
+        STA     NCOL
+        LDA     NRSZ
+        MOV     E,A
+        MVI     D,0
+        LXI     H,AUXTB
+        DAD     D
+        MOV     A,M
+        STA     NAUX
+        LXI     H,ROCKS
+        MVI     B,NROCKS
+        JMP     PUTNEW
+;
+; SZTAB -- DE = word NRSZ of the table at HL
+;
+SZTAB:  LDA     NRSZ
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        JMP     LDW
+;
+; HITROCK -- the rock at HL is hit: debris and points; a large one leaves
+; two medium ones, a medium one three small ones
+;
+HITROCK: CALL   KILLR           ;OBJ = the rock
+        LHLD    OX
+        SHLD    NEWXP
+        LHLD    OY
+        SHLD    NEWYP
+        LDA     OCOL
+        MVI     B,4
+        CALL    SPDEB
+        LDA     OAUX
+        CPI     30
+        JNC     HRL
+        CPI     18
+        JNC     HRM
+        LXI     D,0100H         ;small
+        JMP     ADDPTS
+HRL:    LXI     D,0020H
+        CALL    ADDPTS
+        MVI     B,2
+        MVI     C,1
+        MVI     A,16            ;opposite ways
+        JMP     HRSPL
+HRM:    LXI     D,0050H
+        CALL    ADDPTS
+        MVI     B,3
+        MVI     C,2
+        MVI     A,11            ;a third of a turn apart
+HRSPL:  STA     SPSTEP
+        MOV     A,C
+        STA     SPSZ
+        CALL    RAND
+        MOV     A,L
+        ANI     31
+        STA     SPDIR
+HRLP:   PUSH    B
+        LDA     SPSZ
+        CALL    NEWROCK
+        LDA     SPSTEP
+        MOV     B,A
+        LDA     SPDIR
+        ADD     B
+        ANI     31
+        STA     SPDIR
+        POP     B
+        DCR     B
+        JNZ     HRLP
+        RET
+;
+; SPDEB -- B bits of debris in colour A at NEWXP,NEWYP
+;
+SPDEB:  STA     DCOL
+SDLP:   PUSH    B
+        CALL    NCLR
+        LHLD    NEWXP
+        SHLD    NX
+        LHLD    NEWYP
+        SHLD    NY
+        MVI     A,K_DEB
+        STA     NACT
+        LDA     DCOL
+        STA     NCOL
+        MVI     A,2
+        STA     NAUX
+        CALL    RAND
+        MOV     A,L
+        ANI     7
+        ADI     6
+        STA     NRK             ;speed 6..13
+        MOV     A,H
+        ANI     7
+        ADI     10
+        STA     NLIFE           ;10..17 frames
+        CALL    RAND
+        MOV     A,L
+        ANI     31
+        LXI     H,DIRV
+        CALL    TIDX
+        CALL    LDW
+        PUSH    H
+        LDA     NRK
+        CALL    MULK
+        SHLD    NVX
+        POP     H
+        CALL    LDW
+        LDA     NRK
+        CALL    MULK
+        SHLD    NVY
+        LXI     H,DEBR
+        MVI     B,NDEBR
+        CALL    PUTNEW
+        POP     B
+        DCR     B
+        JNZ     SDLP
+        RET
+;
+;
+; ================= the ship =================
+;
+; SHIPST -- a frame of the ship: turn, thrust, drift, draw, fire. Or,
+; when it has been lost, bring the next one in, in the middle, on the
+; next frame (after the last one, show GAME OVER DEADF frames on). A new
+; ship can't be hit for INVULF frames, or until nothing is within CLRAD
+; pixels of it, whichever comes first.
+;
+SHIPST: LDA     SSTATE
+        ORA     A
+        JZ      SHALV
+        LDA     DEADT
+        DCR     A
+        JZ      SHDT0
+        STA     DEADT
+        RET
+SHDT0:  LDA     LIVES
+        ORA     A
+        JZ      GAMEOV
+        JMP     SPAWNC
+;
+SHALV:  LXI     H,SHIPR
+        CALL    CPYIN
+        CALL    ERASE
+        CALL    ERFLAM
+        LXI     H,KLEFT         ;turn
+        MOV     A,M
+        ORA     A
+        JZ      SHT1
+        DCR     M
+        LDA     HEAD
+        INR     A
+        ANI     31
+        STA     HEAD
+SHT1:   LXI     H,KRIGHT
+        MOV     A,M
+        ORA     A
+        JZ      SHT2
+        DCR     M
+        LDA     HEAD
+        DCR     A
+        ANI     31
+        STA     HEAD
+SHT2:   XRA     A               ;thrust
+        STA     THRON
+        LXI     H,KTHR
+        MOV     A,M
+        ORA     A
+        JZ      SHT3
+        DCR     M
+        MVI     A,1
+        STA     THRON
+        LXI     H,THRV
+        CALL    HIDX
+        CALL    LDW
+        PUSH    H
+        LHLD    OVX
+        DAD     D
+        SHLD    OVX
+        POP     H
+        CALL    LDW
+        LHLD    OVY
+        DAD     D
+        SHLD    OVY
+SHT3:   LXI     H,OVX
+        CALL    FRIC
+        LXI     H,OVY
+        CALL    FRIC
+        CALL    INTEG
+        LXI     H,SHIPT         ;the shape for the heading
+        LDA     HEAD
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        CALL    LDW
+        XCHG
+        SHLD    OSHP
+        MVI     C,CYAN+BRIGHT   ;blue flashes while it can't be hit
+        LDA     INVUL
+        ORA     A
+        JZ      SHT4
+        LHLD    OX              ;nothing near: it can be hit again
+        SHLD    SX
+        LHLD    OY
+        SHLD    SY
+        CALL    CLEARCK
+        MVI     C,CYAN+BRIGHT
+        JNC     SHT3A
+        LDA     INVUL
+        DCR     A
+        STA     INVUL
+        ANI     4
+        JZ      SHT4
+        MVI     C,BLUE+BRIGHT
+        JMP     SHT4
+SHT3A:  XRA     A
+        STA     INVUL
+SHT4:   MOV     A,C
+        STA     OCOL
+        CALL    DRAWO
+        LDA     THRON           ;the flame, every other frame
+        ORA     A
+        JZ      SHT5
+        LDA     FRAMEC
+        ANI     1
+        JZ      SHT5
+        LXI     H,FLAMET
+        LDA     HEAD
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        CALL    LDW
+        XCHG
+        SHLD    FLSHP
+        MVI     A,ORANGE+BRIGHT
+        CALL    DRAWSH
+SHT5:   LDA     FCOOL           ;fire
+        ORA     A
+        JZ      SHT6
+        DCR     A
+        STA     FCOOL
+SHT6:   LDA     KFIRE
+        ORA     A
+        JZ      SHT7
+        XRA     A
+        STA     KFIRE
+        LDA     FCOOL
+        ORA     A
+        CZ      FIRE
+SHT7:   JMP     CPYOUT
+;
+; ERFLAM -- erase the flame, if it is drawn (OBJ = the ship, not moved)
+;
+ERFLAM: LHLD    FLSHP
+        MOV     A,H
+        ORA     L
+        RZ
+        MVI     A,ORANGE+BRIGHT
+        CALL    DRAWSH
+        LXI     H,0
+        SHLD    FLSHP
+        RET
+;
+; FRIC -- the velocity word at HL loses 1/64, and is held to VMAXH
+;
+FRIC:   PUSH    H
+        MOV     E,M
+        INX     H
+        MOV     D,M             ;DE = v
+        MOV     H,D
+        MOV     L,E
+        DAD     H
+        DAD     H               ;H = v/64
+        MOV     C,H
+        MOV     A,H
+        RLC
+        SBB     A
+        MOV     B,A             ;BC = v/64, sign extended
+        MOV     A,E
+        SUB     C
+        MOV     E,A
+        MOV     A,D
+        SBB     B
+        MOV     D,A             ;DE = v - v/64
+        MOV     A,D
+        ORA     A
+        JM      FRNEG
+        CPI     VMAXH
+        JC      FRST
+        LXI     D,VMAXH*256-1
+        JMP     FRST
+FRNEG:  CPI     256-VMAXH
+        JNC     FRST
+        LXI     D,0-VMAXH*256
+FRST:   POP     H
+        MOV     M,E
+        INX     H
+        MOV     M,D
+        RET
+;
+; FIRE -- a shot from the nose, at the ship's velocity plus SHOTV
+;
+FIRE:   LXI     H,PSHOTS
+        MVI     B,NPSHOT
+        CALL    FINDFR
+        RC
+        PUSH    H
+        CALL    NCLR
+        LXI     H,NOSEV
+        CALL    HIDX
+        CALL    LDW
+        PUSH    H
+        LHLD    OX
+        DAD     D
+        MOV     A,H
+        ANI     3
+        MOV     H,A
+        SHLD    NX
+        POP     H
+        CALL    LDW
+        LHLD    OY
+        DAD     D
+        SHLD    NY
+        LXI     H,NY+1
+        CALL    WRAPYM
+        LXI     H,SHOTV
+        CALL    HIDX
+        CALL    LDW
+        PUSH    H
+        LHLD    OVX
+        DAD     D
+        SHLD    NVX
+        POP     H
+        CALL    LDW
+        LHLD    OVY
+        DAD     D
+        SHLD    NVY
+        MVI     A,K_SHOT
+        STA     NACT
+        MVI     A,WHITE+BRIGHT
+        STA     NCOL
+        MVI     A,SHOTL
+        STA     NLIFE
+        MVI     A,2
+        STA     NAUX
+        MVI     A,FCOOLV
+        STA     FCOOL
+        POP     D
+        LXI     H,NEWO
+        JMP     COPY16
+;
+; SPAWNC -- a ship in the middle, still, pointing up; SPAWNS -- the same
+; at SX,SY
+;
+SPAWNC: LXI     H,512
+        SHLD    SX
+        LXI     H,384
+        SHLD    SY
+SPAWNS: CALL    NCLR
+        LHLD    SX
+        SHLD    NX
+        LHLD    SY
+        SHLD    NY
+        MVI     A,K_SHIP
+        STA     NACT
+        LXI     H,SHIP0
+        SHLD    NSHP
+        MVI     A,CYAN+BRIGHT
+        STA     NCOL
+        MVI     A,11
+        STA     NAUX
+        LXI     D,SHIPR
+        LXI     H,NEWO
+        CALL    COPY16
+        XRA     A
+        STA     HEAD
+        STA     SSTATE
+        STA     KTHR
+        STA     KLEFT
+        STA     KRIGHT
+        STA     KFIRE
+        STA     FCOOL
+        LXI     H,0
+        SHLD    FLSHP
+        MVI     A,INVULF
+        STA     INVUL
+        RET
+;
+; SHIPDIE -- the ship is hit
+;
+SHIPDIE: LXI     H,SHIPR
+        CALL    CPYIN
+        CALL    ERASE
+        CALL    ERFLAM
+        XRA     A
+        STA     OACT
+        CALL    CPYOUT
+        LHLD    OX
+        SHLD    NEWXP
+        LHLD    OY
+        SHLD    NEWYP
+        MVI     A,CYAN+BRIGHT
+        MVI     B,10
+        CALL    SPDEB
+        LXI     H,LIVES
+        DCR     M
+        LDA     HUDDRT
+        ORI     2
+        STA     HUDDRT
+        MVI     A,1
+        STA     SSTATE
+        MOV     A,M             ;the next ship on the next frame; GAME
+        ORA     A               ;OVER DEADF frames on
+        MVI     A,1
+        JNZ     SHDD
+        MVI     A,DEADF
+SHDD:   STA     DEADT
+        RET
+;
+; CLEARCK -- CY if a rock, the raider or a raider shot is within CLRAD
+; pixels of SX,SY
+;
+CLEARCK: LXI    H,RAIDR         ;the raider, then its shots: consecutive
+        MVI     B,1+NRSHOT
+        CALL    CLRLP
+        RC
+        LXI     H,ROCKS
+        MVI     B,NROCKS
+CLRLP:
+CCLP:   MOV     A,M
+        ORA     A
+        JZ      CCNX
+        MVI     C,CLRAD
+        CALL    HITT
+        RC
+CCNX:   LXI     D,RSZ
+        DAD     D
+        DCR     B
+        JNZ     CCLP
+        ORA     A
+        RET
+
+;
+;
+; ================= the raider =================
+;
+; RAIDCK -- count down to the next raider; it starts on the left or
+; right edge and crosses the screen
+;
+RAIDCK: LDA     RAIDR
+        ORA     A
+        RNZ
+        LDA     SSTATE
+        ORA     A
+        RNZ
+        LHLD    RTIMER
+        DCX     H
+        SHLD    RTIMER
+        MOV     A,H
+        ORA     L
+        RNZ
+        CALL    SETRT
+        CALL    NCLR
+        CALL    RAND
+        MOV     A,L
+        ANI     1
+        LXI     H,RSPDV
+        LXI     D,0
+        JZ      RK1
+        LXI     H,0-RSPDV
+        LXI     D,1023
+RK1:    SHLD    NVX
+        XCHG
+        SHLD    NX
+        CALL    RAND
+        MOV     A,H
+        ANI     1
+        MOV     H,A
+        LXI     D,100
+        DAD     D               ;Y 100..611
+        SHLD    NY
+        MVI     A,K_RAID
+        STA     NACT
+        LXI     H,RAIDS
+        SHLD    NSHP
+        MVI     A,MAGENTA+BRIGHT
+        STA     NCOL
+        MVI     A,16
+        STA     NAUX
+        LXI     D,RAIDR
+        LXI     H,NEWO
+        CALL    COPY16
+        LXI     H,RLEFTV
+        SHLD    RLEFT
+        MVI     A,RTURN
+        STA     RTT
+        LDA     RFIREV
+        STA     RFT
+        RET
+;
+; SETRT -- the frames to the next raider and between its shots, for
+; this wave
+;
+SETRT:  LDA     WAVE
+        MOV     B,A
+        LXI     H,RTBASE
+        LXI     D,0-RTSTEP
+SRL:    DCR     B
+        JZ      SR2
+        JM      SR2
+        DAD     D
+        JMP     SRL
+SR2:    MOV     A,H
+        ORA     A
+        JM      SR3
+        LXI     D,0-RTMIN
+        PUSH    H
+        DAD     D               ;CY if HL >= RTMIN
+        POP     H
+        JC      SR4
+SR3:    LXI     H,RTMIN
+SR4:    SHLD    RTIMER
+        CALL    RAND
+        MOV     A,L
+        ANI     63
+        MOV     E,A
+        MVI     D,0
+        LHLD    RTIMER
+        DAD     D
+        SHLD    RTIMER
+        LDA     WAVE
+        ADD     A
+        MOV     B,A
+        MVI     A,RFBASE
+        SUB     B
+        JC      SR5
+        CPI     RFMIN
+        JNC     SR6
+SR5:    MVI     A,RFMIN
+SR6:    STA     RFIREV
+        RET
+;
+; RAIDST -- a frame of the raider: drift, now and then change course,
+; leave when it has crossed the screen, and fire
+;
+RAIDST: LDA     RAIDR
+        ORA     A
+        RZ
+        LXI     H,RAIDR
+        CALL    CPYIN
+        CALL    ERASE
+        LHLD    RLEFT
+        DCX     H
+        SHLD    RLEFT
+        MOV     A,H
+        ORA     L
+        JNZ     RS1
+        XRA     A               ;gone
+        STA     OACT
+        JMP     CPYOUT
+RS1:    LXI     H,RTT
+        DCR     M
+        JNZ     RS2
+        MVI     M,RTURN
+        CALL    RAND
+        MOV     A,L
+        ANI     3               ;0, 1 level; 2 up; 3 down
+        LXI     H,0
+        CPI     2
+        JC      RS1A
+        LXI     H,RVYV
+        JZ      RS1A
+        LXI     H,0-RVYV
+RS1A:   SHLD    OVY
+RS2:    CALL    INTEG
+        CALL    DRAWO
+        LDA     GSTATE
+        ORA     A
+        JZ      CPYOUT
+        LDA     SSTATE
+        ORA     A
+        JNZ     CPYOUT
+        LXI     H,RFT
+        DCR     M
+        JNZ     CPYOUT
+        LDA     RFIREV
+        MOV     M,A
+        CALL    RFIRE
+        JMP     CPYOUT
+;
+; RFIRE -- a raider shot (OBJ = the raider), aimed at the ship to 1/128
+; of a turn. From wave 2 it aims where the ship will be when the shot
+; gets there, if the ship coasts. A random error of up to AIME
+; steps either way (3 on wave 1, 2 on wave 2, 1 on waves 3 and 4) is
+; gone from wave 5.
+;
+RFIRE:  LXI     H,RSHOTS
+        MVI     B,NRSHOT
+        CALL    FINDFR
+        RC
+        PUSH    H
+        LHLD    OX
+        XCHG
+        LHLD    SHIPR+R_X
+        CALL    SUBHD
+        SHLD    ADX
+        LHLD    OY
+        XCHG
+        LHLD    SHIPR+R_Y
+        CALL    SUBHD
+        SHLD    ADY
+        LDA     WAVE
+        CPI     2
+        JC      RFNL
+        LHLD    ADX             ;the shot's flight: (|dx|+|dy|)/8 frames,
+        CALL    ABSHL           ;60 at most
+        XCHG
+        LHLD    ADY
+        CALL    ABSHL
+        DAD     D
+        CALL    SRLHL
+        CALL    SRLHL
+        CALL    SRLHL
+        MOV     A,H
+        ORA     A
+        JNZ     RFT2
+        MOV     A,L
+        CPI     61
+        JC      RFT3
+RFT2:   MVI     A,60
+RFT3:   MOV     E,A             ;friction: it coasts EFFT[t] frames' worth
+        MVI     D,0
+        LXI     H,EFFT
+        DAD     D
+        MOV     A,M
+        STA     LEADT
+        LHLD    SHIPR+R_VX      ;where the ship will be then
+        CALL    LEAD
+        XCHG
+        LHLD    ADX
+        DAD     D
+        SHLD    ADX
+        LHLD    SHIPR+R_VY
+        CALL    LEAD
+        XCHG
+        LHLD    ADY
+        DAD     D
+        SHLD    ADY
+RFNL:   CALL    ATAN
+        MOV     C,A             ;C = the aim, 0..127
+        LDA     WAVE            ;B = the error limit
+        MVI     B,3
+        CPI     2
+        JC      RFE
+        MVI     B,2
+        CPI     3
+        JC      RFE
+        MVI     B,1
+        CPI     5
+        JC      RFE
+        MVI     B,0
+RFE:    MOV     A,B
+        ORA     A
+        MOV     A,C
+        JZ      RFH
+        MOV     A,B             ;2B+1 choices
+        ADD     A
+        INR     A
+        MOV     D,A
+        CALL    RAND
+        MOV     A,L
+        ANI     7FH
+RFM:    CMP     D               ;A mod (2B+1)
+        JC      RFM2
+        SUB     D
+        JMP     RFM
+RFM2:   SUB     B
+        ADD     C
+        ANI     127
+RFH:    STA     SPDIR
+        CALL    NCLR
+        LHLD    OX
+        SHLD    NX
+        LHLD    OY
+        SHLD    NY
+        LXI     H,RSHV
+        LDA     SPDIR
+        CALL    TIDXW
+        CALL    LDW
+        XCHG
+        SHLD    NVX
+        XCHG
+        CALL    LDW
+        XCHG
+        SHLD    NVY
+        MVI     A,K_RSH
+        STA     NACT
+        MVI     A,RED+BRIGHT
+        STA     NCOL
+        MVI     A,RSHL
+        STA     NLIFE
+        MVI     A,2
+        STA     NAUX
+        POP     D
+        LXI     H,NEWO
+        JMP     COPY16
+;
+; HITRD -- the raider at HL is hit
+;
+HITRD:  CALL    KILLR
+        LHLD    OX
+        SHLD    NEWXP
+        LHLD    OY
+        SHLD    NEWYP
+        MVI     A,MAGENTA+BRIGHT
+        MVI     B,8
+        JMP     SPDEB
+;
+; ATAN -- A = the aim (0 up, 128 a turn, CCW) of ADX,ADY
+;
+ATAN:   LHLD    ADX
+        MOV     A,H
+        STA     SGNX
+        ORA     A
+        CM      NEGHL
+        SHLD    AAX
+        LHLD    ADY
+        MOV     A,H
+        STA     SGNY
+        ORA     A
+        CM      NEGHL
+ATSC:   MOV     A,H             ;halve both until they are below 1024,
+        ANI     0FCH            ;so smaller*64 fits
+        MOV     B,A
+        LDA     AAX+1
+        ANI     0FCH
+        ORA     B
+        JZ      ATSC2
+        CALL    SRLHL
+        PUSH    H
+        LHLD    AAX
+        CALL    SRLHL
+        SHLD    AAX
+        POP     H
+        JMP     ATSC
+ATSC2:  XCHG                    ;DE = |dy|
+        LHLD    AAX             ;HL = |dx|
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        MVI     A,0
+        JNC     AT1
+        MVI     A,1             ;|dy| is the larger
+        XCHG
+AT1:    STA     AYBIG           ;HL = the larger, DE = the smaller
+        MOV     A,H
+        ORA     L
+        JZ      ATZERO
+        SHLD    AMAX
+        XCHG
+        DAD     H
+        DAD     H
+        DAD     H
+        DAD     H
+        DAD     H
+        DAD     H
+        XCHG                    ;DE = smaller*64
+        LHLD    AMAX
+        MVI     C,0             ;C = smaller*64/larger, 0..64
+ATDL:   MOV     A,E
+        SUB     L
+        MOV     B,A
+        MOV     A,D
+        SBB     H
+        JC      ATD2
+        MOV     D,A
+        MOV     E,B
+        INR     C
+        JMP     ATDL
+ATD2:   MOV     E,C
+        MVI     D,0
+        LXI     H,ATN64
+        DAD     D
+        MOV     C,M             ;C = the angle from the axis, 0..16
+        LDA     SGNX            ;B bit 7: subtract it from the base
+        MOV     B,A
+        LDA     SGNY
+        XRA     B
+        ANI     80H
+        MOV     B,A
+        LDA     AYBIG
+        ORA     A
+        JZ      ATB1
+        MOV     A,B
+        XRI     80H
+        MOV     B,A
+        LDA     SGNY            ;from +Y (32) or -Y (96)
+        ORA     A
+        MVI     D,32
+        JM      ATB2
+        JMP     ATB4
+ATB2:   MVI     D,96
+        JMP     ATB4
+ATB1:   LDA     SGNX            ;from +X (0) or -X (64)
+        ORA     A
+        MVI     D,0
+        JM      ATB3
+        JMP     ATB4
+ATB3:   MVI     D,64
+ATB4:   MOV     A,B
+        ORA     A
+        MOV     A,C
+        JM      ATNEG
+        ADD     D
+        JMP     ATH
+ATNEG:  CMA
+        INR     A
+        ADD     D
+ATH:    SUI     32              ;from +X to the aim's 0, up
+        ANI     127
+        RET
+ATZERO: XRA     A
+        RET
+;
+;
+; ================= collisions =================
+;
+; COLLID -- shots against rocks and the raider; the ship against rocks,
+; the raider and its shots
+;
+COLLID: LXI     H,PSHOTS
+        MVI     B,NPSHOT
+COLP:   MOV     A,M
+        ORA     A
+        JZ      COLNX
+        PUSH    B
+        PUSH    H
+        CALL    SETSXY
+        CALL    SHOTHT
+        POP     H
+        POP     B
+COLNX:  LXI     D,RSZ
+        DAD     D
+        DCR     B
+        JNZ     COLP
+        LDA     SSTATE
+        ORA     A
+        RNZ
+        LDA     INVUL
+        ORA     A
+        RNZ
+        LXI     H,SHIPR
+        CALL    SETSXY
+        LXI     H,ROCKS
+        MVI     B,NROCKS
+CSLP:   MOV     A,M
+        ORA     A
+        JZ      CSNX
+        CALL    GETAUX
+        ADI     4
+        MOV     C,A
+        CALL    HITT
+        JNC     CSNX
+        CALL    HITROCK
+        JMP     SHIPDIE
+CSNX:   LXI     D,RSZ
+        DAD     D
+        DCR     B
+        JNZ     CSLP
+        LXI     H,RAIDR
+        MOV     A,M
+        ORA     A
+        JZ      CSR
+        MVI     C,24
+        CALL    HITT
+        JNC     CSR
+        CALL    HITRD
+        JMP     SHIPDIE
+CSR:    LXI     H,RSHOTS
+        MVI     B,NRSHOT
+CRLP:   MOV     A,M
+        ORA     A
+        JZ      CRNX
+        MVI     C,10
+        CALL    HITT
+        JNC     CRNX
+        CALL    KILLR
+        JMP     SHIPDIE
+CRNX:   LXI     D,RSZ
+        DAD     D
+        DCR     B
+        JNZ     CRLP
+        RET
+;
+; SHOTHT -- the shot at HL (its X,Y in SX,SY) against the rocks and the
+; raider
+;
+SHOTHT: SHLD    SHREC
+        LXI     H,ROCKS
+        MVI     B,NROCKS
+SHLP:   MOV     A,M
+        ORA     A
+        JZ      SHNX
+        CALL    GETAUX
+        ADI     2
+        MOV     C,A
+        CALL    HITT
+        JNC     SHNX
+        CALL    HITROCK
+        LHLD    SHREC
+        JMP     KILLR
+SHNX:   LXI     D,RSZ
+        DAD     D
+        DCR     B
+        JNZ     SHLP
+        LXI     H,RAIDR
+        MOV     A,M
+        ORA     A
+        RZ
+        MVI     C,20
+        CALL    HITT
+        RNC
+        CALL    HITRD
+        LXI     D,0300H
+        CALL    ADDPTS
+        LHLD    SHREC
+        JMP     KILLR
+;
+; GETAUX -- A = the radius of the record at HL
+;
+GETAUX: PUSH    H
+        LXI     D,R_AUX
+        DAD     D
+        MOV     A,M
+        POP     H
+        RET
+;
+; SETSXY -- SX,SY = the X,Y of the record at HL (HL kept)
+;
+SETSXY: PUSH    H
+        INX     H
+        INX     H
+        CALL    LDW
+        XCHG
+        SHLD    SX
+        XCHG
+        INX     H
+        CALL    LDW
+        XCHG
+        SHLD    SY
+        POP     H
+        RET
+;
+; HITT -- CY if the record at HL is within C pixels of SX,SY on both
+; axes. Keeps HL and BC.
+;
+HITT:   PUSH    H
+        INX     H
+        INX     H
+        MOV     E,M
+        INX     H
+        MOV     D,M             ;DE = X
+        INX     H
+        INX     H
+        PUSH    H               ;-> Y
+        LHLD    SX
+        CALL    ABSD
+        MOV     A,H
+        ORA     A
+        JNZ     HTNO2
+        MOV     A,L
+        CMP     C
+        JNC     HTNO2
+        POP     H
+        MOV     E,M
+        INX     H
+        MOV     D,M
+        LHLD    SY
+        CALL    ABSD
+        MOV     A,H
+        ORA     A
+        JNZ     HTNO1
+        MOV     A,L
+        CMP     C
+        POP     H
+        RET
+HTNO2:  POP     H
+HTNO1:  POP     H
+        ORA     A
+        RET
+;
+; KILLR -- erase the record at HL and free it. OBJ keeps its copy.
+;
+KILLR:  CALL    CPYIN
+        CALL    ERASE
+        XRA     A
+        STA     OACT
+        JMP     CPYOUT
+;
+; ADDPTS -- the score += DE (BCD); a ship more at each 10,000
+;
+ADDPTS: LDA     SCORE+2
+        MOV     C,A
+        LDA     SCORE
+        ADD     E
+        DAA
+        STA     SCORE
+        LDA     SCORE+1
+        ADC     D
+        DAA
+        STA     SCORE+1
+        LDA     SCORE+2
+        ACI     0
+        DAA
+        STA     SCORE+2
+        CMP     C
+        JZ      ADP1
+        LDA     LIVES
+        CPI     9
+        JNC     ADP0
+        INR     A
+        STA     LIVES
+ADP0:   LDA     HUDDRT
+        ORI     2
+        STA     HUDDRT
+ADP1:   LDA     HUDDRT
+        ORI     1
+        STA     HUDDRT
+        RET
+;
+;
+; ================= moving and drawing objects =================
+;
+; STEPAR -- a frame of every object in the B records at HL: erase,
+; count down its life, move and draw. NACTV = how many there were.
+;
+STEPAR: XRA     A
+        STA     NACTV
+STPLP:  MOV     A,M
+        ORA     A
+        JZ      STPNX
+        PUSH    B
+        PUSH    H
+        LDA     NACTV
+        INR     A
+        STA     NACTV
+        CALL    CPYIN
+        CALL    ERASE
+        LDA     OLIFE
+        ORA     A
+        JZ      STPMV
+        DCR     A
+        STA     OLIFE
+        JNZ     STPMV
+        XRA     A               ;its time is up: leave it erased
+        STA     OACT
+        JMP     STPOUT
+STPMV:  CALL    INTEG
+        CALL    DRAWO
+STPOUT: CALL    CPYOUT
+        POP     H
+        POP     B
+STPNX:  LXI     D,RSZ
+        DAD     D
+        DCR     B
+        JNZ     STPLP
+        RET
+;
+; CPYIN -- the record at HL into OBJ; CPYOUT -- back again
+;
+CPYIN:  SHLD    RECP
+        LXI     D,OBJ
+        JMP     COPY16
+CPYOUT: LHLD    RECP
+        XCHG
+        LXI     H,OBJ
+;
+; COPY16 -- 16 bytes from HL to DE
+;
+COPY16:
+        REPT    16
+        MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        ENDR
+        RET
+;
+; NCLR -- clear NEWO, the record being built
+;
+NCLR:   LXI     H,NEWO
+        MVI     B,RSZ
+        XRA     A
+NCLP:   MOV     M,A
+        INX     H
+        DCR     B
+        JNZ     NCLP
+        RET
+;
+; FINDFR -- HL = the first free of the B records at HL, NC; CY if none
+;
+FINDFR: LXI     D,RSZ
+FFLP:   MOV     A,M
+        ORA     A
+        RZ
+        DAD     D
+        DCR     B
+        JNZ     FFLP
+        STC
+        RET
+;
+; PUTNEW -- NEWO into the first free of the B records at HL (dropped if
+; there is none)
+;
+PUTNEW: CALL    FINDFR
+        RC
+        XCHG
+        LXI     H,NEWO
+        JMP     COPY16
+;
+; INTEG -- OBJ moves one frame, wrapping round the screen
+;
+INTEG:  LHLD    OVX
+        XCHG
+        LXI     H,OXF
+        CALL    ADDAX
+        LDA     OX+1            ;X mod 1024
+        ANI     03H
+        STA     OX+1
+        LHLD    OVY
+        XCHG
+        LXI     H,OYF
+        CALL    ADDAX
+        LXI     H,OY+1
+;
+; WRAPYM -- the Y whose high byte is at HL, mod 768 (0300H)
+;
+WRAPYM: MOV     A,M
+        ORA     A
+        JM      WYNEG
+        CPI     3
+        RC
+        SUI     3
+        MOV     M,A
+        RET
+WYNEG:  ADI     3
+        MOV     M,A
+        RET
+;
+; ADDAX -- the 16.8 position at HL (fraction first) += DE (8.8)
+;
+ADDAX:  MOV     A,D
+        RLC
+        SBB     A
+        MOV     B,A             ;the sign of DE
+        MOV     A,M
+        ADD     E
+        MOV     M,A
+        INX     H
+        MOV     A,M
+        ADC     D
+        MOV     M,A
+        INX     H
+        MOV     A,M
+        ADC     B
+        MOV     M,A
+        RET
+;
+; ERASE -- erase OBJ if it is drawn. DRAWO -- draw it again (XOR: on or
+; off), which flips its DRAWN bit.
+;
+ERASE:  LDA     OACT
+        ANI     DRAWN
+        RZ
+DRAWO:  LDA     OACT
+        XRI     DRAWN
+        STA     OACT
+        LDA     NDRAW
+        INR     A
+        STA     NDRAW
+        LHLD    OSHP
+        LDA     OCOL
+;
+; DRAWSH -- draw shape HL in colour A at OBJ's X,Y, and again across the
+; wrap when OBJ is within its radius (+10) of an edge
+;
+DRAWSH: SHLD    SHPP
+        CALL    SETCOL
+        LHLD    OY
+        XCHG
+        LHLD    OX
+        CALL    DRAW1
+        LDA     OAUX
+        CPI     4
+        RC
+        ADI     10
+        STA     GRAD
+        XRA     A
+        STA     GXF
+        STA     GYF
+        LDA     GRAD            ;X near 0: +1024; near 1023: -1024
+        MOV     E,A
+        MVI     D,0
+        LHLD    OX
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        JNC     DSX2
+        LXI     D,1024
+        DAD     D
+        JMP     DSX3
+DSX2:   PUSH    H
+        DAD     D
+        MOV     A,H
+        POP     H
+        CPI     4
+        JC      DSY
+        LXI     D,0-1024
+        DAD     D
+DSX3:   SHLD    GX
+        MVI     A,1
+        STA     GXF
+DSY:    LDA     GRAD            ;Y near 0: +768; near 767: -768
+        MOV     E,A
+        MVI     D,0
+        LHLD    OY
+        MOV     A,L
+        SUB     E
+        MOV     A,H
+        SBB     D
+        JNC     DSY2
+        LXI     D,768
+        DAD     D
+        JMP     DSY3
+DSY2:   PUSH    H
+        DAD     D
+        MOV     A,H
+        POP     H
+        CPI     3
+        JC      DSG
+        LXI     D,0-768
+        DAD     D
+DSY3:   SHLD    GY
+        MVI     A,1
+        STA     GYF
+DSG:    LDA     GXF
+        ORA     A
+        JZ      DSG2
+        LHLD    OY
+        XCHG
+        LHLD    GX
+        CALL    DRAW1
+DSG2:   LDA     GYF
+        ORA     A
+        RZ
+        LHLD    GY
+        XCHG
+        LHLD    OX
+        CALL    DRAW1
+        LDA     GXF
+        ORA     A
+        RZ
+        LHLD    GY
+        XCHG
+        LHLD    GX
+;
+; DRAW1 -- shape SHPP (0: a box) at HL,DE: AMOVE to its first vertex,
+; then RPLG with its deltas. Sent with FSEND, a FIFO-load at a time.
+;
+DRAW1:  PUSH    D
+        XCHG
+        LHLD    SHPP
+        MOV     A,H
+        ORA     L
+        JZ      DRBOX
+        MOV     A,M
+        STA     HDRP+1          ;RPLG's n
+        ADD     A
+        STA     DRN             ;words of deltas
+        INX     H
+        MOV     C,M             ;BC = the first vertex's X
+        INX     H
+        MOV     B,M
+        INX     H
+        XCHG                    ;HL = X, DE -> its Y
+        DAD     B
+        SHLD    HDRX
+        XCHG
+        MOV     C,M             ;BC = its Y
+        INX     H
+        MOV     B,M
+        INX     H
+        XTHL                    ;HL = Y, the deltas on the stack
+        DAD     B
+        SHLD    HDRY
+        MVI     A,OPRPLG
+        MVI     B,5             ;AMOVE X,Y; RPLG n
+        CALL    DRHDR
+        POP     D
+        LDA     DRN
+        MOV     B,A
+        JMP     FSEND
+DRBOX:  POP     H               ;HL = Y, DE = X
+        SHLD    HDRY
+        XCHG
+        SHLD    HDRX
+        LXI     H,BOXSZ*256     ;RFRC BOXSZ,BOXSZ (high byte first)
+        SHLD    HDRP
+        SHLD    HDRP+2
+        MVI     A,OPRFRC
+        MVI     B,6
+;
+; DRHDR -- send the B words at HDR: AMOVE HDRX,HDRY, then command A in
+; the drawing mode with the parameters at HDRP. HDRX and HDRY are
+; stored the Intel way and swapped here.
+;
+DRHDR:  STA     HDRC
+        LDA     CZDM
+        STA     HDRC+1
+        LHLD    HDRX
+        MOV     A,H
+        MOV     H,L
+        MOV     L,A
+        SHLD    HDRX
+        LHLD    HDRY
+        MOV     A,H
+        MOV     H,L
+        MOV     L,A
+        SHLD    HDRY
+        CALL    CZSYNC
+        LXI     D,HDR
+;
+; FSEND -- send B words (high byte first) from DE to the ACRTC's write
+; FIFO: wait until it is empty, then put in up to 8 words, its depth,
+; without looking, and again. Much faster than a CZPUTW each.
+;
+FSEND:  MOV     A,B
+        CPI     9
+        JC      FS1
+        MVI     A,8
+FS1:    MOV     C,A             ;C = words this time
+        ADD     A
+        ADD     A
+        ADD     A
+        CMA
+        INR     A
+        MOV     L,A
+        MVI     H,0FFH          ;HL = -8C
+        PUSH    D
+        LXI     D,FSBEND
+        DAD     D               ;into FSBLK, 2C units before its end
+        POP     D
+        CALL    FSWAIT
+        PCHL
+FSRET:  MOV     A,B
+        SUB     C
+        MOV     B,A
+        JNZ     FSEND
+        RET
+;
+; SETCOL -- the drawing colour A, unless it is already
+;
+SETCOL: PUSH    H
+        LXI     H,LCOL
+        CMP     M
+        POP     H
+        RZ
+        STA     LCOL
+        JMP     CZCOL
+;
+;
+; ================= the overlay: score, ships, messages =================
+;
+; OVON1 -- draw on the overlay, in replace mode, bits on; OVOFF1 -- back
+; to the XOR playfield
+;
+OVON1:  GOVL
+        GMODE   0
+        GCOLOR  OVSET
+        GBCOL   OVCLR
+        RET
+OVOFF1: GFRAME
+        GMODE   OMEOR+AMCLIP
+        MVI     A,1
+        STA     LCOL
+        RET
+;
+; HUDUPD -- redraw what HUDDRT says changed: 1 score, 2 ships, 4 wave,
+; 8 high score
+;
+HUDUPD: LDA     HUDDRT
+        ORA     A
+        RZ
+        CALL    OVON1
+        GTATTR  2,0,TXOPAQ
+        LDA     HUDDRT
+        ANI     1
+        JZ      HU2
+        GTPOS   24,738
+        LXI     H,SCORE
+        CALL    BCD6
+        LXI     H,NUMBUF
+        MVI     B,6
+        GTSTR
+HU2:    LDA     HUDDRT
+        ANI     8
+        JZ      HU3
+        GTPOS   400,738
+        GTEXT   "HI "
+        LXI     H,HISC
+        CALL    BCD6
+        LXI     H,NUMBUF
+        MVI     B,6
+        GTSTR
+HU3:    LDA     HUDDRT
+        ANI     4
+        JZ      HU4
+        GTPOS   820,738
+        GTEXT   "WAVE "
+        LDA     WAVE
+        CALL    DEC2
+        LXI     H,NUMBUF
+        MVI     B,2
+        GTSTR
+HU4:    LDA     HUDDRT
+        ANI     2
+        CNZ     LIVDRW
+        XRA     A
+        STA     HUDDRT
+        JMP     OVOFF1
+;
+; LIVDRW -- a small ship for each one left
+;
+LIVDRW: GCOLOR  OVCLR
+        GMOVE   20,694
+        GFRECT  220,730
+        GCOLOR  OVSET
+        LDA     LIVES
+        ORA     A
+        RZ
+        MOV     B,A
+        LXI     H,LIFEIC
+        SHLD    SHPP
+        LXI     H,32
+LVLP:   PUSH    B
+        PUSH    H
+        LXI     D,712
+        CALL    DRAW1
+        POP     H
+        LXI     D,22
+        DAD     D
+        POP     B
+        DCR     B
+        JNZ     LVLP
+        RET
+;
+; BCD6 -- NUMBUF = the 6-digit BCD number at HL (low byte first)
+;
+BCD6:   INX     H
+        INX     H
+        LXI     D,NUMBUF
+        MVI     B,3
+BCLP:   MOV     A,M
+        RRC
+        RRC
+        RRC
+        RRC
+        ANI     0FH
+        ADI     '0'
+        STAX    D
+        INX     D
+        MOV     A,M
+        ANI     0FH
+        ADI     '0'
+        STAX    D
+        INX     D
+        DCX     H
+        DCR     B
+        JNZ     BCLP
+        RET
+;
+; DEC2 -- NUMBUF = A (0..99) as two digits
+;
+DEC2:   MVI     B,'0'
+D2LP:   CPI     10
+        JC      D2X
+        SUI     10
+        INR     B
+        JMP     D2LP
+D2X:    ADI     '0'
+        STA     NUMBUF+1
+        MOV     A,B
+        STA     NUMBUF
+        RET
+;
+;
+; ================= small helpers =================
+;
+LDW:    MOV     E,M             ;DE = word at HL, HL += 2
+        INX     H
+        MOV     D,M
+        INX     H
+        RET
+;
+NEGHL:  MOV     A,L
+        CMA
+        MOV     L,A
+        MOV     A,H
+        CMA
+        MOV     H,A
+        INX     H
+        RET
+;
+SUBHD:  MOV     A,L             ;HL = HL - DE
+        SUB     E
+        MOV     L,A
+        MOV     A,H
+        SBB     D
+        MOV     H,A
+        RET
+;
+ABSD:   CALL    SUBHD           ;HL = |HL - DE|
+        ORA     A
+        JM      NEGHL
+        RET
+;
+; ABSHL -- HL = |HL|
+;
+ABSHL:  MOV     A,H
+        ORA     A
+        JM      NEGHL
+        RET
+;
+; SRLHL -- HL = HL/2, unsigned; SRAHL -- HL = HL/2, signed
+;
+SRLHL:  ORA     A
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        RET
+;
+SRAHL:  MOV     A,H
+        RAL
+        MOV     A,H
+        RAR
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     L,A
+        RET
+;
+; LEAD -- HL = the 8.8 velocity HL times LEADT frames, in pixels:
+; (HL/4 * LEADT)/64, so it can't overflow
+;
+LEAD:   CALL    SRAHL
+        CALL    SRAHL
+        XCHG
+        LDA     LEADT
+        CALL    MULK
+        MVI     B,6
+LDL:    CALL    SRAHL
+        DCR     B
+        JNZ     LDL
+        RET
+;
+; TIDXW -- HL = &table[A], 4 bytes an entry, A up to 255
+;
+TIDXW:  MOV     E,A
+        MVI     D,0
+        XCHG
+        DAD     H
+        DAD     H
+        DAD     D
+        RET
+;
+; HIDX -- HL = &table[HEAD], 4 bytes an entry; TIDX -- &table[A]
+;
+HIDX:   LDA     HEAD
+TIDX:   ADD     A
+        ADD     A
+        MOV     E,A
+        MVI     D,0
+        DAD     D
+        RET
+;
+; MULK -- HL = DE * A (A small, DE signed)
+;
+MULK:   LXI     H,0
+        ORA     A
+        RZ
+MKLP:   DAD     D
+        DCR     A
+        JNZ     MKLP
+        RET
+;
+; RAND -- 16-bit xorshift (7,9,8): SEED = next value, returned in HL.
+; Preserves BC, DE.
+;
+RAND:   LHLD    SEED
+        MOV     A,H             ;x ^= x << 7
+        RAR
+        MOV     A,L
+        RAR
+        XRA     H
+        MOV     H,A
+        MOV     A,L
+        RAR
+        MOV     A,H
+        RAR
+        XRA     L
+        MOV     L,A             ;x ^= x >> 9
+        XRA     H               ;x ^= x << 8
+        MOV     H,A
+        SHLD    SEED
+        RET
+;
+; RANDY -- DE = a random Y, 0..766. Keeps HL, BC.
+;
+RANDY:  PUSH    H
+        CALL    RAND
+        MOV     A,H
+        ANI     1
+        MOV     D,A
+        MOV     E,L             ;0..511
+        CALL    RAND
+        MOV     A,L
+        ADD     E
+        MOV     E,A
+        MVI     A,0
+        ADC     D
+        MOV     D,A             ;+0..255
+        POP     H
+        RET
+;
+; ================= the ACRTC ports (FSEND's own) =================
+;
+; On the real board the opcode fetched after an IN or OUT to the ACRTC
+; must have A1 = 0 after port 70H (ACRSR) and A1 = 1 after 72H (ACRDAT),
+; as cz88gfx 1.5's CZPORT does it: an ACRSR access at an address 2 or 3
+; mod 4, an ACRDAT one at 0 or 1. Only these two routines touch them.
+;
+; FSWAIT -- wait until the write FIFO is empty
+;
+        ALIGN   4
+        DEFS    2
+FSWAIT: IN      ACRSR           ;2      next 0
+        ANI     SRWFE           ;0
+        JZ      FSWAIT          ;1
+        RET
+;
+; FSBLK -- 16 bytes from DE to the FIFO; FSEND enters 2 units of 4
+; bytes a word before the end
+;
+        ALIGN   4
+        DEFS    3
+FSBLK:
+        REPT    16
+        LDAX    D               ;3
+        OUT     ACRDAT          ;0      next 2
+        INX     D               ;2
+        ENDR
+FSBEND: JMP     FSRET
+;
+;
+; ================= data =================
+;
+MSGHI:  DB      "ROCKFALL -- W thrust, A/D turn, space fire, P pause, Q quit",CR,LF,"$"
+MSGBYE: DB      "ROCKFALL over.",CR,LF,"$"
+;
+STARC:  DB      BLUE+16,WHITE+12,CYAN+14,BLUE+24
+LCOLS:  DB      ORANGE+31,ORANGE+24,ORANGE+28,YELLOW+22
+MCOLS:  DB      RED+31,RED+24,MAGENTA+24,RED+28
+SCOLS:  DB      YELLOW+31,YELLOW+22,WHITE+24,GREEN+24
+SHPTBS: DW      ROCKLT,ROCKMT,ROCKST    ;by size: large, medium, small
+COLTBS: DW      LCOLS,MCOLS,SCOLS
+AUXTB:  DB      36,22,13                ;radii
+;
+        INCLUDE "RFTAB.INC"
+;
+SEED:   DW      0ACE1H
+LCOL:   DB      1               ;the colour last set (1: none, never used)
+HISC:   DB      0,0,0           ;high score, BCD, low byte first
+;
+OLDSP:  DS      2
+FRAMEC: DS      2
+GSTATE: DS      1               ;0 title/game over, 1 playing
+SSTATE: DS      1               ;0 ship flying, 1 lost (DEADT counting)
+DEADT:  DS      1
+LIVES:  DS      1
+WAVE:   DS      1
+WQUOTA: DS      1               ;large rocks still to come this wave
+MINBIG: DS      1               ;large and medium rocks kept in play
+TOPT:   DS      1               ;frames to the next one
+PRESS:  DS      1
+PRESSC: DS      2
+NACTV:  DS      1
+NDRAW:  DS      1
+KCNT:   DS      1
+KTHR:   DS      1               ;hold counts
+KLEFT:  DS      1
+KRIGHT: DS      1
+KFIRE:  DS      1
+FCOOL:  DS      1
+HEAD:   DS      1               ;0..31, 0 up, CCW
+THRON:  DS      1
+INVUL:  DS      1
+FLSHP:  DS      2               ;the flame shape drawn, 0 none
+SCORE:  DS      3               ;BCD, low byte first
+HUDDRT: DS      1
+NUMBUF: DS      6
+RLEFT:  DS      2               ;raider: frames left to cross
+RTT:    DS      1               ;frames to its next turn
+RFT:    DS      1               ;frames to its next shot
+RFIREV: DS      1               ;frames between its shots
+RTIMER: DS      2               ;frames to the next raider
+SHPP:   DS      2               ;DRAWSH/DRAW1
+DRN:    DS      1
+HDR:    DB      80H,0           ;AMOVE
+HDRX:   DS      2
+HDRY:   DS      2
+HDRC:   DS      2               ;RPLG n, or RFRC dX,dY
+HDRP:   DS      4
+GRAD:   DS      1
+GXF:    DS      1
+GYF:    DS      1
+GX:     DS      2
+GY:     DS      2
+RECP:   DS      2               ;CPYIN's record
+SX:     DS      2               ;HITT's point
+SY:     DS      2
+SHREC:  DS      2
+NEWXP:  DS      2               ;NEWROCK, SPDEB: where
+NEWYP:  DS      2
+SPDIR:  DS      1               ;NEWROCK, RFIRE: which way
+NRSZ:   DS      1
+NRK:    DS      1
+NRV:    DS      1
+SPSTEP: DS      1               ;HITROCK
+SPSZ:   DS      1
+LEADT:  DS      1               ;RFIRE
+DCOL:   DS      1
+ADX:    DS      2               ;ATAN
+ADY:    DS      2
+AAX:    DS      2
+AMAX:   DS      2
+SGNX:   DS      1
+SGNY:   DS      1
+AYBIG:  DS      1
+;
+; OBJ -- the record being worked on (CPYIN/CPYOUT)
+;
+OBJ:
+OACT:   DS      1
+OXF:    DS      1
+OX:     DS      2
+OYF:    DS      1
+OY:     DS      2
+OVX:    DS      2
+OVY:    DS      2
+OSHP:   DS      2
+OCOL:   DS      1
+OLIFE:  DS      1
+OAUX:   DS      1
+;
+; NEWO -- a record being built (NCLR, then PUTNEW or COPY16)
+;
+NEWO:
+NACT:   DS      1
+NXF:    DS      1
+NX:     DS      2
+NYF:    DS      1
+NY:     DS      2
+NVX:    DS      2
+NVY:    DS      2
+NSHP:   DS      2
+NCOL:   DS      1
+NLIFE:  DS      1
+NAUX:   DS      1
+;
+ARRBEG:
+SHIPR:  DS      RSZ
+RAIDR:  DS      RSZ
+RSHOTS: DS      RSZ*NRSHOT      ;straight after RAIDR (CLEARCK)
+PSHOTS: DS      RSZ*NPSHOT
+ROCKS:  DS      RSZ*NROCKS
+DEBR:   DS      RSZ*NDEBR
+ARREND:
+        DS      128
+STACK:
