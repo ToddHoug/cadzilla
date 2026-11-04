@@ -8,18 +8,20 @@
 ; then clears the screen and the overlay. The mode is given as a
 ; descriptor:
 ;
-;   CZM640  640x480  (VESA 640x480@60)
-;   CZM800  800x600  (VESA 800x600@60)
-;   CZM1K   1024x768 (VESA 1024x768@60, the board's default strap)
+;   CZM640  640x480  (VESA 640x480@60, 25.175 MHz, interleaved access)
+;   CZM800  800x600  (VESA 800x600@60, 40 MHz)
+;   CZM1K   1024x768 (1024x768@60 from 64 MHz, the board's default strap)
 ;
 ; The monitor must be strapped for the same mode (cad0 `mode` in the
 ; project's machine file) -- the board doesn't reject a mismatch, it just
-; shows the picture in the wrong place. All are 8 bpp, single access, one
-; base screen at frame buffer word 0, with the drawing origin at the
-; bottom-left pixel (Y up).
+; shows the picture in the wrong place. All are 8 bpp, one base screen
+; at frame buffer word 0, with the drawing origin at the bottom-left
+; pixel (Y up). 640x480 uses interleaved access, for drawing speed; the
+; others single access.
 ;
 ; A descriptor is:
-;   DB  MODE register value
+;   DB  MODE register value (its AMODE bit also picks OMR's access
+;       mode: ACM=10 interleaved when set, ACM=00 single when clear)
 ;   DW  mode control register table (CZRTAB format; it also sets MWR0,
 ;       the overlay's CHR screen)
 ;   DW  mode drawing parameters: DPMLEN FIFO words (ADR limits, the
@@ -37,6 +39,7 @@
         PUBLIC  CZINIT,CZM640,CZM800,CZM1K,CZXMAX,CZYMAX,CZCLS,CZPDEF
         PUBLIC  CZOCLS,CZMREG,CZDPB
         EXTRN   CZRTAB,CZSEND,CZPUTW,CZLDW,CZPALD,CZDM,CZCCR,CZSTF,CZWAIT
+        EXTRN   CZWREG
 ;
 DPMLEN  EQU     7               ;words in a mode drawing parameter block
 ;
@@ -57,14 +60,23 @@ CZINIT: XRA     A               ;drawing mode: replace, CMSEL, no area
         INX     H               ;OLEN (overlay hidden), OLSEL 0
         STA     CZMREG
         OUT     MODEREG
+        ANI     MDAMOD          ;OMR low byte: RAM=1, GAI=011 +8, and
+        JZ      INSGL           ;ACM to match AMODE
+        MVI     A,08H           ;ACM=10 interleaved
+INSGL:  ORI     0B0H
+        STA     OMRLO
         CALL    CZLDW           ;DE = mode control register table
         PUSH    H
         LXI     H,RPRE          ;abort, 8 bpp, display stopped and off
         CALL    CZRTAB
+        MVI     H,80H           ;OMR: still stopped, this mode's ACM
+        CALL    WOMR
         XCHG
         CALL    CZRTAB          ;timing for this mode
-        LXI     H,RPOST         ;everything else, display started
-        CALL    CZRTAB          ;(leaves AR = r00 for the FIFO)
+        LXI     H,RPOST         ;everything else
+        CALL    CZRTAB
+        MVI     H,0C0H          ;OMR: STR=1 - start, display running
+        CALL    WOMR            ;(leaves AR = r00 for the FIFO)
         CALL    CZPALD          ;Bt453 default palette
         LXI     H,DPCOM         ;drawing parameters common to all modes
         LXI     B,(DPCEND-DPCOM)/2
@@ -165,6 +177,14 @@ OCLSH:  ORA     A
         POP     B
         RET
 ;
+; WOMR -- write OMR: H = its high byte, the low byte from OMRLO.
+; Clobbers A, B, L.
+;
+WOMR:   LDA     OMRLO
+        MOV     L,A
+        MVI     B,04H
+        JMP     CZWREG
+;
 ; NEGYM -- HL = -CZYMAX
 ;
 NEGYM:  LHLD    CZYMAX
@@ -216,10 +236,12 @@ WMAX:   DW      319
 ;
 CZMREG: DB      03H
 CZDPB:  DW      D640
+OMRLO:  DB      0B0H            ;OMR low byte for the current mode
 ;
 ; ---- mode descriptors ----
 ;
-CZM640: DB      03H             ;MODE: HSPOL=VSPOL=1 (negative), single
+CZM640: DB      07H             ;MODE: HSPOL=VSPOL=1 (negative),
+                                ;AMODE=1 interleaved
         DW      R640
         DW      D640
         DW      639,479,319
@@ -241,18 +263,31 @@ RPRE:   DB      02H             ;CCR: ABT - abort, flush FIFOs
         DB      02H             ;CCR: GBM=011 8 bpp, no interrupts
         DW      0300H
         DB      04H             ;OMR: M/S=1, STR=0 (stopped), RAM=1
-        DW      80B0H           ;  static RAM, GAI=011 +8, ACM=00 single
+        DW      80B0H           ;  static RAM, GAI=011 +8 (CZINIT then
+                                ;  sets the mode's ACM: OMRLO)
         DB      06H             ;DCR: all screens off while programming
         DW      0000H
         DB      0FFH
 ;
-; Timing, 16 pixels per memory cycle (8 words, GAI +8). Values from
-; the board's VESA mode table (altairsim docs/boards/cadzilla.md).
+; Timing, as measured on the real chip (docs/design/video-timing-test.md),
+; which differs from the manual in two ways:
+; - it stretches a front porch shorter than 5 memory cycles, where the
+;   front porch is HC+1 - HSW - (HDS+1) - (HDW+1);
+; - single access makes HDW+2 fetches a line, the first one cycle before
+;   ~DISP1, and the board shows every fetch: HDW = fetches - 2. Interleaved
+;   access fetches every second cycle, starting 2 cycles before ~DISP1,
+;   again one more than ~DISP1 covers: HDW+1 = 2 * (fetches - 1).
+; A single access memory cycle is 16 pixels (8 words, GAI +8).
 ;
-R640:   DB      82H             ;HSR: HC=49 (50 cycles), HSW=6
-        DW      3106H
-        DB      84H             ;HDR: HDS=2, HDW=39 (40 cycles = 640 px)
-        DW      0227H
+; 640x480 is interleaved (MODE AMODE=1, OMR ACM=10), so its horizontal
+; registers count 8-pixel memory cycles, and it needs the 25.175 MHz
+; oscillator: AMODE=1 with the 64 MHz one gives a 16 MHz 2CLK, twice the
+; HD63484-8's rating.
+;
+R640:   DB      82H             ;HSR: HC=99 (100 cycles), HSW=12
+        DW      630CH
+        DB      84H             ;HDR: HDS=3, HDW=77: 40 fetches (every
+        DW      034DH           ;  second cycle) = 640 px
         DB      86H             ;VSR: VC=525 rasters
         DW      020DH
         DB      88H             ;VDR: VDS=32, VSW=2
@@ -265,10 +300,12 @@ R640:   DB      82H             ;HSR: HC=49 (50 cycles), HSW=6
         DW      8028H
         DB      0FFH
 ;
-R800:   DB      82H             ;HSR: HC=65 (66 cycles), HSW=8
-        DW      4108H
-        DB      84H             ;HDR: HDS=5, HDW=49 (50 cycles = 800 px)
-        DW      0531H
+; 800x600: 40 MHz, single access
+;
+R800:   DB      82H             ;HSR: HC=65 (66 cycles), HSW=7
+        DW      4107H
+        DB      84H             ;HDR: HDS=4, HDW=48: the chip fetches
+        DW      0430H           ;  HDW+2 = 50 fetches = 800 px
         DB      86H             ;VSR: VC=628 rasters
         DW      0274H
         DB      88H             ;VDR: VDS=22, VSW=4
@@ -281,10 +318,12 @@ R800:   DB      82H             ;HSR: HC=65 (66 cycles), HSW=8
         DW      8032H
         DB      0FFH
 ;
-R1K:    DB      82H             ;HSR: HC=83 (84 cycles), HSW=8
-        DW      5308H
-        DB      84H             ;HDR: HDS=9, HDW=63 (64 cycles = 1024 px)
-        DW      093FH
+; 1024x768: 64 MHz (65 MHz parts are hard to find), single access
+;
+R1K:    DB      82H             ;HSR: HC=83 (84 cycles), HSW=6
+        DW      5306H
+        DB      84H             ;HDR: HDS=8, HDW=62: the chip fetches
+        DW      083EH           ;  HDW+2 = 64 fetches = 1024 px
         DB      86H             ;VSR: VC=806 rasters
         DW      0326H
         DB      88H             ;VDR: VDS=28, VSW=6
@@ -335,9 +374,7 @@ RPOST:  DB      8CH             ;SP0: upper screen (disabled)
         DW      0000H
         DB      06H             ;DCR: SE1 - base screen displayed
         DW      4000H
-        DB      04H             ;OMR: as above with STR=1 - start
-        DW      0C0B0H
-        DB      0FFH
+        DB      0FFH            ;(then CZINIT starts the display: OMR)
 ;
 ; ---- drawing parameters, streamed through the FIFO as words ----
 ;

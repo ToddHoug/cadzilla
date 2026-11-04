@@ -42,7 +42,7 @@
 ; one in its software/<toolchain>/<project>/czgfx.version and builds against its own
 ; copy of it (tools/altairsim/scripts/attach_libdisk.sh).
 ;
-CZVERS  EQU     0104H           ;1.4
+CZVERS  EQU     0105H           ;1.5
 ;
 ;
 ; ---- board I/O map: one 8-port block, base set by SW1-1..SW1-5 ----
@@ -57,6 +57,7 @@ DACOVL  EQU     CZBASE+7        ;Bt453 overlay colors (R,G,B)
 ;
 ; ---- MODE register bits (write-only: CZMREG keeps its value) ----
 ;
+MDAMOD  EQU     04H             ;interleaved access (U48 divides by 4)
 MDOLEN  EQU     08H             ;overlay shown
 MDOLSL  EQU     10H             ;overlay half a CHR screen draws (A16)
 ;

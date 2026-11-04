@@ -55,6 +55,14 @@ size `at (0,0)`). Name the descriptor explicitly even for 640x480 —
 `GINIT` with no argument means `CZM640`, which no longer matches the
 default machine.
 
+The timing is the real chip's, measured on the board
+(`docs/design/video-timing-test.md`): 1024x768 from a 64 MHz oscillator
+and 800x600 from 40 MHz, both single access, and 640x480 from 25.175 MHz
+in interleaved access (MODE AMODE=1, OMR ACM=10), for drawing speed.
+`CZINIT` takes OMR's access mode from the descriptor's MODE byte: AMODE
+set means interleaved. altairsim still follows the manual's horizontal
+rules, so its picture may sit 16 px off the real board's.
+
 ### Default palette
 
 Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
