@@ -49,7 +49,7 @@
 ; <major>.<minor>/ (CZ88GFX.LIB and this file); each project pins one in
 ; its software/<toolchain>/<project>/cz88gfx.version.
 ;
-CZ88VER EQU     0105H           ;1.5
+CZ88VER EQU     0106H           ;1.6
 ;
 ; ---- the library's symbols (see each module for its entry conditions) ----
 ;
@@ -84,6 +84,7 @@ DACOVL  EQU     CZBASE+7        ;Bt453 overlay colors (R,G,B)
 ;
 ; ---- MODE register bits (write-only: CZMREG keeps its value) ----
 ;
+MDAMOD  EQU     04H             ;interleaved access (U48 divides by 4)
 MDOLEN  EQU     08H             ;overlay shown
 MDOLSL  EQU     10H             ;overlay half a CHR screen draws (A16)
 ;

@@ -605,7 +605,7 @@ NEARL:  MOV     E,M
         DB      ", the one this mode needs$"
 NEARX:  JMP     CRLF
 NEARN:  CALL    PINFO
-        DB      "that matches none of 25.175, 40 or 65 MHz$"
+        DB      "that matches none of 25.175, 40 or 64 MHz$"
         RET
 ;
 CPY32L: PUSH    B               ;(HL) = (DE), 4 bytes
@@ -681,7 +681,7 @@ FRT1:   DW      0               ;the first frame's passes
 FPS:    DB      0,0,0,0         ;frames per second x 100
 CLK2:   DW      0               ;2CLK, kHz
 PCLK:   DW      0               ;PCLK, kHz
-OSCTAB: DW      25175,40000,65000,0
+OSCTAB: DW      25175,40000,64000,0
 ;
 N8080:  DB      "8080$"
 N8085:  DB      "8085$"
