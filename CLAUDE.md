@@ -217,6 +217,10 @@ re-sends its whole history every turn.
   anything. It boots a copy of the disk from the fdcsds server, so local
   rebuilds don't reach it. After a hang, stop and reboot without a bus
   reset. Send paced keystrokes, and CR as hex 0D.
+  - Always reach the Altair through the serial MCP server (`serial.*`,
+    `paced.*` tools), never with your own pyserial script or another
+    program on the port. A long run goes to a subagent that holds the
+    MCP port.
 - **altairsim is not the real chip.** It models none of the real-chip hangs
   (ELPS limit, PAINT seeds, stop-mode read-back, second-program hang); see
   the `acrtc-*` memory notes and verify with I/O traces.
