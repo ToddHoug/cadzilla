@@ -142,7 +142,9 @@ MODELD: DB      0               ;LDMODE has run
 MODES:  DW      M640,M800,M1K
 NMODES  EQU     3
 ;
-M640:   DB      MDHSP+MDVSP     ;negative syncs, single access
+M640:   DB      MDHSP+MDVSP     ;negative syncs, single access (czgfx and
+                                ;  cz88gfx run it interleaved, but czdiag
+                                ;  never sets AMODE)
         DW      R640,D640
         DW      639,479,319
         DW      50,525          ;HC+1, VC
@@ -158,7 +160,7 @@ M1K:    DB      MDHSP+MDVSP
         DW      R1K,D1K
         DW      1023,767,511
         DW      84,806
-        DW      65000           ;VESA 1024x768@60
+        DW      64000           ;1024x768@59, 64 MHz (VESA: 65)
         DW      N1K
 ;
 N640:   DB      "640x480$"
@@ -177,12 +179,16 @@ RPRE:   DB      RCCR            ;ABT: abort, flush the FIFOs
         DW      0000H
         DB      0FFH
 ;
-; Timing, 16 pixels per memory cycle (8 words, GAI +8)
+; Timing, 16 pixels per memory cycle (8 words, GAI +8). The real chip
+; fetches HDW+2 words a line in single access, one before ~DISP1, and
+; U48 shows them all, so HDW = words - 2. And it stretches any front
+; porch, HC+1 - HSW - (HDS+1) - (HDW+1), shorter than 5 cycles. Measured
+; on board B, 2026-11-04 (docs/design/video-timing-test.md).
 ;
-R640:   DB      82H             ;HSR: HC=49, HSW=6
-        DW      3106H
-        DB      84H             ;HDR: HDS=2, HDW=39
-        DW      0227H
+R640:   DB      82H             ;HSR: HC=49, HSW=4
+        DW      3104H
+        DB      84H             ;HDR: HDS=1, HDW=38 (40 words shown)
+        DW      0126H
         DB      86H             ;VSR: VC=525
         DW      020DH
         DB      88H             ;VDR: VDS=32, VSW=2
@@ -195,10 +201,10 @@ R640:   DB      82H             ;HSR: HC=49, HSW=6
         DW      8028H
         DB      0FFH
 ;
-R800:   DB      82H             ;HSR: HC=65, HSW=8
-        DW      4108H
-        DB      84H             ;HDR: HDS=5, HDW=49
-        DW      0531H
+R800:   DB      82H             ;HSR: HC=65, HSW=7
+        DW      4107H
+        DB      84H             ;HDR: HDS=4, HDW=48 (50 words shown)
+        DW      0430H
         DB      86H             ;VSR: VC=628
         DW      0274H
         DB      88H             ;VDR: VDS=22, VSW=4
@@ -211,10 +217,10 @@ R800:   DB      82H             ;HSR: HC=65, HSW=8
         DW      8032H
         DB      0FFH
 ;
-R1K:    DB      82H             ;HSR: HC=83, HSW=8
-        DW      5308H
-        DB      84H             ;HDR: HDS=9, HDW=63
-        DW      093FH
+R1K:    DB      82H             ;HSR: HC=83, HSW=6
+        DW      5306H
+        DB      84H             ;HDR: HDS=8, HDW=62 (64 words shown)
+        DW      083EH
         DB      86H             ;VSR: VC=806
         DW      0326H
         DB      88H             ;VDR: VDS=28, VSW=6

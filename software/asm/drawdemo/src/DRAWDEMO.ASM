@@ -3248,7 +3248,9 @@ RILOOP: MOV     A,M
 ;
 ; Control register table: DB register / DW value, 0FFH ends.
 ; 1024x768 single access, 16 pixels per memory cycle (8 words, GAI +8).
-; Timing from the board's VESA mode table (altairsim docs/boards/cadzilla.md).
+; Timing for 1024x768 from a 64 MHz oscillator, as measured on the real
+; chip (docs/design/video-timing-test.md): its front porch must be at
+; least 5 cycles, and it fetches HDW+2 words a line.
 ;
 REGTAB: DB      02H             ;CCR: ABT - abort, flush FIFOs
         DW      8300H
@@ -3258,10 +3260,10 @@ REGTAB: DB      02H             ;CCR: ABT - abort, flush FIFOs
         DW      80B0H           ;  static RAM, GAI=011 +8, ACM=00 single
         DB      06H             ;DCR: all screens off while programming
         DW      0000H
-        DB      82H             ;HSR: HC=83 (84 cycles), HSW=8
-        DW      5308H
-        DB      84H             ;HDR: HDS=9, HDW=63 (64 cycles = 1024 px)
-        DW      093FH
+        DB      82H             ;HSR: HC=83 (84 cycles), HSW=6
+        DW      5306H
+        DB      84H             ;HDR: HDS=8, HDW=62: the chip fetches
+        DW      083EH           ;  HDW+2 = 64 words = 1024 px
         DB      86H             ;VSR: VC=806 rasters
         DW      0326H
         DB      88H             ;VDR: VDS=28, VSW=6

@@ -261,7 +261,7 @@ SETRWP: PUSH    D
 ;
 ; SETMODE -- MODE register = A, kept in MODESH (MODE can't be read).
 ; AMODE is never set: it would make 2CLK pixel clock / 4, about 16 MHz
-; from a 65 MHz oscillator, twice the HD63484-8's rating.
+; from a 64 MHz oscillator, twice the HD63484-8's rating.
 ;
 SETMODE: ANI    1FH-MDAMOD
         STA     MODESH

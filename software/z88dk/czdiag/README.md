@@ -74,8 +74,15 @@ The menu has the same seven stages as keys `1`-`7`, plus:
   czdiag prints a warning naming what to check: Y1, U48 (2CLK), U45 (CS, RDY)
   and SW1.
 - **czdiag never sets MODE AMODE (bit 2).** AMODE makes U48 divide by 4
-  instead of 8. With the 65 MHz oscillator, that gives a 16.25 MHz 2CLK, twice
-  the HD63484-8's rating. Peek/poke masks AMODE out as well.
+  instead of 8. With the 64 MHz oscillator, that gives a 16 MHz 2CLK, twice
+  the HD63484-8's rating. Peek/poke masks AMODE out as well. So czdiag runs
+  640x480 in single access, where czgfx and cz88gfx run it interleaved. Its
+  picture and clock readings are still right with a 25.175 MHz oscillator.
+- **The mode tables follow the real chip, not the manual** (measured on
+  board B, 2026-11-04; `docs/design/video-timing-test.md`). The chip makes
+  HDW+2 display fetches a line, and U48 shows them all, so HDW is the width
+  in words minus 2. A front porch shorter than 5 memory cycles after ~DISP1
+  is stretched to 5. 1024x768 assumes a 64 MHz oscillator, not VESA's 65.
 - **CCR interrupt enables are never set.** SW1-8 may connect the ACRTC's IRQ
   to the bus.
 - **The base address is fixed at build time,** because the 8080's `IN` and
@@ -94,7 +101,7 @@ The menu has the same seven stages as keys `1`-`7`, plus:
 | **MODE** | Writes the mode's MODE value. Base+1 and +3 are read and shown as INFO: no chip drives them, so the bus floats | MODE can't be read back. OLSEL is checked by OVL. OLEN and the sync polarities can only be checked by eye (`V`) |
 | **ACRTC** | Abort, then SR = 23H (an LPD bit set is reported separately). With the display stopped (STR=0), every bit of timing RAM r82-r9C and display-control RAM rC0-rEA is walked (36 patterns; r9E is skipped, it is the chip's work area). Then a different value goes into every register and all are read back. AR auto-increments from r80 up, on writes and on reads, but not below r80. DCR's ATR byte is walked, CCR's GBM is set to 0-4, and OMR bits 13-0 are walked. Last, the mode is loaded and every register is read back | U45 chip select and RS, AR, both halves of every register, D0-D7 through the ACRTC, and AR decode |
 | **FIFO** | Drawing parameter registers Pr00-Pr0D with all patterns, through WPR and RPR; every bit must read back, including the ones the manual says always read 0 (see below). The 16-word pattern RAM with 3 patterns, through WPTN (n in words, see below) and RPTN. A command sent half-way must leave CED clear, and AMOVE must move CP (read back with RPR, including negative values). The FIFO flags: RPTN of 16 words fills the 8-word read FIFO (RFF and RFR must set) and stalls, so 8 more words fill the write FIFO (WFR and WFE must clear); then everything drains (CED set, RFR clear). An undefined command (0000H) must set CER, and abort must clear it | Both FIFOs, the command processor, and the status register's bits in both states |
-| **CLOCK** | Samples the raster counter RCR 512 times: it must change, stay within 0..VC-1, and keep bits 15-12 at 0. Then it times 4 frames by RCR's wrap with a loop of known cycle count (290/268/277 cycles per pass on an 8080/8085/Z80, detected at run time) and works out the frame rate, raster rate, 2CLK and pixel clock. These are compared with the mode's own (25.175/40/65 MHz) and with the standard oscillators. Last, whether STR=0 held a CLR is reported (the manual says it does, the real chip doesn't), and STR=1 must let it finish | See "Can the host see the clocks?" below |
+| **CLOCK** | Samples the raster counter RCR 512 times: it must change, stay within 0..VC-1, and keep bits 15-12 at 0. Then it times 4 frames by RCR's wrap with a loop of known cycle count (290/268/277 cycles per pass on an 8080/8085/Z80, detected at run time) and works out the frame rate, raster rate, 2CLK and pixel clock. These are compared with the mode's own (25.175/40/64 MHz) and with the standard oscillators. Last, whether STR=0 held a CLR is reported (the manual says it does, the real chip doesn't), and STR=1 must let it finish | See "Can the host see the clocks?" below |
 | **FRAME** | In each of the 8 banks, all 16 data bits (36 patterns at words 0-7). Bank select: words 0-15, two of each bank, take different values. Every address line: in each bank, words b and b+2^k (k = 3..19, the chips' A0-A16) take different values, and all are written before any is read. Then an address-in-address march (DWT writes, DRD reads, then all of it again complemented): quick by default, or every word with `FULL` | U11-U18, the bank decode U56-U58, the address latches U49/U50, and the data buffers |
 | **OVL** | The same tests on U19, through the never-displayed CHR screen (DN 0): data bits, address lines A0-A15 in both halves, and a march. OLSEL must pick the half: word 0 of each half holds a different value | U19, the drawing-side address mux, and MODE OLSEL (U41) driving U19 A16 |
 
