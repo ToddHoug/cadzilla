@@ -109,6 +109,14 @@ board doesn't reject a mismatch. The picture just lands in the wrong place in
 the monitor's frame, which `board_get cad0`'s `picture` line shows; it should
 read the mode's full size `at (0,0)`.
 
+The timing is the real chip's, measured on the board
+(`docs/design/video-timing-test.md`): 1024x768 from a 64 MHz oscillator and
+800x600 from 40 MHz, both single access, and 640x480 from 25.175 MHz in
+interleaved access (MODE AMODE=1, OMR ACM=10), for drawing speed. `CZINIT`
+takes OMR's access mode from the descriptor's MODE byte: AMODE set means
+interleaved. altairsim still follows the manual's horizontal rules, so its
+picture may sit 16 px off the real board's.
+
 ### Default palette
 
 Index = hue × 32 + level. The hues are `ORANGE` 0, `BLUE` 32, `GREEN` 64,
