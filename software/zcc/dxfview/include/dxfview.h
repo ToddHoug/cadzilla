@@ -40,8 +40,9 @@ extern unsigned char rd_buf[];  /* its 512-byte buffer (a redraw's, too) */
 
 /* ---- dxfscan.c ---- */
 
-#define LAYMAX  96
-#define BLKMAX  160
+/* 96 and 160 before cz88gfx 1.6, which is 1.2 KB bigger and took that heap */
+#define LAYMAX  64
+#define BLKMAX  96
 #define LF_FROZEN 1             /* LAYER group 70, bit 0 */
 
 struct layer {

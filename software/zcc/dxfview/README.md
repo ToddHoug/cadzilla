@@ -136,10 +136,12 @@ A regen is needed only for these:
 ### Memory
 
 This CP/M's BDOS is at CE06H, and the CCP at C600H, so a `.COM` must end
-below C600H to load at all. DXFVIEW is about 46 KB. Above it, the heap holds
-the layer table (96 layers), the block table (160 blocks) and a pool of
-about 1.3 KB for their names. Below the BDOS is 2.5 KB of stack: SHUTTLE uses
-under 2 KB of it. Nothing else of the drawing is in RAM: the file is read
+below C600H to load at all. DXFVIEW is about 47 KB. Above it, the heap holds
+the layer table (64 layers), the block table (96 blocks) and a pool of about
+1 KB for their names. Below the BDOS is 2.25 KB of stack: SHUTTLE uses under
+2 KB of it. (Moving to cz88gfx 1.6 made the program 1.2 KB bigger, so the
+tables went down from 96 layers and 160 blocks, and the stack from 2.5 KB;
+the sample drawings use at most 8 layers and 11 blocks.) Nothing else of the drawing is in RAM: the file is read
 from the disk, and the display list is in video memory. The DXF reader's
 512-byte buffer is used again for the display-list chunks during a redraw.
 

@@ -1,6 +1,7 @@
 # floats: the transforms, the view and the DXF numbers (math32 on the 8080)
 -lm
-# 2.5K of stack; the rest of the TPA above the program is the heap (dxfscan.c)
--pragma-define:CRT_STACK_SIZE=2560
+# 2.25K of stack (SHUTTLE uses under 2K); the rest of the TPA above the
+# program is the heap (dxfscan.c)
+-pragma-define:CRT_STACK_SIZE=2304
 # one open file: the drawing (the default keeps FCBs for three)
 -pragma-define:CLIB_OPEN_MAX=1
