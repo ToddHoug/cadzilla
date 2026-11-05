@@ -81,3 +81,16 @@ are 1 M and 2 M by the manual, against 2 M here).
   firstdraw, drawdemo and ddcz `DM1K.ASM`.
 - czdiag's CLOCK stage works its PCLK out from HC+1, so it's only right once
   the tables are.
+
+## Results: 640x480 interleaved on a monitor
+
+2026-11-04, board B with the 25.175 MHz oscillator. TESTPAT (czgfx 1.5) `M 6`
+sets MODE 07H, OMR ACM=10, HSR 630CH and HDR 034DH. On the monitor:
+- Screen 1 (border): correct, every edge pixel visible.
+- Screen 7 (overlay bands): yellow covers red exactly. With the overlay
+  hidden, the red staircase matches it. The overlay stays registered in
+  interleaved access.
+- Screen C (checkerboards): 1x1, 2x2, vertical and horizontal 1-on-1-off
+  lines are all crisp, with no smear or shimmer.
+
+No scope readings were taken in this run.
