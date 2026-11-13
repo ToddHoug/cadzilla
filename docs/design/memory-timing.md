@@ -203,6 +203,38 @@ ALE closes U49/U50 at most 10 ns after ~AS rises (U55). The 74ALS573 needs
   F3 + 62.5, it reaches MA by 76.5 ns, inside the 95 ns budget above. The
   concern is driver stress, not timing.
 
+## Bt453 inputs
+
+The Bt453 latches P0–P7, OL0 and ~BLANK on the rising PCLK edge. The 74F676s
+shift on the falling edge. T is the PCLK period.
+
+- **Pixels:** half a PCLK less the 74F676 CP-to-SO delay (4.5–13.5 ns at
+  50 pF, 9 typical). At 64 MHz half a PCLK is 7.8 ns, so this is tight. It
+  works on board B, where SO drives one input.
+- **~BLANK, revision 1 boards (U48 rev 05):** a race. ~BLANK changes on the
+  rising oscillator edge and the Bt453 latches it on that same PCLK edge.
+  - It works because PCLK drives nine 74F676s and the Bt453, and arrives
+    later than the lightly loaded ~BLANK.
+  - The margin is that skew less the Bt453 setup time. It is not designed in.
+  - Measured on board B: the picture is right at 640x480 and 1024x768.
+  - U48 rev 04 changed ~BLANK one PCLK earlier and expected the next edge to
+    latch it. The Bt453 caught it at once, so the leftmost pixel showed the
+    74F676 serial-in zeros and the rightmost was blanked.
+  - Inverting PCLK does not help: the 74F676 load edge then lands where
+    PLOAD and FETCH change.
+- **Revision 2 boards:** the Bt453 CLOCK will come from the oscillator
+  through a single inverter, separate from the shift-register PCLK. The
+  Bt453 then latches on the edge that shifts the 74F676s.
+  - ~BLANK gets about T/2 of setup and T/2 of hold.
+  - Pixels get a full T less CP-to-SO; hold is CP-to-SO itself, 4.5 ns
+    minimum.
+  - The Bt453 clock must not arrive more than about 2 ns after the 74F676
+    clock. The loading already favours this.
+  - At 64 MHz the 13.5 ns maximum CP-to-SO leaves about 2 ns before Bt453
+    setup and skew. Check the Bt453 setup and hold figures before the
+    schematic is changed.
+  - The U48 rev 05 equations are the ones that fit this clocking.
+
 ## 2CLK
 
 | Check | 8 MHz | 8.125 MHz |
@@ -224,6 +256,8 @@ ALE closes U49/U50 at most 10 ns after ~AS rises (U55). The 74ALS573 needs
   that is unspecified or tracks on the same die.
 - Running 1024x768 from a 65 MHz pixel clock puts 2CLK 1.6% above the
   HD63484-8's rating.
+- ~BLANK into the Bt453 is a race on revision 1 boards. It works on board
+  B, and revision 2 removes it (see "Bt453 inputs").
 
 ## To measure on hardware
 
