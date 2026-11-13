@@ -1,7 +1,7 @@
 Name     U48 ;
 PartNo   00 ;
-Date     10/02/26 ;
-Revision 04 ;
+Date     11/12/26 ;
+Revision 05 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board ;
@@ -47,6 +47,25 @@ Device   G16V8MS ;
  * half of the fetch cycle. The 74F676 loads on the falling PCLK edge in
  * the middle of that pulse. Cycles without a fetch don't load, and leave
  * BLANK set, so any word that wasn't fetched is black.
+ *
+ * BLANK follows the loads one PCLK late (rev 05): it changes on the edge
+ * that ends PLOAD. Measured on board B, 640x480 interleaved and 1024x768
+ * single: with BLANK changing on the same edge as PLOAD, the Bt453 showed
+ * BLANK one pixel ahead of the data. The leftmost pixel of every line was
+ * the 74F676 serial-in zeros, shown before the falling PCLK edge that
+ * loads the word, and the rightmost pixel was blanked.
+ *
+ * Race on revision 1 boards: the Bt453 latches BLANK on the same rising
+ * PCLK edge that changes it. That works only because PCLK, loaded by the
+ * nine 74F676s and the Bt453, reaches the Bt453 later than the lightly
+ * loaded BLANK does (measured on board B; good at 640x480 and 1024x768).
+ * The margin is that skew less the Bt453 setup time, and is not designed
+ * in. Inverting PCLK here would move the race to PLOAD at the 74F676s.
+ *
+ * Revision 2 boards: the Bt453 CLOCK will come from the oscillator
+ * through a single inverter, not from PCLK. The Bt453 then latches on the
+ * edge that shifts the 74F676s, so BLANK gets half a PCLK of setup and
+ * hold and the pixels a full PCLK. These equations stay as they are.
  *   AMODE = 0 (single):      2CLK = PCLK/8, memory cycle = 16 PCLK,
  *                            count = TWOCLK:PCLK4:PCLK2 (0..7 per half).
  *   AMODE = 1 (interleaved): 2CLK = PCLK/4, memory cycle = 8 PCLK,
@@ -119,22 +138,26 @@ FETCH.D  = AS
 PLOAD.D   = LD ;
 OLPLOAD.D = LD & OLEN ;                 /* OLEN = 0: U6 shifts in zeros */
 
-/* PCLK4: divider bit in single mode; PREV in interleaved mode, recording
- * at each load point whether that memory cycle loaded. */
-PCLK4.D  = !AMODE & (PCLK4 $ PCLK2)
-         #  AMODE & (E1 & FETCH # !E1 & PCLK4) ;
+/* Blank points: one PCLK after the load points, the last PCLK of the
+ * data half (count 7 single, count 3 interleaved). PLOAD is high there
+ * if this memory cycle loaded. */
+B0 = !AMODE & MCYC & TWOCLK & PCLK4 & PCLK2 ;
+B1 =  AMODE & MCYC & TWOCLK & PCLK2 ;
 
-/* BLANK: cleared by a load. At a load point without a fetch it is set,
- * except in interleaved mode right after a loaded cycle (PREV), when the
- * word fetched in that cycle is still shifting out. Written out so the sum
- * fits in the eight product terms of a registered output. */
-BLANK.D  = E0 & !FETCH
-         # E1 & !PCLK4 & !FETCH
-         # BLANK & !MCYC
-         # BLANK & !TWOCLK
-         # BLANK & PCLK2
-         # BLANK & !AMODE & !PCLK4
-         # BLANK & !FETCH ;
+/* PCLK4: divider bit in single mode; PREV in interleaved mode, recording
+ * at each blank point whether that memory cycle loaded. */
+PCLK4.D  = !AMODE & (PCLK4 $ PCLK2)
+         #  AMODE & (B1 & PLOAD # !B1 & PCLK4) ;
+
+/* BLANK: cleared on the edge that ends PLOAD, one PCLK after the load
+ * strobe starts, so it changes together with the first pixel at the
+ * Bt453. At a blank point without a load it is set, except in interleaved
+ * mode right after a loaded cycle (PREV), when the word fetched in that
+ * cycle is still shifting out. PREV is updated on the same edge, so it
+ * still holds the previous memory cycle here. */
+BLANK.D  = B0 & !PLOAD
+         # B1 & !PCLK4 & !PLOAD
+         # BLANK & !PLOAD ;
 
 /* Pixel clock: combinatorial copy of CXCLK */
 PCLK     = CXCLK_I ;
