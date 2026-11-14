@@ -1,0 +1,115 @@
+Name     U45B ;
+PartNo   00 ;
+Date     11/13/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board, rev B ;
+Location U45 ;
+Device   G16V8MA ;
+
+/* SPDX-License-Identifier: CERN-OHL-P-2.0 */
+/* Copyright (C) 2026 Todd Houg */
+
+/*************************************************************************
+ * U45 - GAL16V8, sheet "S100 Interface" (revision B boards)
+ *
+ * Strobes for the ACRTC (U1 HD63484) and Bt453 RAMDAC (U47) register
+ * ports, plus the RDY wait-state and ~SIXTN 16-bit acknowledge bus
+ * responses.
+ *
+ * IODEC comes from U60: the board's address in an I/O cycle, latched for
+ * the whole bus cycle. It does not move when the address and status
+ * change at the end of the cycle, so nothing here needs to be held.
+ *
+ * Complex mode (G16V8MA): RDY and ~SIXTN are only driven during the
+ * board's own cycles, using .OE product terms, and DONE and CRT_CS need
+ * their pins' feedback. Each output enable is a single product term.
+ * Pins 1 and 11 are ordinary inputs; pins 12 and 19 have no feedback.
+ *
+ * Pin 16 is an internal state bit with no net (DONE). The ACRTC's RS
+ * comes from U46 (B_SA1).
+ *
+ * Compile with no minimization (cupl -m0): the third product term of
+ * DONE is logically redundant and only covers the hazard as CS ends, so
+ * a minimizer would remove it.
+ *
+ * Speed grade: GAL16V8-15 (15 ns) or faster.
+ *
+ * ~DTACK (pin 9) is pulled up by R1 (10K).
+ *
+ * Polarity: pins declared with '!' are active-low; write their equations
+ * in active-true terms (e.g. X = ... asserts the pin LOW).
+ * Pin/net assignments taken from the KiCad schematic, 11/13/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = SA2       ; /* S-100 A2 (P1 pin 81)                                    */
+PIN 2  = SA1       ; /* S-100 A1 (P1 pin 80)                                    */
+PIN 3  = SA0       ; /* S-100 A0 (P1 pin 79)                                    */
+PIN 4  = !pWR      ; /* net p~{WR} - S-100 p~WR (P1 pin 77)                     */
+PIN 5  = pDBIN     ; /* S-100 pDBIN (P1 pin 78)                                 */
+PIN 6  = sOUT      ; /* S-100 sOUT (P1 pin 45)                                  */
+PIN 7  = sINP      ; /* S-100 sINP (P1 pin 46)                                  */
+PIN 8  = !SXTRQ    ; /* net ~{SXTRQ} - S-100 ~SXTRQ (P1 pin 58)                 */
+PIN 9  = !DTACK    ; /* net ~{DTACK} - ACRTC ~DTACK (U1 pin 10), R1 pull-up     */
+PIN 11 = IODEC     ; /* latched board I/O decode from U60 pin 15                */
+
+/* ---- Outputs ---- */
+PIN 12 = !SIXTN    ; /* net ~{SIXTN} - S-100 ~SIXTN (P1 pin 60)                 */
+PIN 13 = !CRT_CS   ; /* net ~{CRT_CS} - ACRTC ~CS (U1 pin 4)                    */
+PIN 14 = CRT_RW    ; /* net CRT_R/~{W} - ACRTC R/~W (U1 pin 3); 1 = read        */
+PIN 15 = RDY       ; /* S-100 RDY (P1 pin 72)                                   */
+PIN 16 = DONE      ; /* internal state, no net: the ACRTC has answered          */
+PIN 17 = !DAC_WR   ; /* net ~{DAC_WR} - Bt453 ~WR (U47 pin 28)                  */
+PIN 18 = !DAC_RD   ; /* net ~{DAC_RD} - Bt453 ~RD (U47 pin 27)                  */
+PIN 19 = !DAC_CS   ; /* net ~{DAC_CS} - Bt453 ~CS (U47 pin 26)                  */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+ACR     = !SA2 & !SA0 ;                    /* ACRTC: +0 (RS=0), +2 (RS=1) */
+
+/* ACRTC. CS is only active inside pDBIN or p~WR. R/W follows the status
+ * and RS (from U46) the address, and both are stable well before the
+ * strobe starts and for the bus hold time after it ends: 50 ns after
+ * pDBIN, 0.2 of a clock cycle after p~WR (IEEE 696 Table 8). CS ends one
+ * GAL delay after the strobe, inside that hold, and so does the write
+ * data, which the ACRTC latches on CS's trailing edge. */
+CRT_CS    = IODEC & ACR & sINP & pDBIN
+          # IODEC & ACR & sOUT & pWR ;
+CRT_RW    = !sOUT ;
+CRT_CS.OE = 'b'1 ;
+CRT_RW.OE = 'b'1 ;
+
+/* RDY is driven for the whole of an ACRTC cycle: low (wait) from the
+ * moment IODEC rises, before the strobes, until the ACRTC answers with
+ * ~DTACK inside CS, then high. An 8080 only asserts p~WR in its wait
+ * states, so the wait must be asked for before the strobe.
+ *
+ * DONE remembers the answer once CS has ended and ~DTACK has gone back
+ * high, so that RDY stays high until IODEC or the ACRTC address goes
+ * away. (The RDY pin's own feedback cannot hold it: while the pin is not
+ * driven it reads the bus.) DONE clears between accesses when IODEC
+ * falls, and also when a new CS starts without ~DTACK. The third term
+ * covers the hazard as CS ends. */
+DONE      = CRT_CS & DTACK
+          # DONE & IODEC & ACR & !CRT_CS
+          # DONE & IODEC & ACR & DTACK ;
+DONE.OE   = 'b'1 ;
+RDY       = DONE
+          # CRT_CS & DTACK ;
+RDY.OE    = IODEC & ACR ;
+
+/* SIXTN: 16-bit transfers only to the ACRTC data register at +2.
+ * Open collector: only driven while asserted. */
+SIXTN     = 'b'1 ;
+SIXTN.OE  = IODEC & ACR & SA1 & SXTRQ ;
+
+/* Bt453: CS for the whole cycle (35 ns setup/hold around RD/WR) */
+DAC_CS    = IODEC & SA2 ;
+DAC_RD    = IODEC & SA2 & sINP & pDBIN ;
+DAC_WR    = IODEC & SA2 & sOUT & pWR ;
+DAC_CS.OE = 'b'1 ;
+DAC_RD.OE = 'b'1 ;
+DAC_WR.OE = 'b'1 ;

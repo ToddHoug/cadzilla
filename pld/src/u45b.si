@@ -1,0 +1,717 @@
+Name     U45B ;
+PartNo   00 ;
+Date     11/13/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board, rev B ;
+Location U45 ;
+Device   G16V8MA ;
+
+/* SPDX-License-Identifier: CERN-OHL-P-2.0 */
+/* Copyright (C) 2026 Todd Houg */
+
+/************************************************************************
+ * U45 test vectors - ACRTC and Bt453 strobes, RDY, SIXTN
+ * Values are pin levels, from a behaviour model. DONE is a latch, so the
+ * vectors run in order: whole bus cycles, each ending with the address
+ * moving on while IODEC is still held. Z = not driven.
+ ************************************************************************/
+
+ORDER: SA2, SA1, SA0, !pWR, pDBIN, sOUT, sINP, !SXTRQ, !DTACK, IODEC, %1, !SIXTN, !CRT_CS, CRT_RW, RDY, DONE, !DAC_WR, !DAC_RD, !DAC_CS;
+
+VECTORS:
+0001000110 ZHHZLHHH  /* in +0: idle */
+0001001111 ZHHLLHHH  /* in +0: IODEC and status, no strobe */
+0001101111 ZLHLLHHH  /* in +0: strobe */
+0001101101 ZLHHHHHH  /* in +0: ~DTACK */
+0001001101 ZHHHHHHH  /* in +0: strobe ends */
+0001001111 ZHHHHHHH  /* in +0: ~DTACK released */
+0001001111 ZHHHHHHH  /* in +0: next address 0, stale status */
+0001000111 ZHHHHHHH  /* in +0: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* in +0: IODEC falls */
+0001000110 ZHHZLHHH  /* in +0: idle */
+0001001111 ZHHLLHHH  /* in +0: IODEC and status, no strobe */
+0001101111 ZLHLLHHH  /* in +0: strobe */
+0001101101 ZLHHHHHH  /* in +0: ~DTACK */
+0001001101 ZHHHHHHH  /* in +0: strobe ends */
+0001001111 ZHHHHHHH  /* in +0: ~DTACK released */
+0101001111 ZHHHHHHH  /* in +0: next address 2, stale status */
+0101000111 ZHHHHHHH  /* in +0: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +0: IODEC falls */
+0001000110 ZHHZLHHH  /* in +0: idle */
+0001001111 ZHHLLHHH  /* in +0: IODEC and status, no strobe */
+0001101111 ZLHLLHHH  /* in +0: strobe */
+0001101101 ZLHHHHHH  /* in +0: ~DTACK */
+0001001101 ZHHHHHHH  /* in +0: strobe ends */
+0001001111 ZHHHHHHH  /* in +0: ~DTACK released */
+1011001111 ZHHZLHHL  /* in +0: next address 5, stale status */
+1011000111 ZHHZLHHL  /* in +0: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* in +0: IODEC falls */
+0001000110 ZHHZLHHH  /* in +0: idle */
+0001001111 ZHHLLHHH  /* in +0: IODEC and status, no strobe */
+0001101111 ZLHLLHHH  /* in +0: strobe */
+0001101101 ZLHHHHHH  /* in +0: ~DTACK */
+0001001101 ZHHHHHHH  /* in +0: strobe ends */
+0001001111 ZHHHHHHH  /* in +0: ~DTACK released */
+1111001111 ZHHZLHHL  /* in +0: next address 7, stale status */
+1111000111 ZHHZLHHL  /* in +0: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* in +0: IODEC falls */
+0001000110 ZHHZLHHH  /* out +0: idle */
+0001010111 ZHLLLHHH  /* out +0: IODEC and status, no strobe */
+0000010111 ZLLLLHHH  /* out +0: strobe */
+0000010101 ZLLHHHHH  /* out +0: ~DTACK */
+0001010101 ZHLHHHHH  /* out +0: strobe ends */
+0001010111 ZHLHHHHH  /* out +0: ~DTACK released */
+0001010111 ZHLHHHHH  /* out +0: next address 0, stale status */
+0001000111 ZHHHHHHH  /* out +0: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* out +0: IODEC falls */
+0001000110 ZHHZLHHH  /* out +0: idle */
+0001010111 ZHLLLHHH  /* out +0: IODEC and status, no strobe */
+0000010111 ZLLLLHHH  /* out +0: strobe */
+0000010101 ZLLHHHHH  /* out +0: ~DTACK */
+0001010101 ZHLHHHHH  /* out +0: strobe ends */
+0001010111 ZHLHHHHH  /* out +0: ~DTACK released */
+0101010111 ZHLHHHHH  /* out +0: next address 2, stale status */
+0101000111 ZHHHHHHH  /* out +0: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +0: IODEC falls */
+0001000110 ZHHZLHHH  /* out +0: idle */
+0001010111 ZHLLLHHH  /* out +0: IODEC and status, no strobe */
+0000010111 ZLLLLHHH  /* out +0: strobe */
+0000010101 ZLLHHHHH  /* out +0: ~DTACK */
+0001010101 ZHLHHHHH  /* out +0: strobe ends */
+0001010111 ZHLHHHHH  /* out +0: ~DTACK released */
+1011010111 ZHLZLHHL  /* out +0: next address 5, stale status */
+1011000111 ZHHZLHHL  /* out +0: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* out +0: IODEC falls */
+0001000110 ZHHZLHHH  /* out +0: idle */
+0001010111 ZHLLLHHH  /* out +0: IODEC and status, no strobe */
+0000010111 ZLLLLHHH  /* out +0: strobe */
+0000010101 ZLLHHHHH  /* out +0: ~DTACK */
+0001010101 ZHLHHHHH  /* out +0: strobe ends */
+0001010111 ZHLHHHHH  /* out +0: ~DTACK released */
+1111010111 ZHLZLHHL  /* out +0: next address 7, stale status */
+1111000111 ZHHZLHHL  /* out +0: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* out +0: IODEC falls */
+0011000110 ZHHZLHHH  /* in +1: idle */
+0011001111 ZHHZLHHH  /* in +1: IODEC and status, no strobe */
+0011101111 ZHHZLHHH  /* in +1: strobe */
+0011101101 ZHHZLHHH  /* in +1: ~DTACK */
+0011001101 ZHHZLHHH  /* in +1: strobe ends */
+0011001111 ZHHZLHHH  /* in +1: ~DTACK released */
+0001001111 ZHHLLHHH  /* in +1: next address 0, stale status */
+0001000111 ZHHLLHHH  /* in +1: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* in +1: IODEC falls */
+0011000110 ZHHZLHHH  /* in +1: idle */
+0011001111 ZHHZLHHH  /* in +1: IODEC and status, no strobe */
+0011101111 ZHHZLHHH  /* in +1: strobe */
+0011101101 ZHHZLHHH  /* in +1: ~DTACK */
+0011001101 ZHHZLHHH  /* in +1: strobe ends */
+0011001111 ZHHZLHHH  /* in +1: ~DTACK released */
+0101001111 ZHHLLHHH  /* in +1: next address 2, stale status */
+0101000111 ZHHLLHHH  /* in +1: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +1: IODEC falls */
+0011000110 ZHHZLHHH  /* in +1: idle */
+0011001111 ZHHZLHHH  /* in +1: IODEC and status, no strobe */
+0011101111 ZHHZLHHH  /* in +1: strobe */
+0011101101 ZHHZLHHH  /* in +1: ~DTACK */
+0011001101 ZHHZLHHH  /* in +1: strobe ends */
+0011001111 ZHHZLHHH  /* in +1: ~DTACK released */
+1011001111 ZHHZLHHL  /* in +1: next address 5, stale status */
+1011000111 ZHHZLHHL  /* in +1: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* in +1: IODEC falls */
+0011000110 ZHHZLHHH  /* in +1: idle */
+0011001111 ZHHZLHHH  /* in +1: IODEC and status, no strobe */
+0011101111 ZHHZLHHH  /* in +1: strobe */
+0011101101 ZHHZLHHH  /* in +1: ~DTACK */
+0011001101 ZHHZLHHH  /* in +1: strobe ends */
+0011001111 ZHHZLHHH  /* in +1: ~DTACK released */
+1111001111 ZHHZLHHL  /* in +1: next address 7, stale status */
+1111000111 ZHHZLHHL  /* in +1: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* in +1: IODEC falls */
+0011000110 ZHHZLHHH  /* out +1: idle */
+0011010111 ZHLZLHHH  /* out +1: IODEC and status, no strobe */
+0010010111 ZHLZLHHH  /* out +1: strobe */
+0010010101 ZHLZLHHH  /* out +1: ~DTACK */
+0011010101 ZHLZLHHH  /* out +1: strobe ends */
+0011010111 ZHLZLHHH  /* out +1: ~DTACK released */
+0001010111 ZHLLLHHH  /* out +1: next address 0, stale status */
+0001000111 ZHHLLHHH  /* out +1: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* out +1: IODEC falls */
+0011000110 ZHHZLHHH  /* out +1: idle */
+0011010111 ZHLZLHHH  /* out +1: IODEC and status, no strobe */
+0010010111 ZHLZLHHH  /* out +1: strobe */
+0010010101 ZHLZLHHH  /* out +1: ~DTACK */
+0011010101 ZHLZLHHH  /* out +1: strobe ends */
+0011010111 ZHLZLHHH  /* out +1: ~DTACK released */
+0101010111 ZHLLLHHH  /* out +1: next address 2, stale status */
+0101000111 ZHHLLHHH  /* out +1: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +1: IODEC falls */
+0011000110 ZHHZLHHH  /* out +1: idle */
+0011010111 ZHLZLHHH  /* out +1: IODEC and status, no strobe */
+0010010111 ZHLZLHHH  /* out +1: strobe */
+0010010101 ZHLZLHHH  /* out +1: ~DTACK */
+0011010101 ZHLZLHHH  /* out +1: strobe ends */
+0011010111 ZHLZLHHH  /* out +1: ~DTACK released */
+1011010111 ZHLZLHHL  /* out +1: next address 5, stale status */
+1011000111 ZHHZLHHL  /* out +1: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* out +1: IODEC falls */
+0011000110 ZHHZLHHH  /* out +1: idle */
+0011010111 ZHLZLHHH  /* out +1: IODEC and status, no strobe */
+0010010111 ZHLZLHHH  /* out +1: strobe */
+0010010101 ZHLZLHHH  /* out +1: ~DTACK */
+0011010101 ZHLZLHHH  /* out +1: strobe ends */
+0011010111 ZHLZLHHH  /* out +1: ~DTACK released */
+1111010111 ZHLZLHHL  /* out +1: next address 7, stale status */
+1111000111 ZHHZLHHL  /* out +1: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* out +1: IODEC falls */
+0101000110 ZHHZLHHH  /* in +2: idle */
+0101001111 ZHHLLHHH  /* in +2: IODEC and status, no strobe */
+0101101111 ZLHLLHHH  /* in +2: strobe */
+0101101101 ZLHHHHHH  /* in +2: ~DTACK */
+0101001101 ZHHHHHHH  /* in +2: strobe ends */
+0101001111 ZHHHHHHH  /* in +2: ~DTACK released */
+0001001111 ZHHHHHHH  /* in +2: next address 0, stale status */
+0001000111 ZHHHHHHH  /* in +2: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* in +2: IODEC falls */
+0101000110 ZHHZLHHH  /* in +2: idle */
+0101001111 ZHHLLHHH  /* in +2: IODEC and status, no strobe */
+0101101111 ZLHLLHHH  /* in +2: strobe */
+0101101101 ZLHHHHHH  /* in +2: ~DTACK */
+0101001101 ZHHHHHHH  /* in +2: strobe ends */
+0101001111 ZHHHHHHH  /* in +2: ~DTACK released */
+0101001111 ZHHHHHHH  /* in +2: next address 2, stale status */
+0101000111 ZHHHHHHH  /* in +2: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +2: IODEC falls */
+0101000110 ZHHZLHHH  /* in +2: idle */
+0101001111 ZHHLLHHH  /* in +2: IODEC and status, no strobe */
+0101101111 ZLHLLHHH  /* in +2: strobe */
+0101101101 ZLHHHHHH  /* in +2: ~DTACK */
+0101001101 ZHHHHHHH  /* in +2: strobe ends */
+0101001111 ZHHHHHHH  /* in +2: ~DTACK released */
+1011001111 ZHHZLHHL  /* in +2: next address 5, stale status */
+1011000111 ZHHZLHHL  /* in +2: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* in +2: IODEC falls */
+0101000110 ZHHZLHHH  /* in +2: idle */
+0101001111 ZHHLLHHH  /* in +2: IODEC and status, no strobe */
+0101101111 ZLHLLHHH  /* in +2: strobe */
+0101101101 ZLHHHHHH  /* in +2: ~DTACK */
+0101001101 ZHHHHHHH  /* in +2: strobe ends */
+0101001111 ZHHHHHHH  /* in +2: ~DTACK released */
+1111001111 ZHHZLHHL  /* in +2: next address 7, stale status */
+1111000111 ZHHZLHHL  /* in +2: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* in +2: IODEC falls */
+0101000110 ZHHZLHHH  /* out +2: idle */
+0101010111 ZHLLLHHH  /* out +2: IODEC and status, no strobe */
+0100010111 ZLLLLHHH  /* out +2: strobe */
+0100010101 ZLLHHHHH  /* out +2: ~DTACK */
+0101010101 ZHLHHHHH  /* out +2: strobe ends */
+0101010111 ZHLHHHHH  /* out +2: ~DTACK released */
+0001010111 ZHLHHHHH  /* out +2: next address 0, stale status */
+0001000111 ZHHHHHHH  /* out +2: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* out +2: IODEC falls */
+0101000110 ZHHZLHHH  /* out +2: idle */
+0101010111 ZHLLLHHH  /* out +2: IODEC and status, no strobe */
+0100010111 ZLLLLHHH  /* out +2: strobe */
+0100010101 ZLLHHHHH  /* out +2: ~DTACK */
+0101010101 ZHLHHHHH  /* out +2: strobe ends */
+0101010111 ZHLHHHHH  /* out +2: ~DTACK released */
+0101010111 ZHLHHHHH  /* out +2: next address 2, stale status */
+0101000111 ZHHHHHHH  /* out +2: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +2: IODEC falls */
+0101000110 ZHHZLHHH  /* out +2: idle */
+0101010111 ZHLLLHHH  /* out +2: IODEC and status, no strobe */
+0100010111 ZLLLLHHH  /* out +2: strobe */
+0100010101 ZLLHHHHH  /* out +2: ~DTACK */
+0101010101 ZHLHHHHH  /* out +2: strobe ends */
+0101010111 ZHLHHHHH  /* out +2: ~DTACK released */
+1011010111 ZHLZLHHL  /* out +2: next address 5, stale status */
+1011000111 ZHHZLHHL  /* out +2: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* out +2: IODEC falls */
+0101000110 ZHHZLHHH  /* out +2: idle */
+0101010111 ZHLLLHHH  /* out +2: IODEC and status, no strobe */
+0100010111 ZLLLLHHH  /* out +2: strobe */
+0100010101 ZLLHHHHH  /* out +2: ~DTACK */
+0101010101 ZHLHHHHH  /* out +2: strobe ends */
+0101010111 ZHLHHHHH  /* out +2: ~DTACK released */
+1111010111 ZHLZLHHL  /* out +2: next address 7, stale status */
+1111000111 ZHHZLHHL  /* out +2: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* out +2: IODEC falls */
+0111000110 ZHHZLHHH  /* in +3: idle */
+0111001111 ZHHZLHHH  /* in +3: IODEC and status, no strobe */
+0111101111 ZHHZLHHH  /* in +3: strobe */
+0111101101 ZHHZLHHH  /* in +3: ~DTACK */
+0111001101 ZHHZLHHH  /* in +3: strobe ends */
+0111001111 ZHHZLHHH  /* in +3: ~DTACK released */
+0001001111 ZHHLLHHH  /* in +3: next address 0, stale status */
+0001000111 ZHHLLHHH  /* in +3: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* in +3: IODEC falls */
+0111000110 ZHHZLHHH  /* in +3: idle */
+0111001111 ZHHZLHHH  /* in +3: IODEC and status, no strobe */
+0111101111 ZHHZLHHH  /* in +3: strobe */
+0111101101 ZHHZLHHH  /* in +3: ~DTACK */
+0111001101 ZHHZLHHH  /* in +3: strobe ends */
+0111001111 ZHHZLHHH  /* in +3: ~DTACK released */
+0101001111 ZHHLLHHH  /* in +3: next address 2, stale status */
+0101000111 ZHHLLHHH  /* in +3: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +3: IODEC falls */
+0111000110 ZHHZLHHH  /* in +3: idle */
+0111001111 ZHHZLHHH  /* in +3: IODEC and status, no strobe */
+0111101111 ZHHZLHHH  /* in +3: strobe */
+0111101101 ZHHZLHHH  /* in +3: ~DTACK */
+0111001101 ZHHZLHHH  /* in +3: strobe ends */
+0111001111 ZHHZLHHH  /* in +3: ~DTACK released */
+1011001111 ZHHZLHHL  /* in +3: next address 5, stale status */
+1011000111 ZHHZLHHL  /* in +3: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* in +3: IODEC falls */
+0111000110 ZHHZLHHH  /* in +3: idle */
+0111001111 ZHHZLHHH  /* in +3: IODEC and status, no strobe */
+0111101111 ZHHZLHHH  /* in +3: strobe */
+0111101101 ZHHZLHHH  /* in +3: ~DTACK */
+0111001101 ZHHZLHHH  /* in +3: strobe ends */
+0111001111 ZHHZLHHH  /* in +3: ~DTACK released */
+1111001111 ZHHZLHHL  /* in +3: next address 7, stale status */
+1111000111 ZHHZLHHL  /* in +3: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* in +3: IODEC falls */
+0111000110 ZHHZLHHH  /* out +3: idle */
+0111010111 ZHLZLHHH  /* out +3: IODEC and status, no strobe */
+0110010111 ZHLZLHHH  /* out +3: strobe */
+0110010101 ZHLZLHHH  /* out +3: ~DTACK */
+0111010101 ZHLZLHHH  /* out +3: strobe ends */
+0111010111 ZHLZLHHH  /* out +3: ~DTACK released */
+0001010111 ZHLLLHHH  /* out +3: next address 0, stale status */
+0001000111 ZHHLLHHH  /* out +3: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* out +3: IODEC falls */
+0111000110 ZHHZLHHH  /* out +3: idle */
+0111010111 ZHLZLHHH  /* out +3: IODEC and status, no strobe */
+0110010111 ZHLZLHHH  /* out +3: strobe */
+0110010101 ZHLZLHHH  /* out +3: ~DTACK */
+0111010101 ZHLZLHHH  /* out +3: strobe ends */
+0111010111 ZHLZLHHH  /* out +3: ~DTACK released */
+0101010111 ZHLLLHHH  /* out +3: next address 2, stale status */
+0101000111 ZHHLLHHH  /* out +3: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +3: IODEC falls */
+0111000110 ZHHZLHHH  /* out +3: idle */
+0111010111 ZHLZLHHH  /* out +3: IODEC and status, no strobe */
+0110010111 ZHLZLHHH  /* out +3: strobe */
+0110010101 ZHLZLHHH  /* out +3: ~DTACK */
+0111010101 ZHLZLHHH  /* out +3: strobe ends */
+0111010111 ZHLZLHHH  /* out +3: ~DTACK released */
+1011010111 ZHLZLHHL  /* out +3: next address 5, stale status */
+1011000111 ZHHZLHHL  /* out +3: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* out +3: IODEC falls */
+0111000110 ZHHZLHHH  /* out +3: idle */
+0111010111 ZHLZLHHH  /* out +3: IODEC and status, no strobe */
+0110010111 ZHLZLHHH  /* out +3: strobe */
+0110010101 ZHLZLHHH  /* out +3: ~DTACK */
+0111010101 ZHLZLHHH  /* out +3: strobe ends */
+0111010111 ZHLZLHHH  /* out +3: ~DTACK released */
+1111010111 ZHLZLHHL  /* out +3: next address 7, stale status */
+1111000111 ZHHZLHHL  /* out +3: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* out +3: IODEC falls */
+1001000110 ZHHZLHHH  /* in +4: idle */
+1001001111 ZHHZLHHL  /* in +4: IODEC and status, no strobe */
+1001101111 ZHHZLHLL  /* in +4: strobe */
+1001101101 ZHHZLHLL  /* in +4: ~DTACK */
+1001001101 ZHHZLHHL  /* in +4: strobe ends */
+1001001111 ZHHZLHHL  /* in +4: ~DTACK released */
+0001001111 ZHHLLHHH  /* in +4: next address 0, stale status */
+0001000111 ZHHLLHHH  /* in +4: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* in +4: IODEC falls */
+1001000110 ZHHZLHHH  /* in +4: idle */
+1001001111 ZHHZLHHL  /* in +4: IODEC and status, no strobe */
+1001101111 ZHHZLHLL  /* in +4: strobe */
+1001101101 ZHHZLHLL  /* in +4: ~DTACK */
+1001001101 ZHHZLHHL  /* in +4: strobe ends */
+1001001111 ZHHZLHHL  /* in +4: ~DTACK released */
+0101001111 ZHHLLHHH  /* in +4: next address 2, stale status */
+0101000111 ZHHLLHHH  /* in +4: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +4: IODEC falls */
+1001000110 ZHHZLHHH  /* in +4: idle */
+1001001111 ZHHZLHHL  /* in +4: IODEC and status, no strobe */
+1001101111 ZHHZLHLL  /* in +4: strobe */
+1001101101 ZHHZLHLL  /* in +4: ~DTACK */
+1001001101 ZHHZLHHL  /* in +4: strobe ends */
+1001001111 ZHHZLHHL  /* in +4: ~DTACK released */
+1011001111 ZHHZLHHL  /* in +4: next address 5, stale status */
+1011000111 ZHHZLHHL  /* in +4: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* in +4: IODEC falls */
+1001000110 ZHHZLHHH  /* in +4: idle */
+1001001111 ZHHZLHHL  /* in +4: IODEC and status, no strobe */
+1001101111 ZHHZLHLL  /* in +4: strobe */
+1001101101 ZHHZLHLL  /* in +4: ~DTACK */
+1001001101 ZHHZLHHL  /* in +4: strobe ends */
+1001001111 ZHHZLHHL  /* in +4: ~DTACK released */
+1111001111 ZHHZLHHL  /* in +4: next address 7, stale status */
+1111000111 ZHHZLHHL  /* in +4: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* in +4: IODEC falls */
+1001000110 ZHHZLHHH  /* out +4: idle */
+1001010111 ZHLZLHHL  /* out +4: IODEC and status, no strobe */
+1000010111 ZHLZLLHL  /* out +4: strobe */
+1000010101 ZHLZLLHL  /* out +4: ~DTACK */
+1001010101 ZHLZLHHL  /* out +4: strobe ends */
+1001010111 ZHLZLHHL  /* out +4: ~DTACK released */
+0001010111 ZHLLLHHH  /* out +4: next address 0, stale status */
+0001000111 ZHHLLHHH  /* out +4: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* out +4: IODEC falls */
+1001000110 ZHHZLHHH  /* out +4: idle */
+1001010111 ZHLZLHHL  /* out +4: IODEC and status, no strobe */
+1000010111 ZHLZLLHL  /* out +4: strobe */
+1000010101 ZHLZLLHL  /* out +4: ~DTACK */
+1001010101 ZHLZLHHL  /* out +4: strobe ends */
+1001010111 ZHLZLHHL  /* out +4: ~DTACK released */
+0101010111 ZHLLLHHH  /* out +4: next address 2, stale status */
+0101000111 ZHHLLHHH  /* out +4: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +4: IODEC falls */
+1001000110 ZHHZLHHH  /* out +4: idle */
+1001010111 ZHLZLHHL  /* out +4: IODEC and status, no strobe */
+1000010111 ZHLZLLHL  /* out +4: strobe */
+1000010101 ZHLZLLHL  /* out +4: ~DTACK */
+1001010101 ZHLZLHHL  /* out +4: strobe ends */
+1001010111 ZHLZLHHL  /* out +4: ~DTACK released */
+1011010111 ZHLZLHHL  /* out +4: next address 5, stale status */
+1011000111 ZHHZLHHL  /* out +4: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* out +4: IODEC falls */
+1001000110 ZHHZLHHH  /* out +4: idle */
+1001010111 ZHLZLHHL  /* out +4: IODEC and status, no strobe */
+1000010111 ZHLZLLHL  /* out +4: strobe */
+1000010101 ZHLZLLHL  /* out +4: ~DTACK */
+1001010101 ZHLZLHHL  /* out +4: strobe ends */
+1001010111 ZHLZLHHL  /* out +4: ~DTACK released */
+1111010111 ZHLZLHHL  /* out +4: next address 7, stale status */
+1111000111 ZHHZLHHL  /* out +4: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* out +4: IODEC falls */
+1011000110 ZHHZLHHH  /* in +5: idle */
+1011001111 ZHHZLHHL  /* in +5: IODEC and status, no strobe */
+1011101111 ZHHZLHLL  /* in +5: strobe */
+1011101101 ZHHZLHLL  /* in +5: ~DTACK */
+1011001101 ZHHZLHHL  /* in +5: strobe ends */
+1011001111 ZHHZLHHL  /* in +5: ~DTACK released */
+0001001111 ZHHLLHHH  /* in +5: next address 0, stale status */
+0001000111 ZHHLLHHH  /* in +5: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* in +5: IODEC falls */
+1011000110 ZHHZLHHH  /* in +5: idle */
+1011001111 ZHHZLHHL  /* in +5: IODEC and status, no strobe */
+1011101111 ZHHZLHLL  /* in +5: strobe */
+1011101101 ZHHZLHLL  /* in +5: ~DTACK */
+1011001101 ZHHZLHHL  /* in +5: strobe ends */
+1011001111 ZHHZLHHL  /* in +5: ~DTACK released */
+0101001111 ZHHLLHHH  /* in +5: next address 2, stale status */
+0101000111 ZHHLLHHH  /* in +5: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +5: IODEC falls */
+1011000110 ZHHZLHHH  /* in +5: idle */
+1011001111 ZHHZLHHL  /* in +5: IODEC and status, no strobe */
+1011101111 ZHHZLHLL  /* in +5: strobe */
+1011101101 ZHHZLHLL  /* in +5: ~DTACK */
+1011001101 ZHHZLHHL  /* in +5: strobe ends */
+1011001111 ZHHZLHHL  /* in +5: ~DTACK released */
+1011001111 ZHHZLHHL  /* in +5: next address 5, stale status */
+1011000111 ZHHZLHHL  /* in +5: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* in +5: IODEC falls */
+1011000110 ZHHZLHHH  /* in +5: idle */
+1011001111 ZHHZLHHL  /* in +5: IODEC and status, no strobe */
+1011101111 ZHHZLHLL  /* in +5: strobe */
+1011101101 ZHHZLHLL  /* in +5: ~DTACK */
+1011001101 ZHHZLHHL  /* in +5: strobe ends */
+1011001111 ZHHZLHHL  /* in +5: ~DTACK released */
+1111001111 ZHHZLHHL  /* in +5: next address 7, stale status */
+1111000111 ZHHZLHHL  /* in +5: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* in +5: IODEC falls */
+1011000110 ZHHZLHHH  /* out +5: idle */
+1011010111 ZHLZLHHL  /* out +5: IODEC and status, no strobe */
+1010010111 ZHLZLLHL  /* out +5: strobe */
+1010010101 ZHLZLLHL  /* out +5: ~DTACK */
+1011010101 ZHLZLHHL  /* out +5: strobe ends */
+1011010111 ZHLZLHHL  /* out +5: ~DTACK released */
+0001010111 ZHLLLHHH  /* out +5: next address 0, stale status */
+0001000111 ZHHLLHHH  /* out +5: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* out +5: IODEC falls */
+1011000110 ZHHZLHHH  /* out +5: idle */
+1011010111 ZHLZLHHL  /* out +5: IODEC and status, no strobe */
+1010010111 ZHLZLLHL  /* out +5: strobe */
+1010010101 ZHLZLLHL  /* out +5: ~DTACK */
+1011010101 ZHLZLHHL  /* out +5: strobe ends */
+1011010111 ZHLZLHHL  /* out +5: ~DTACK released */
+0101010111 ZHLLLHHH  /* out +5: next address 2, stale status */
+0101000111 ZHHLLHHH  /* out +5: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +5: IODEC falls */
+1011000110 ZHHZLHHH  /* out +5: idle */
+1011010111 ZHLZLHHL  /* out +5: IODEC and status, no strobe */
+1010010111 ZHLZLLHL  /* out +5: strobe */
+1010010101 ZHLZLLHL  /* out +5: ~DTACK */
+1011010101 ZHLZLHHL  /* out +5: strobe ends */
+1011010111 ZHLZLHHL  /* out +5: ~DTACK released */
+1011010111 ZHLZLHHL  /* out +5: next address 5, stale status */
+1011000111 ZHHZLHHL  /* out +5: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* out +5: IODEC falls */
+1011000110 ZHHZLHHH  /* out +5: idle */
+1011010111 ZHLZLHHL  /* out +5: IODEC and status, no strobe */
+1010010111 ZHLZLLHL  /* out +5: strobe */
+1010010101 ZHLZLLHL  /* out +5: ~DTACK */
+1011010101 ZHLZLHHL  /* out +5: strobe ends */
+1011010111 ZHLZLHHL  /* out +5: ~DTACK released */
+1111010111 ZHLZLHHL  /* out +5: next address 7, stale status */
+1111000111 ZHHZLHHL  /* out +5: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* out +5: IODEC falls */
+1101000110 ZHHZLHHH  /* in +6: idle */
+1101001111 ZHHZLHHL  /* in +6: IODEC and status, no strobe */
+1101101111 ZHHZLHLL  /* in +6: strobe */
+1101101101 ZHHZLHLL  /* in +6: ~DTACK */
+1101001101 ZHHZLHHL  /* in +6: strobe ends */
+1101001111 ZHHZLHHL  /* in +6: ~DTACK released */
+0001001111 ZHHLLHHH  /* in +6: next address 0, stale status */
+0001000111 ZHHLLHHH  /* in +6: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* in +6: IODEC falls */
+1101000110 ZHHZLHHH  /* in +6: idle */
+1101001111 ZHHZLHHL  /* in +6: IODEC and status, no strobe */
+1101101111 ZHHZLHLL  /* in +6: strobe */
+1101101101 ZHHZLHLL  /* in +6: ~DTACK */
+1101001101 ZHHZLHHL  /* in +6: strobe ends */
+1101001111 ZHHZLHHL  /* in +6: ~DTACK released */
+0101001111 ZHHLLHHH  /* in +6: next address 2, stale status */
+0101000111 ZHHLLHHH  /* in +6: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +6: IODEC falls */
+1101000110 ZHHZLHHH  /* in +6: idle */
+1101001111 ZHHZLHHL  /* in +6: IODEC and status, no strobe */
+1101101111 ZHHZLHLL  /* in +6: strobe */
+1101101101 ZHHZLHLL  /* in +6: ~DTACK */
+1101001101 ZHHZLHHL  /* in +6: strobe ends */
+1101001111 ZHHZLHHL  /* in +6: ~DTACK released */
+1011001111 ZHHZLHHL  /* in +6: next address 5, stale status */
+1011000111 ZHHZLHHL  /* in +6: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* in +6: IODEC falls */
+1101000110 ZHHZLHHH  /* in +6: idle */
+1101001111 ZHHZLHHL  /* in +6: IODEC and status, no strobe */
+1101101111 ZHHZLHLL  /* in +6: strobe */
+1101101101 ZHHZLHLL  /* in +6: ~DTACK */
+1101001101 ZHHZLHHL  /* in +6: strobe ends */
+1101001111 ZHHZLHHL  /* in +6: ~DTACK released */
+1111001111 ZHHZLHHL  /* in +6: next address 7, stale status */
+1111000111 ZHHZLHHL  /* in +6: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* in +6: IODEC falls */
+1101000110 ZHHZLHHH  /* out +6: idle */
+1101010111 ZHLZLHHL  /* out +6: IODEC and status, no strobe */
+1100010111 ZHLZLLHL  /* out +6: strobe */
+1100010101 ZHLZLLHL  /* out +6: ~DTACK */
+1101010101 ZHLZLHHL  /* out +6: strobe ends */
+1101010111 ZHLZLHHL  /* out +6: ~DTACK released */
+0001010111 ZHLLLHHH  /* out +6: next address 0, stale status */
+0001000111 ZHHLLHHH  /* out +6: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* out +6: IODEC falls */
+1101000110 ZHHZLHHH  /* out +6: idle */
+1101010111 ZHLZLHHL  /* out +6: IODEC and status, no strobe */
+1100010111 ZHLZLLHL  /* out +6: strobe */
+1100010101 ZHLZLLHL  /* out +6: ~DTACK */
+1101010101 ZHLZLHHL  /* out +6: strobe ends */
+1101010111 ZHLZLHHL  /* out +6: ~DTACK released */
+0101010111 ZHLLLHHH  /* out +6: next address 2, stale status */
+0101000111 ZHHLLHHH  /* out +6: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +6: IODEC falls */
+1101000110 ZHHZLHHH  /* out +6: idle */
+1101010111 ZHLZLHHL  /* out +6: IODEC and status, no strobe */
+1100010111 ZHLZLLHL  /* out +6: strobe */
+1100010101 ZHLZLLHL  /* out +6: ~DTACK */
+1101010101 ZHLZLHHL  /* out +6: strobe ends */
+1101010111 ZHLZLHHL  /* out +6: ~DTACK released */
+1011010111 ZHLZLHHL  /* out +6: next address 5, stale status */
+1011000111 ZHHZLHHL  /* out +6: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* out +6: IODEC falls */
+1101000110 ZHHZLHHH  /* out +6: idle */
+1101010111 ZHLZLHHL  /* out +6: IODEC and status, no strobe */
+1100010111 ZHLZLLHL  /* out +6: strobe */
+1100010101 ZHLZLLHL  /* out +6: ~DTACK */
+1101010101 ZHLZLHHL  /* out +6: strobe ends */
+1101010111 ZHLZLHHL  /* out +6: ~DTACK released */
+1111010111 ZHLZLHHL  /* out +6: next address 7, stale status */
+1111000111 ZHHZLHHL  /* out +6: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* out +6: IODEC falls */
+1111000110 ZHHZLHHH  /* in +7: idle */
+1111001111 ZHHZLHHL  /* in +7: IODEC and status, no strobe */
+1111101111 ZHHZLHLL  /* in +7: strobe */
+1111101101 ZHHZLHLL  /* in +7: ~DTACK */
+1111001101 ZHHZLHHL  /* in +7: strobe ends */
+1111001111 ZHHZLHHL  /* in +7: ~DTACK released */
+0001001111 ZHHLLHHH  /* in +7: next address 0, stale status */
+0001000111 ZHHLLHHH  /* in +7: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* in +7: IODEC falls */
+1111000110 ZHHZLHHH  /* in +7: idle */
+1111001111 ZHHZLHHL  /* in +7: IODEC and status, no strobe */
+1111101111 ZHHZLHLL  /* in +7: strobe */
+1111101101 ZHHZLHLL  /* in +7: ~DTACK */
+1111001101 ZHHZLHHL  /* in +7: strobe ends */
+1111001111 ZHHZLHHL  /* in +7: ~DTACK released */
+0101001111 ZHHLLHHH  /* in +7: next address 2, stale status */
+0101000111 ZHHLLHHH  /* in +7: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +7: IODEC falls */
+1111000110 ZHHZLHHH  /* in +7: idle */
+1111001111 ZHHZLHHL  /* in +7: IODEC and status, no strobe */
+1111101111 ZHHZLHLL  /* in +7: strobe */
+1111101101 ZHHZLHLL  /* in +7: ~DTACK */
+1111001101 ZHHZLHHL  /* in +7: strobe ends */
+1111001111 ZHHZLHHL  /* in +7: ~DTACK released */
+1011001111 ZHHZLHHL  /* in +7: next address 5, stale status */
+1011000111 ZHHZLHHL  /* in +7: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* in +7: IODEC falls */
+1111000110 ZHHZLHHH  /* in +7: idle */
+1111001111 ZHHZLHHL  /* in +7: IODEC and status, no strobe */
+1111101111 ZHHZLHLL  /* in +7: strobe */
+1111101101 ZHHZLHLL  /* in +7: ~DTACK */
+1111001101 ZHHZLHHL  /* in +7: strobe ends */
+1111001111 ZHHZLHHL  /* in +7: ~DTACK released */
+1111001111 ZHHZLHHL  /* in +7: next address 7, stale status */
+1111000111 ZHHZLHHL  /* in +7: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* in +7: IODEC falls */
+1111000110 ZHHZLHHH  /* out +7: idle */
+1111010111 ZHLZLHHL  /* out +7: IODEC and status, no strobe */
+1110010111 ZHLZLLHL  /* out +7: strobe */
+1110010101 ZHLZLLHL  /* out +7: ~DTACK */
+1111010101 ZHLZLHHL  /* out +7: strobe ends */
+1111010111 ZHLZLHHL  /* out +7: ~DTACK released */
+0001010111 ZHLLLHHH  /* out +7: next address 0, stale status */
+0001000111 ZHHLLHHH  /* out +7: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* out +7: IODEC falls */
+1111000110 ZHHZLHHH  /* out +7: idle */
+1111010111 ZHLZLHHL  /* out +7: IODEC and status, no strobe */
+1110010111 ZHLZLLHL  /* out +7: strobe */
+1110010101 ZHLZLLHL  /* out +7: ~DTACK */
+1111010101 ZHLZLHHL  /* out +7: strobe ends */
+1111010111 ZHLZLHHL  /* out +7: ~DTACK released */
+0101010111 ZHLLLHHH  /* out +7: next address 2, stale status */
+0101000111 ZHHLLHHH  /* out +7: status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +7: IODEC falls */
+1111000110 ZHHZLHHH  /* out +7: idle */
+1111010111 ZHLZLHHL  /* out +7: IODEC and status, no strobe */
+1110010111 ZHLZLLHL  /* out +7: strobe */
+1110010101 ZHLZLLHL  /* out +7: ~DTACK */
+1111010101 ZHLZLHHL  /* out +7: strobe ends */
+1111010111 ZHLZLHHL  /* out +7: ~DTACK released */
+1011010111 ZHLZLHHL  /* out +7: next address 5, stale status */
+1011000111 ZHHZLHHL  /* out +7: status gone, IODEC still held */
+1011000110 ZHHZLHHH  /* out +7: IODEC falls */
+1111000110 ZHHZLHHH  /* out +7: idle */
+1111010111 ZHLZLHHL  /* out +7: IODEC and status, no strobe */
+1110010111 ZHLZLLHL  /* out +7: strobe */
+1110010101 ZHLZLLHL  /* out +7: ~DTACK */
+1111010101 ZHLZLHHL  /* out +7: strobe ends */
+1111010111 ZHLZLHHL  /* out +7: ~DTACK released */
+1111010111 ZHLZLHHL  /* out +7: next address 7, stale status */
+1111000111 ZHHZLHHL  /* out +7: status gone, IODEC still held */
+1111000110 ZHHZLHHH  /* out +7: IODEC falls */
+0101000110 ZHHZLHHH  /* in +2 16b: idle */
+0101001011 LHHLLHHH  /* in +2 16b: IODEC and status, no strobe */
+0101101011 LLHLLHHH  /* in +2 16b: strobe */
+0101101001 LLHHHHHH  /* in +2 16b: ~DTACK */
+0101001001 LHHHHHHH  /* in +2 16b: strobe ends */
+0101001011 LHHHHHHH  /* in +2 16b: ~DTACK released */
+0111001111 ZHHZLHHH  /* in +2 16b: next address 3, stale status */
+0111000111 ZHHZLHHH  /* in +2 16b: status gone, IODEC still held */
+0111000110 ZHHZLHHH  /* in +2 16b: IODEC falls */
+0001000110 ZHHZLHHH  /* in +0 16b: idle */
+0001001011 ZHHLLHHH  /* in +0 16b: IODEC and status, no strobe */
+0001101011 ZLHLLHHH  /* in +0 16b: strobe */
+0001101001 ZLHHHHHH  /* in +0 16b: ~DTACK */
+0001001001 ZHHHHHHH  /* in +0 16b: strobe ends */
+0001001011 ZHHHHHHH  /* in +0 16b: ~DTACK released */
+0011001111 ZHHZLHHH  /* in +0 16b: next address 1, stale status */
+0011000111 ZHHZLHHH  /* in +0 16b: status gone, IODEC still held */
+0011000110 ZHHZLHHH  /* in +0 16b: IODEC falls */
+1101000110 ZHHZLHHH  /* in +6 16b: idle */
+1101001011 ZHHZLHHL  /* in +6 16b: IODEC and status, no strobe */
+1101101011 ZHHZLHLL  /* in +6 16b: strobe */
+1101101001 ZHHZLHLL  /* in +6 16b: ~DTACK */
+1101001001 ZHHZLHHL  /* in +6 16b: strobe ends */
+1101001011 ZHHZLHHL  /* in +6 16b: ~DTACK released */
+0001001111 ZHHLLHHH  /* in +6 16b: next address 0, stale status */
+0001000111 ZHHLLHHH  /* in +6 16b: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* in +6 16b: IODEC falls */
+0101000110 ZHHZLHHH  /* out +2 16b: idle */
+0101010011 LHLLLHHH  /* out +2 16b: IODEC and status, no strobe */
+0100010011 LLLLLHHH  /* out +2 16b: strobe */
+0100010001 LLLHHHHH  /* out +2 16b: ~DTACK */
+0101010001 LHLHHHHH  /* out +2 16b: strobe ends */
+0101010011 LHLHHHHH  /* out +2 16b: ~DTACK released */
+0111010111 ZHLZLHHH  /* out +2 16b: next address 3, stale status */
+0111000111 ZHHZLHHH  /* out +2 16b: status gone, IODEC still held */
+0111000110 ZHHZLHHH  /* out +2 16b: IODEC falls */
+0001000110 ZHHZLHHH  /* out +0 16b: idle */
+0001010011 ZHLLLHHH  /* out +0 16b: IODEC and status, no strobe */
+0000010011 ZLLLLHHH  /* out +0 16b: strobe */
+0000010001 ZLLHHHHH  /* out +0 16b: ~DTACK */
+0001010001 ZHLHHHHH  /* out +0 16b: strobe ends */
+0001010011 ZHLHHHHH  /* out +0 16b: ~DTACK released */
+0011010111 ZHLZLHHH  /* out +0 16b: next address 1, stale status */
+0011000111 ZHHZLHHH  /* out +0 16b: status gone, IODEC still held */
+0011000110 ZHHZLHHH  /* out +0 16b: IODEC falls */
+1101000110 ZHHZLHHH  /* out +6 16b: idle */
+1101010011 ZHLZLHHL  /* out +6 16b: IODEC and status, no strobe */
+1100010011 ZHLZLLHL  /* out +6 16b: strobe */
+1100010001 ZHLZLLHL  /* out +6 16b: ~DTACK */
+1101010001 ZHLZLHHL  /* out +6 16b: strobe ends */
+1101010011 ZHLZLHHL  /* out +6 16b: ~DTACK released */
+0001010111 ZHLLLHHH  /* out +6 16b: next address 0, stale status */
+0001000111 ZHHLLHHH  /* out +6 16b: status gone, IODEC still held */
+0001000110 ZHHZLHHH  /* out +6 16b: IODEC falls */
+0001000110 ZHHZLHHH  /* in +0 (not this board): idle */
+0001001110 ZHHZLHHH  /* in +0 (not this board): IODEC and status, no strobe */
+0001101110 ZHHZLHHH  /* in +0 (not this board): strobe */
+0001101100 ZHHZLHHH  /* in +0 (not this board): ~DTACK */
+0001001100 ZHHZLHHH  /* in +0 (not this board): strobe ends */
+0001001110 ZHHZLHHH  /* in +0 (not this board): ~DTACK released */
+0101001110 ZHHZLHHH  /* in +0 (not this board): next address 2, stale status */
+0101000110 ZHHZLHHH  /* in +0 (not this board): status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +0 (not this board): IODEC falls */
+0001000110 ZHHZLHHH  /* out +0 (not this board): idle */
+0001010110 ZHLZLHHH  /* out +0 (not this board): IODEC and status, no strobe */
+0000010110 ZHLZLHHH  /* out +0 (not this board): strobe */
+0000010100 ZHLZLHHH  /* out +0 (not this board): ~DTACK */
+0001010100 ZHLZLHHH  /* out +0 (not this board): strobe ends */
+0001010110 ZHLZLHHH  /* out +0 (not this board): ~DTACK released */
+0101010110 ZHLZLHHH  /* out +0 (not this board): next address 2, stale status */
+0101000110 ZHHZLHHH  /* out +0 (not this board): status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +0 (not this board): IODEC falls */
+0101000110 ZHHZLHHH  /* in +2 (not this board): idle */
+0101001110 ZHHZLHHH  /* in +2 (not this board): IODEC and status, no strobe */
+0101101110 ZHHZLHHH  /* in +2 (not this board): strobe */
+0101101100 ZHHZLHHH  /* in +2 (not this board): ~DTACK */
+0101001100 ZHHZLHHH  /* in +2 (not this board): strobe ends */
+0101001110 ZHHZLHHH  /* in +2 (not this board): ~DTACK released */
+0101001110 ZHHZLHHH  /* in +2 (not this board): next address 2, stale status */
+0101000110 ZHHZLHHH  /* in +2 (not this board): status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +2 (not this board): IODEC falls */
+0101000110 ZHHZLHHH  /* out +2 (not this board): idle */
+0101010110 ZHLZLHHH  /* out +2 (not this board): IODEC and status, no strobe */
+0100010110 ZHLZLHHH  /* out +2 (not this board): strobe */
+0100010100 ZHLZLHHH  /* out +2 (not this board): ~DTACK */
+0101010100 ZHLZLHHH  /* out +2 (not this board): strobe ends */
+0101010110 ZHLZLHHH  /* out +2 (not this board): ~DTACK released */
+0101010110 ZHLZLHHH  /* out +2 (not this board): next address 2, stale status */
+0101000110 ZHHZLHHH  /* out +2 (not this board): status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +2 (not this board): IODEC falls */
+1001000110 ZHHZLHHH  /* in +4 (not this board): idle */
+1001001110 ZHHZLHHH  /* in +4 (not this board): IODEC and status, no strobe */
+1001101110 ZHHZLHHH  /* in +4 (not this board): strobe */
+1001101100 ZHHZLHHH  /* in +4 (not this board): ~DTACK */
+1001001100 ZHHZLHHH  /* in +4 (not this board): strobe ends */
+1001001110 ZHHZLHHH  /* in +4 (not this board): ~DTACK released */
+0101001110 ZHHZLHHH  /* in +4 (not this board): next address 2, stale status */
+0101000110 ZHHZLHHH  /* in +4 (not this board): status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* in +4 (not this board): IODEC falls */
+1001000110 ZHHZLHHH  /* out +4 (not this board): idle */
+1001010110 ZHLZLHHH  /* out +4 (not this board): IODEC and status, no strobe */
+1000010110 ZHLZLHHH  /* out +4 (not this board): strobe */
+1000010100 ZHLZLHHH  /* out +4 (not this board): ~DTACK */
+1001010100 ZHLZLHHH  /* out +4 (not this board): strobe ends */
+1001010110 ZHLZLHHH  /* out +4 (not this board): ~DTACK released */
+0101010110 ZHLZLHHH  /* out +4 (not this board): next address 2, stale status */
+0101000110 ZHHZLHHH  /* out +4 (not this board): status gone, IODEC still held */
+0101000110 ZHHZLHHH  /* out +4 (not this board): IODEC falls */
+0001010111 ZHLLLHHH  /* out +0: IODEC and status */
+0000010111 ZLLLLHHH  /* out +0: strobe */
+0000010101 ZLLHHHHH  /* out +0: ~DTACK */
+0001010101 ZHLHHHHH  /* out +0: strobe ends */
+0001010111 ZHLHHHHH  /* out +0: ~DTACK released, done */
+0101010111 ZHLHHHHH  /* out +2 follows, IODEC still set: still done */
+0100010111 ZLLLLHHH  /* out +2: strobe without ~DTACK clears DONE */
+0100010101 ZLLHHHHH  /* out +2: ~DTACK */
+0101010101 ZHLHHHHH  /* out +2: strobe ends */
+0101000110 ZHHZLHHH  /* idle */

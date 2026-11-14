@@ -1,0 +1,66 @@
+Name     U52B ;
+PartNo   00 ;
+Date     11/13/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board, rev B ;
+Location U52 ;
+Device   G16V8AS ;
+
+/* SPDX-License-Identifier: CERN-OHL-P-2.0 */
+/* Copyright (C) 2026 Todd Houg */
+
+/*************************************************************************
+ * U52 - GAL16V8, sheet "Memory Interface" (revision B boards)
+ *
+ * Overlay SRAM (U19) address mux, bits OA0-OA5. One of three (U52-U54)
+ * that give U19 its address A0-A16, selected by OADISP from U55:
+ *   OADISP = 0: OA0-OA15 = MA0-MA15, OA16 = OLSEL (U41 Q4). Drawing:
+ *               the overlay is one 1bpp bank of a CHR screen.
+ *   OADISP = 1: OA0-OA16 = MA3-MA19. Display: the frame buffer always
+ *               runs GAI = 8, so the display address is shifted down 3.
+ *
+ * Simple mode (G16V8AS): combinatorial outputs, always driven, no
+ * feedback. Pins 15 and 16 are output-only; pin 11 is an input.
+ *
+ * Compile with no minimization (cupl -m0): the third product term of
+ * each output is logically redundant and only keeps the output steady
+ * as OADISP changes while both sources agree, so a minimizer would
+ * remove it.
+ *
+ * Speed grade: GAL16V8-15 (15 ns) or faster.
+ *
+ * Pin/net assignments taken from the KiCad schematic, 11/13/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = MA0       ; /* latched ACRTC address MA0                                  */
+PIN 2  = MA1       ; /* latched ACRTC address MA1                                  */
+PIN 3  = MA2       ; /* latched ACRTC address MA2                                  */
+PIN 4  = MA3       ; /* latched ACRTC address MA3                                  */
+PIN 5  = MA4       ; /* latched ACRTC address MA4                                  */
+PIN 6  = MA5       ; /* latched ACRTC address MA5                                  */
+PIN 7  = MA6       ; /* latched ACRTC address MA6                                  */
+PIN 8  = MA7       ; /* latched ACRTC address MA7                                  */
+PIN 9  = MA8       ; /* latched ACRTC address MA8                                  */
+PIN 11 = OADISP    ; /* U55 pin 15: 1 = display address (>> 3)                     */
+
+/* ---- Outputs ---- */
+PIN 13 = OA5       ; /* overlay SRAM U19 A5                                        */
+PIN 14 = OA4       ; /* overlay SRAM U19 A4                                        */
+PIN 15 = OA3       ; /* overlay SRAM U19 A3                                        */
+PIN 16 = OA2       ; /* overlay SRAM U19 A2                                        */
+PIN 17 = OA1       ; /* overlay SRAM U19 A1                                        */
+PIN 18 = OA0       ; /* overlay SRAM U19 A0                                        */
+/* PIN 12, PIN 19 = unconnected */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+OA0  = !OADISP & MA0 # OADISP & MA3 # MA0 & MA3 ;
+OA1  = !OADISP & MA1 # OADISP & MA4 # MA1 & MA4 ;
+OA2  = !OADISP & MA2 # OADISP & MA5 # MA2 & MA5 ;
+OA3  = !OADISP & MA3 # OADISP & MA6 # MA3 & MA6 ;
+OA4  = !OADISP & MA4 # OADISP & MA7 # MA4 & MA7 ;
+OA5  = !OADISP & MA5 # OADISP & MA8 # MA5 & MA8 ;

@@ -1,0 +1,88 @@
+Name     U61B ;
+PartNo   00 ;
+Date     11/13/26 ;
+Revision 01 ;
+Designer Todd Houg ;
+Company  CADzilla ;
+Assembly CADzilla S-100 ACRTC board, rev B ;
+Location U61 ;
+Device   G16V8MA ;
+
+/* SPDX-License-Identifier: CERN-OHL-P-2.0 */
+/* Copyright (C) 2026 Todd Houg */
+
+/*************************************************************************
+ * U61 - GAL16V8, sheet "S100 Interface" (revision B boards)
+ *
+ * Low address byte compare (A7-A3 against SW1-1..5), qualified with the
+ * S-100 I/O status, and HSYNC output polarity select for the VGA
+ * connector. IODEC8 goes to U60, which adds the high address byte and
+ * latches the result.
+ *
+ * Complex mode (G16V8MA): ~HSYNC enters on pin 15, which simple mode
+ * cannot use as an input, and NE765 needs its pin's feedback. Pin 12 has
+ * no feedback (not needed by IODEC8).
+ *
+ * Pin 18 is an internal node with no net. Comparing five address bits
+ * with five switches takes ten product terms and an output has seven, so
+ * A7-A5 are compared there first. A7-A5 therefore reach IODEC8 one GAL
+ * delay later than A4, A3 and the status.
+ *
+ * Speed grade: GAL16V8-7 (7.5 ns). sINP/sOUT must pass through here and
+ * through U60 before p~STVAL falls and closes the IODEC latch.
+ *
+ * SW1-1..5 ground their pins when on (RN1 4.7K pull-ups), so a switch
+ * that is on selects a 0 in that address bit. Base 70H: SW1-1 and SW1-5
+ * on, SW1-2..4 off.
+ *
+ * Polarity: pins declared with '!' are active-low; write their equations
+ * in active-true terms (e.g. X = ... asserts the pin LOW).
+ * Pin/net assignments taken from the KiCad schematic, 11/13/26.
+ *************************************************************************/
+
+/* ---- Inputs ---- */
+PIN 1  = SA7       ; /* S-100 A7 (P1 pin 83)                                    */
+PIN 2  = SA6       ; /* S-100 A6 (P1 pin 82)                                    */
+PIN 3  = SA5       ; /* S-100 A5 (P1 pin 29)                                    */
+PIN 4  = SA4       ; /* S-100 A4 (P1 pin 30)                                    */
+PIN 5  = SA3       ; /* S-100 A3 (P1 pin 31)                                    */
+PIN 6  = SW7       ; /* SW1-1 / RN1 pull-up: base address bit A7                */
+PIN 7  = SW6       ; /* SW1-2 / RN1 pull-up: base address bit A6                */
+PIN 8  = SW5       ; /* SW1-3 / RN1 pull-up: base address bit A5                */
+PIN 9  = SW4       ; /* SW1-4 / RN1 pull-up: base address bit A4                */
+PIN 11 = SW3       ; /* SW1-5 / RN1 pull-up: base address bit A3                */
+PIN 14 = HSPOL     ; /* U41 74LS273 Q0                                          */
+PIN 15 = !HSYNC_IN ; /* net ~{HSYNC} - ACRTC ~HSYNC (U1 pin 12)                 */
+PIN 16 = sINP      ; /* S-100 sINP (P1 pin 46)                                  */
+PIN 17 = sOUT      ; /* S-100 sOUT (P1 pin 45)                                  */
+
+/* ---- Outputs ---- */
+PIN 12 = !IOMISS   ; /* net IODEC8 -> U60 pin 11; high = low byte and status match */
+PIN 13 = HSYNC     ; /* VGA connector HSYNC                                     */
+PIN 18 = NE765     ; /* internal node, no net: A7-A5 differ from SW1-1..3       */
+/* PIN 19 = unconnected */
+/* PIN 10 = GND, PIN 20 = +5V */
+
+/* ---- Equations ---- */
+
+/* A7-A5 compare (pin 18 feedback) */
+NE765    = SA7 & !SW7 # !SA7 & SW7
+         # SA6 & !SW6 # !SA6 & SW6
+         # SA5 & !SW5 # !SA5 & SW5 ;
+
+/* IODEC8 is high when A7-A3 match the switches in an I/O cycle. It is
+ * written as its complement, IOMISS, which is the form that fits: a
+ * mismatch in any bit, or neither sINP nor sOUT. Memory cycles at a
+ * matching address therefore never reach the latch in U60. */
+IOMISS   = NE765
+         # SA4 & !SW4 # !SA4 & SW4
+         # SA3 & !SW3 # !SA3 & SW3
+         # !sINP & !sOUT ;
+
+/* VGA sync polarity: HSPOL = 1 gives a negative (active-low) pulse,
+ * 0 a positive one. HSYNC_IN is true while the ACRTC sync is active. */
+HSYNC    = HSYNC_IN & !HSPOL # !HSYNC_IN & HSPOL ;
+
+NE765.OE  = 'b'1 ;
+IOMISS.OE = 'b'1 ;
+HSYNC.OE  = 'b'1 ;
