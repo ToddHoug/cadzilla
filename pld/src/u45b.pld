@@ -22,9 +22,9 @@ Device   G16V8MA ;
  * the whole bus cycle. It does not move when the address and status
  * change at the end of the cycle, so nothing here needs to be held.
  *
- * Complex mode (G16V8MA): RDY and ~SIXTN are only driven during the
- * board's own cycles, using .OE product terms, and DONE and CRT_CS need
- * their pins' feedback. Each output enable is a single product term.
+ * Complex mode (G16V8MA): RDY and ~SIXTN are open-collector S-100 bus
+ * lines, so those outputs are only driven while asserted, using .OE
+ * product terms, and DONE and CRT_CS need their pins' feedback. Each output enable is a single product term.
  * Pins 1 and 11 are ordinary inputs; pins 12 and 19 have no feedback.
  *
  * Pin 16 is an internal state bit with no net (DONE). The ACRTC's RS
@@ -82,24 +82,25 @@ CRT_RW    = !sOUT ;
 CRT_CS.OE = 'b'1 ;
 CRT_RW.OE = 'b'1 ;
 
-/* RDY is driven for the whole of an ACRTC cycle: low (wait) from the
- * moment IODEC rises, before the strobes, until the ACRTC answers with
- * ~DTACK inside CS, then high. An 8080 only asserts p~WR in its wait
- * states, so the wait must be asked for before the strobe.
+/* RDY is open collector: pulled low (wait) from the moment IODEC rises,
+ * before the strobes, until the ACRTC answers with ~DTACK inside CS, and
+ * not driven at any other time. It is never driven high. An 8080 only
+ * asserts p~WR in its wait states, so the wait must be asked for before
+ * the strobe.
  *
  * DONE remembers the answer once CS has ended and ~DTACK has gone back
- * high, so that RDY stays high until IODEC or the ACRTC address goes
- * away. (The RDY pin's own feedback cannot hold it: while the pin is not
- * driven it reads the bus.) DONE clears between accesses when IODEC
- * falls, and also when a new CS starts without ~DTACK. The third term
- * covers the hazard as CS ends. */
+ * high, so that RDY is not pulled low again while IODEC is still held
+ * after the strobe. (The RDY pin's own feedback cannot hold it: while the
+ * pin is not driven it reads the bus.) ~DTACK releases RDY at once; DONE
+ * sets one GAL delay later, long before ~DTACK goes away. DONE clears
+ * between accesses when IODEC falls, and also when a new CS starts
+ * without ~DTACK. Its third term covers the hazard as CS ends. */
 DONE      = CRT_CS & DTACK
           # DONE & IODEC & ACR & !CRT_CS
           # DONE & IODEC & ACR & DTACK ;
 DONE.OE   = 'b'1 ;
-RDY       = DONE
-          # CRT_CS & DTACK ;
-RDY.OE    = IODEC & ACR ;
+RDY       = 'b'0 ;
+RDY.OE    = IODEC & ACR & !DTACK & !DONE ;
 
 /* SIXTN: 16-bit transfers only to the ACRTC data register at +2.
  * Open collector: only driven while asserted. */
