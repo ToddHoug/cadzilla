@@ -10,7 +10,6 @@
 import math
 import os
 
-CX, CY = 512, 384           # screen centre (1024x768)
 STEPS = 48                  # rotation steps per polygon cycle
 STRIDE = 13                 # words per polygon entry: DW n + 6 points
 
@@ -68,16 +67,16 @@ db("WHEEL", wheel * 2, 12)
 out.append(";")
 
 
-def polygon(n, r, direction):
+def polygon(n, r, direction, cx, cy, w, h):
     words = []
     for i in range(STEPS):
         t0 = direction * i * (2 * math.pi / n) / STEPS + math.pi / 2
         pts = []
         for k in range(n):
             t = t0 + k * 2 * math.pi / n
-            x = int(round(CX + r * math.cos(t)))
-            y = int(round(CY + r * math.sin(t)))
-            assert 0 <= x <= 1023 and 0 <= y <= 767
+            x = int(round(cx + r * math.cos(t)))
+            y = int(round(cy + r * math.sin(t)))
+            assert 0 <= x < w and 0 <= y < h
             pts += [x, y]
         entry = [n] + pts
         entry += [0] * (STRIDE - len(entry))
@@ -85,20 +84,51 @@ def polygon(n, r, direction):
     return words
 
 
-for label, n, r, d in (("PSQ", 4, 360, 1), ("PHEX", 6, 270, -1),
-                       ("PTRI", 3, 160, 1)):
-    out.append("; %s: %d-gon, radius %d, %d steps of one %d-fold turn, %s"
-               % (label, n, r, STEPS, n, "CCW" if d > 0 else "CW"))
-    dw(label, polygon(n, r, d), STRIDE)
+# The three display modes: suffix, width, height, then the screen 3 ring
+# step (added to the 3-pixel outline), screen 4's X step, start Y and Y
+# step, and screen 6's blip placement (centre - offset + rand & mask).
+# Everything else scales with the height from the 1024x768 design.
+MODES = (
+    ("K", 1024, 768, 13, 9, 21, 752, 16, (256, 511), (256, 511)),
+    ("8", 800, 600, 9, 6, 16, 564, 12, (256, 511), (128, 255)),
+    ("6", 640, 480, 7, 4, 13, 470, 10, (128, 255), (128, 255)),
+)
+rows = []
+for sfx, w, h, rsx, rsy, xstp, yst, ystp, bx, by in MODES:
+    cx, cy = w // 2, h // 2
+    k = h / 768.0
+    r1, r2, r3 = [int(round(r * k)) for r in (120, 240, 360)]
+    # the ring step must leave the 32 rings inside the screen
+    assert 32 * (rsx + 3) <= w // 2 and 32 * (rsy + 3) <= h // 2
+    assert 47 * xstp < w and yst - 47 * ystp == 0 and yst < h
+    for label, n, r, d in (("PSQ", 4, 360, 1), ("PHEX", 6, 270, -1),
+                           ("PTRI", 3, 160, 1)):
+        r = int(round(r * k))
+        out.append("; %s%s: %d-gon, radius %d, %d steps of one %d-fold turn, %s"
+                   % (label, sfx, n, r, STEPS, n, "CCW" if d > 0 else "CW"))
+        dw(label + sfx, polygon(n, r, d, cx, cy, w, h), STRIDE)
+        out.append(";")
+    # RAYS: 256 radar ray end points (the other end is the centre)
+    rays = []
+    for i in range(256):
+        t = 2 * math.pi * i / 256
+        rays += [int(round(cx + r3 * math.cos(t))), int(round(cy + r3 * math.sin(t)))]
+    out.append("; radar rays %s: 256 end points, radius %d, CCW from east" % (sfx, r3))
+    dw("RAYS" + sfx, rays, 8)
     out.append(";")
+    rows.append((sfx, w, h, [cx, bx[0], bx[1], cy, by[0], by[1], rsx, rsy, xstp,
+                             yst, ystp, r1, r2, r3,
+                             "PSQ" + sfx, "PHEX" + sfx, "PTRI" + sfx, "RAYS" + sfx]))
 
-# RAYS: 256 radar ray end points (the other end is the centre)
-rays = []
-for i in range(256):
-    t = 2 * math.pi * i / 256
-    rays += [int(round(CX + 360 * math.cos(t))), int(round(CY + 360 * math.sin(t)))]
-out.append("; radar rays: 256 end points, radius 360, CCW from east")
-dw("RAYS", rays, 8)
+out.append("; per-mode parameter blocks, copied to AUTODEMO's PRM (18 words):")
+out.append(";   CX, BXO, BXM, CY, BYO, BYM  centre; radar blips at centre-off+(rand&mask)")
+out.append(";   RSX, RSY      screen 3: ring step added to the 3-pixel outline")
+out.append(";   XSTP, YST, YSTP  screen 4: X step, start Y, Y step")
+out.append(";   R1, R2, R3    screen 6: radar ring radii")
+out.append(";   PSQ, PHEX, PTRI, RAYS  screen 5 and 6 tables")
+for sfx, w, h, vals in rows:
+    out.append("; %dx%d" % (w, h))
+    dw("MODT" + sfx, vals, 6)
 
 path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "ADTAB.INC")
 with open(path, "w") as f:

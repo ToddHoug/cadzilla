@@ -25,12 +25,20 @@
 ;   7  Confetti           random boxes, outlines, circles and lines, wiped
 ;                         away by a moving black band
 ;
+; Resolution. AUTODEMO takes the monitor mode from the CP/M command tail:
+; AUTODEMO (or AUTODEMO 1024) is 1024x768, AUTODEMO 800 is 800x600 and
+; AUTODEMO 640 is 640x480. It must match the machine's cad0 `mode`
+; (machine.toml; the real board's monitor). Every screen reads its sizes
+; from the mode's parameter block (MODTK, MODT8, MODT6 in ADTAB.INC), and
+; the polygon and radar tables come in one set a mode.
+;
 ; Timing. The board has no timer and the ACRTC status has no vertical
 ; sync bit, so each screen simply runs a fixed number of steps (CNTn
 ; below), each followed by a delay of DLAn loops (24 T-states each). The
 ; numbers were tuned in altairsim under work/cadzilla-real.toml (2 MHz,
 ; draw_rate = "real") to give 2.5 to 3.5 seconds a screen: measured 3.1,
-; 3.2, 3.2, 2.8, 3.1, 3.0 and 3.1 s for screens 1 to 7. A real board will
+; 3.2, 3.2, 2.8, 3.1, 3.0 and 3.1 s for screens 1 to 7 at 1024x768 (the
+; smaller modes draw less a step, so their screens run a little faster). A real board will
 ; differ a little: its ACRTC draws at its own speed, so retune there.
 ;
 ; Only the 8080 is needed. Nothing here uses PAINT, the AREA stop modes,
@@ -81,7 +89,51 @@ START:  LXI     H,0             ;keep CCP's stack, run on our own
 ;
         LXI     D,MSGHI
         CALL    PRINT
-        GINIT   CZM1K           ;1024x768, default palette, screen cleared
+        LDA     0080H           ;the command tail: AUTODEMO [640|800|1024]
+        MOV     B,A
+        LXI     H,0081H
+ARG:    MOV     A,B
+        ORA     A
+        JZ      MODEK           ;no argument: 1024x768
+        DCR     B
+        MOV     A,M
+        INX     H
+        CPI     ' '
+        JZ      ARG
+        CPI     '6'
+        JZ      MODE6
+        CPI     '8'
+        JZ      MODE8
+MODEK:  LXI     D,MODTK
+        LXI     B,MSG1K
+        LXI     H,CZM1K
+        JMP     MODGO
+MODE8:  LXI     D,MODT8
+        LXI     B,MSG800
+        LXI     H,CZM800
+        JMP     MODGO
+MODE6:  LXI     D,MODT6
+        LXI     B,MSG640
+        LXI     H,CZM640
+MODGO:  PUSH    H               ;the library's mode descriptor
+        PUSH    B               ;its name
+        XCHG                    ;HL = the mode's parameter block,
+        LXI     D,PRM           ;DE = PRM: copy it
+        MVI     B,PRMEND-PRM
+MODCP:  MOV     A,M
+        STAX    D
+        INX     H
+        INX     D
+        DCR     B
+        JNZ     MODCP
+        POP     D
+        CALL    PRINT
+        POP     H
+        CALL    CZINIT          ;default palette, screen cleared
+        LHLD    CZXMAX
+        SHLD    XMX
+        LHLD    CZYMAX
+        SHLD    YMX
         LXI     H,SCRTAB
         SHLD    CURSCR
 ;
@@ -320,6 +372,27 @@ DRSEG:  CALL    LDW             ;DE = x0
         POP     H
         RET
 ;
+; RNDC -- HL -> three words: a centre, an offset, a mask. Returns HL =
+; centre - offset + (a random number & mask).
+;
+RNDC:   CALL    LDW             ;DE = centre
+        PUSH    D
+        CALL    LDW
+        PUSH    D               ;the offset
+        CALL    LDW             ;DE = mask
+        CALL    RAND
+        MOV     A,H
+        ANA     D
+        MOV     H,A
+        MOV     A,L
+        ANA     E
+        MOV     L,A
+        POP     D
+        CALL    SUBHD
+        POP     D
+        DAD     D
+        RET
+;
 ; SCRINI -- start of every screen: default palette, replace mode, black
 ;
 SCRINI: CALL    CZPALD
@@ -450,9 +523,9 @@ EPINIT: PUSH    H
 S1INIT: CALL    SCRINI
         MVI     A,1
         STA     SPDSH           ;fast
-        LXI     H,1023
+        LHLD    XMX
         SHLD    XMAXV
-        LXI     H,767
+        LHLD    YMX
         SHLD    YMAXV
         LXI     H,RCOL
         MVI     B,NRING
@@ -654,10 +727,10 @@ BSMOVE: LHLD    BP              ;M = R + 12, the ball's reach
         ADD     A               ;2M
         MOV     E,A
         MVI     D,0
-        LXI     H,1023
+        LHLD    XMX
         CALL    SUBHD
         SHLD    XMAXV
-        LXI     H,767
+        LHLD    YMX
         CALL    SUBHD
         SHLD    YMAXV
         LHLD    BP
@@ -740,14 +813,14 @@ S3INIT: CALL    SCRINI
         STA     S3C
 S3LP1:  LDA     S3C
         CALL    CZCOL
-        LHLD    S3Y             ;Y1 = 767 - Y0, X1 = 1023 - X0
+        LHLD    S3Y             ;Y1 = YMAX - Y0, X1 = XMAX - X0
         XCHG
-        LXI     H,767
+        LHLD    YMX
         CALL    SUBHD
         SHLD    S3YE
         LHLD    S3X
         XCHG
-        LXI     H,1023
+        LHLD    XMX
         CALL    SUBHD
         SHLD    S3XE
         MVI     A,3
@@ -776,12 +849,14 @@ S3LJ:   LHLD    S3Y
         DCR     A
         STA     S3J
         JNZ     S3LJ
-        LHLD    S3X             ;the next ring: 16 in X and 12 in Y from
-        LXI     D,13            ;this one's outside
+        LHLD    S3X             ;the next ring: RSX in X and RSY in Y from
+        XCHG                    ;this one's outside
+        LHLD    P_RSX
         DAD     D
         SHLD    S3X
         LHLD    S3Y
-        LXI     D,9
+        XCHG
+        LHLD    P_RSY
         DAD     D
         SHLD    S3Y
         LDA     S3C
@@ -822,8 +897,9 @@ S3X1:   STA     PHASE
 ;
 ; ================= screen 4: string art =================
 ;
-; Line i joins (21*i, 0) to (0, 752-16*i), which makes the envelope curve
-; round the corner; the other three corners mirror it. One step draws line
+; Line i joins (XSTP*i, 0) to (0, YST-YSTP*i), which makes the envelope
+; curve round the corner (1024x768: 21*i, 752-16*i); the other three
+; corners mirror it. One step draws line
 ; i in all four corners. After 48 steps it starts again in new colours.
 ;
 S4INIT: CALL    SCRINI
@@ -833,7 +909,7 @@ S4INIT: CALL    SCRINI
         STA     S4C
         LXI     H,0
         SHLD    XA
-        LXI     H,752
+        LHLD    P_YST
         SHLD    YB
         RET
 ;
@@ -847,26 +923,30 @@ S4STEP: LDA     S4N             ;colour = 3 * step, never dark
         STA     S4C
 S4CL:   LDA     S4C             ;bit 0 mirrors X, bit 1 mirrors Y
         MOV     B,A
+        LHLD    XMX
+        XCHG
         LXI     H,0
-        LXI     D,1023
         MOV     A,B
         ANI     1
         CALL    MIRR
         SHLD    SEGV
+        LHLD    YMX
+        XCHG
         LHLD    YB
-        LXI     D,767
         MOV     A,B
         ANI     2
         CALL    MIRR
         SHLD    SEGV+2
+        LHLD    XMX
+        XCHG
         LHLD    XA
-        LXI     D,1023
         MOV     A,B
         ANI     1
         CALL    MIRR
         SHLD    SEGV+4
+        LHLD    YMX
+        XCHG
         LXI     H,0
-        LXI     D,767
         MOV     A,B
         ANI     2
         CALL    MIRR
@@ -882,12 +962,15 @@ S4CL:   LDA     S4C             ;bit 0 mirrors X, bit 1 mirrors Y
         INR     A
         STA     S4N
         LHLD    XA
-        LXI     D,21
+        XCHG
+        LHLD    P_XSTP
         DAD     D
         SHLD    XA
         LHLD    YB
-        LXI     D,-16
-        DAD     D
+        XCHG
+        LHLD    P_YSTP
+        XCHG
+        CALL    SUBHD
         SHLD    YB
         LDA     S4I
         INR     A
@@ -898,7 +981,7 @@ S4CL:   LDA     S4C             ;bit 0 mirrors X, bit 1 mirrors Y
         STA     S4I
         LXI     H,0
         SHLD    XA
-        LXI     H,752
+        LHLD    P_YST
         SHLD    YB
         RET
 ;
@@ -906,7 +989,8 @@ S4CL:   LDA     S4C             ;bit 0 mirrors X, bit 1 mirrors Y
 ; ================= screen 5: polygons =================
 ;
 ; PSQ, PHEX and PTRI each hold 48 rotated copies of a polygon, 13 words
-; apiece (ADTAB.INC), so step i is at table + 26*i. Nothing is erased: the
+; apiece (ADTAB.INC, one set a mode; P_PSQ.. point at the mode's), so step
+; i is at table + 26*i. Nothing is erased: the
 ; turning outlines pile up into a pattern and their colours move on.
 ;
 S5INIT: CALL    SCRINI
@@ -924,7 +1008,8 @@ SHAPE   MACRO   TBL,COFS
         ORI     18H
         CALL    CZCOL
         LHLD    S5OFF
-        LXI     D,TBL
+        XCHG
+        LHLD    TBL
         DAD     D
         CALL    CZPLG
         ENDM
@@ -943,9 +1028,9 @@ S5STEP: LDA     S5I             ;26 * i = 2i + 8i + 16i
         DAD     B
         DAD     D
         SHLD    S5OFF
-        SHAPE   PSQ,0
-        SHAPE   PHEX,64
-        SHAPE   PTRI,128
+        SHAPE   P_PSQ,0
+        SHAPE   P_PHEX,64
+        SHAPE   P_PTRI,128
         LDA     S5N
         INR     A
         STA     S5N
@@ -967,47 +1052,50 @@ S5X:    STA     S5I
 S6INIT: CALL    SCRINI
         GMODE   0
         GCOLOR  CYAN+16
-        GMOVE   512,384
-        LXI     H,120
+        LHLD    P_CY
+        XCHG
+        LHLD    P_CX
+        CALL    CZMOVE
+        LHLD    P_R1
         CALL    CZCRCL
-        LXI     H,240
+        LHLD    P_R2
         CALL    CZCRCL
-        LXI     H,360
+        LHLD    P_R3
         CALL    CZCRCL
-        GSEG    512,24,512,744
-        GSEG    152,384,872,384
+        LHLD    P_R3            ;the vertical of the cross
+        XCHG
+        LHLD    P_CX
+        SHLD    SEGV
+        SHLD    SEGV+4
+        LHLD    P_CY
+        DAD     D
+        SHLD    SEGV+6
+        LHLD    P_CY
+        CALL    SUBHD
+        SHLD    SEGV+2
+        LXI     H,SEGV
+        CALL    DRSEG
+        LHLD    P_R3            ;the horizontal
+        XCHG
+        LHLD    P_CY
+        SHLD    SEGV+2
+        SHLD    SEGV+6
+        LHLD    P_CX
+        DAD     D
+        SHLD    SEGV+4
+        LHLD    P_CX
+        CALL    SUBHD
+        SHLD    SEGV
+        LXI     H,SEGV
+        CALL    DRSEG
         GCOLOR  YELLOW+BRIGHT
         MVI     A,6
         STA     S6C
-S6BL:   CALL    RAND            ;x = 180..818, y = 100..674
-        MOV     A,H
-        ANI     1
-        MOV     H,A
-        LXI     D,180
-        DAD     D
-        PUSH    H
-        CALL    RAND
-        MOV     A,L
-        ANI     127
-        MOV     E,A
-        MVI     D,0
-        POP     H
-        DAD     D
+S6BL:   LXI     H,P_CX          ;a blip inside the rings
+        CALL    RNDC
         SHLD    S6X
-        CALL    RAND
-        MOV     A,H
-        ANI     1
-        MOV     H,A
-        LXI     D,100
-        DAD     D
-        PUSH    H
-        CALL    RAND
-        MOV     A,L
-        ANI     63
-        MOV     E,A
-        MVI     D,0
-        POP     H
-        DAD     D
+        LXI     H,P_CY
+        CALL    RNDC
         SHLD    S6Y
         XCHG
         LHLD    S6X
@@ -1027,9 +1115,9 @@ S6BL:   CALL    RAND            ;x = 180..818, y = 100..674
         JNZ     S6BL
         GWAIT
         GMODE   OMEOR
-        LXI     H,512           ;every ray starts at the centre
+        LHLD    P_CX            ;every ray starts at the centre
         SHLD    SEGV
-        LXI     H,384
+        LHLD    P_CY
         SHLD    SEGV+2
         XRA     A
         STA     S6A
@@ -1059,7 +1147,8 @@ RAYDRW: MOV     L,A             ;draw ray A (0..255): the centre to RAYS[A]
         MVI     H,0
         DAD     H
         DAD     H
-        LXI     D,RAYS
+        XCHG
+        LHLD    P_RAYS
         DAD     D
         LXI     D,SEGV+4
         CALL    COPY4
@@ -1091,13 +1180,21 @@ S7LP:   CALL    CONFET
         CALL    CZMOVE
         LXI     D,23
         DAD     D
-        LXI     D,767
+        PUSH    H
+        LHLD    YMX
+        XCHG
+        POP     H
         CALL    CZFRCT
         LHLD    S7BX
         LXI     D,11
         DAD     D
         SHLD    S7BX
-        LXI     D,1000          ;past 1000: back to the left
+        PUSH    H
+        LHLD    XMX
+        LXI     D,-23
+        DAD     D
+        XCHG                    ;DE = XMAX - 23: past it, back to the left
+        POP     H
         MOV     A,E
         SUB     L
         MOV     A,D
@@ -1111,11 +1208,16 @@ CONFET: CALL    RAND
         MOV     A,H
         ORI     18H
         CALL    CZCOL
-        CALL    RAND            ;x, kept at 940 or less
+        CALL    RAND            ;x, kept inside
         MOV     A,H
         ANI     3
         MOV     H,A
-        LXI     D,940
+CFXL:   PUSH    H
+        LHLD    XMX
+        LXI     D,-83           ;the shapes are up to 83 wide
+        DAD     D
+        XCHG
+        POP     H
         MOV     A,E
         SUB     L
         MOV     A,D
@@ -1123,12 +1225,18 @@ CONFET: CALL    RAND
         JNC     CFX1
         LXI     D,128
         CALL    SUBHD
+        JMP     CFXL
 CFX1:   SHLD    CFX
-        CALL    RAND            ;y, kept at 690 or less
+        CALL    RAND            ;y, kept inside
         MOV     A,H
         ANI     3
         MOV     H,A
-        LXI     D,690
+CFYL:   PUSH    H
+        LHLD    YMX
+        LXI     D,-77           ;and 77 tall
+        DAD     D
+        XCHG
+        POP     H
         MOV     A,E
         SUB     L
         MOV     A,D
@@ -1136,6 +1244,7 @@ CFX1:   SHLD    CFX
         JNC     CFY1
         LXI     D,384
         CALL    SUBHD
+        JMP     CFYL
 CFY1:   SHLD    CFY
         CALL    RAND
         MOV     A,L
@@ -1212,7 +1321,11 @@ CFFAR:  LHLD    CFX             ;HL,DE = x+width, y+height
 BCOLS:  DB      RED+BRIGHT,GREEN+BRIGHT,CYAN+BRIGHT,YELLOW+BRIGHT
 ;
 MSGHI:  DB      "AUTODEMO -- CADzilla free-running demo (z88dk z80asm)",CR,LF
+        DB      "  AUTODEMO [640|800|1024] picks the resolution",CR,LF
         DB      "  any key pauses, ESC / ^C / Q quits",CR,LF,'$'
+MSG1K:  DB      "1024x768",CR,LF,'$'
+MSG800: DB      "800x600",CR,LF,'$'
+MSG640: DB      "640x480",CR,LF,'$'
 NM1:    DB      "1  bouncing vectors",CR,LF,'$'
 NM2:    DB      "2  circles to ellipses",CR,LF,'$'
 NM3:    DB      "3  palette tunnel",CR,LF,'$'
@@ -1228,6 +1341,28 @@ SEED:   DW      0ACE1H
 ;
 ; ---- variables ----
 ;
+PRM:                            ;the mode's parameter block, from MODTx
+P_CX:   DS      2               ;(the order is mktables.py's)
+P_BXO:  DS      2
+P_BXM:  DS      2
+P_CY:   DS      2
+P_BYO:  DS      2
+P_BYM:  DS      2
+P_RSX:  DS      2
+P_RSY:  DS      2
+P_XSTP: DS      2
+P_YST:  DS      2
+P_YSTP: DS      2
+P_R1:   DS      2
+P_R2:   DS      2
+P_R3:   DS      2
+P_PSQ:  DS      2
+P_PHEX: DS      2
+P_PTRI: DS      2
+P_RAYS: DS      2
+PRMEND:
+XMX:    DS      2               ;the screen's largest X and Y
+YMX:    DS      2
 CURSCR: DS      2               ;the next SCRTAB row
 INITP:  DS      2
 STEPP:  DS      2

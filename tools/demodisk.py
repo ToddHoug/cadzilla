@@ -97,7 +97,7 @@ DESCRIBE = {
     "DDCZ640.PRL": "GSX driver, 640x480 (workstation 03)",
     "ASSIGN.SYS": "GSX workstation numbers to drivers",
     "Z88DEMO.COM": "GFXDEMO ported to z80asm and cz88gfx",
-    "AUTODEMO.COM": "free-running demo, seven animated screens (any key pauses)",
+    "AUTODEMO.COM": "free-running demo, seven screens (any key pauses): AUTODEMO [640|800|1024]",
     "ROCKFALL.COM": "space rock shooter: W thrust, A/D turn, space fire, Q",
     "CGFXDEMO.COM": "GFXDEMO in C, pixel-identical",
     "CGSXDEMO.COM": "a GSX-80 client in C, through DDCZ1K",
