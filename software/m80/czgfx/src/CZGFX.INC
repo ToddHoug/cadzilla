@@ -42,7 +42,7 @@
 ; one in its software/<toolchain>/<project>/czgfx.version and builds against its own
 ; copy of it (tools/altairsim/scripts/attach_libdisk.sh).
 ;
-CZVERS  EQU     0105H           ;1.5
+CZVERS  EQU     0106H           ;1.6
 ;
 ;
 ; ---- board I/O map: one 8-port block, base set by SW1-1..SW1-5 ----
