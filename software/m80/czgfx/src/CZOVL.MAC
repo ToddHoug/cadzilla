@@ -35,7 +35,9 @@ SETMR:  STA     CZMREG
         RET
 ;
 ; CZOPAL -- set the overlay's color (Bt453 overlay color 2, the one
-; the board selects) to red B, green C, blue E
+; the board selects) to red B, green C, blue E. Leaves AR = r00:
+; a DACADR write disturbs the ACRTC's AR on the real board (see
+; CZPAL.MAC; revisit after board revision B).
 ;
 CZOPAL: MVI     A,2             ;the address, through C1C0 = 00
         OUT     DACADR
@@ -45,6 +47,8 @@ CZOPAL: MVI     A,2             ;the address, through C1C0 = 00
         OUT     DACOVL
         MOV     A,E
         OUT     DACOVL
+        XRA     A               ;AR = r00
+        OUT     ACRSR
         RET
 ;
 ; CZOVL -- draw on the overlay from here on

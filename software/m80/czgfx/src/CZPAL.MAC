@@ -13,8 +13,14 @@
 ;
         CSEG
 ;
+; Board workaround (1.6): on the real board, a Bt453 address write
+; (OUT DACADR) leaves the ACRTC's AR changed -- the next FIFO word
+; then lands in a control register, so commands are lost or garbled.
+; Every routine here that writes DACADR ends by putting AR back to
+; r00, as CZWREG does. Revisit after board revision B.
+;
 ; CZPALD -- load all 256 Bt453 palette entries with the default
-; palette. Clobbers BC, DE, HL.
+; palette. Leaves AR = r00. Clobbers BC, DE, HL.
 ;
 CZPALD: XRA     A               ;address 0, resets color phase to red
         OUT     DACADR
@@ -37,6 +43,8 @@ PALL:   LDAX    D
         INX     H
         DCR     C
         JNZ     PALH
+        XRA     A               ;AR = r00 (board workaround, above)
+        OUT     ACRSR
         RET
 ;
 ; CHAN -- write one color component. (HL) = channel code
@@ -54,7 +62,8 @@ CHAN:   MOV     A,M
 CHOUT:  OUT     DACPAL
         RET
 ;
-; CZPALS -- set palette entry A to red B, green C, blue E
+; CZPALS -- set palette entry A to red B, green C, blue E.
+; Leaves AR = r00 (board workaround, above).
 ;
 CZPALS: OUT     DACADR          ;address, resets color phase to red
         MOV     A,B
@@ -63,6 +72,8 @@ CZPALS: OUT     DACADR          ;address, resets color phase to red
         OUT     DACPAL
         MOV     A,E
         OUT     DACPAL
+        XRA     A               ;AR = r00
+        OUT     ACRSR
         RET
 ;
 ; Channel codes R,G,B for each hue (index order)

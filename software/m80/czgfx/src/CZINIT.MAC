@@ -106,6 +106,8 @@ INSGL:  ORI     0B0H
         OUT     DACOVL
         OUT     DACOVL
         OUT     DACOVL
+        XRA     A               ;AR = r00: a DACADR write disturbs AR
+        OUT     ACRSR           ;on the real board (CZPAL.MAC)
         CALL    CZOCLS
         XRA     A
         CALL    CZCLS
