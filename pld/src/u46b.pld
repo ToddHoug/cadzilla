@@ -1,7 +1,7 @@
 Name     U46B ;
 PartNo   00 ;
-Date     11/13/26 ;
-Revision 01 ;
+Date     11/17/26 ;
+Revision 02 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board, rev B ;
@@ -79,8 +79,14 @@ RES     = RESET ;
  *                      16-bit read
  *   U40 HD0-7 -> DI  : 8-bit reads of +0, +2 and +4..+7
  *                      (+1 MODE is write-only, +3 is 16-bit only)
- *   U39 DI <-> HD8-15: 16-bit transfers only (high byte) */
-HDIR    = sOUT ;
+ *   U39 DI <-> HD8-15: 16-bit transfers only (high byte)
+ *
+ * Revision 02: HDIR = !sINP (was sOUT). IODEC is latched, so WRSEL now
+ * ends only when sOUT goes away in the next bus cycle, the same moment
+ * that HDIR = sOUT turned U38 around: for a few ns U38 could drive HD
+ * onto DO against the CPU card. HDIR now changes only with sINP, while
+ * no buffer is on (reads enable only inside pDBIN). */
+HDIR    = !sINP ;
 DLDEN   = WRSEL & !(!SA2 & SA1 & SA0)
         # RDEN & X16 ;
 DH2LEN  = RDEN & !X16 & (SA2 # !SA0) ;

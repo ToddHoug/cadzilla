@@ -1,7 +1,7 @@
 Name     U45B ;
 PartNo   00 ;
-Date     11/13/26 ;
-Revision 01 ;
+Date     11/17/26 ;
+Revision 02 ;
 Designer Todd Houg ;
 Company  CADzilla ;
 Assembly CADzilla S-100 ACRTC board, rev B ;
@@ -30,7 +30,7 @@ Device   G16V8MA ;
  * Pin 16 is an internal state bit with no net (DONE). The ACRTC's RS
  * comes from U46 (B_SA1).
  *
- * Compile with no minimization (cupl -m0): the third product term of
+ * Compile with no minimization (cupl -m0): the last product term of
  * DONE is logically redundant and only covers the hazard as CS ends, so
  * a minimizer would remove it.
  *
@@ -94,10 +94,27 @@ CRT_RW.OE = 'b'1 ;
  * pin is not driven it reads the bus.) ~DTACK releases RDY at once; DONE
  * sets one GAL delay later, long before ~DTACK goes away. DONE clears
  * between accesses when IODEC falls, and also when a new CS starts
- * without ~DTACK. Its third term covers the hazard as CS ends. */
+ * without ~DTACK. Its last term covers the hazard as CS ends.
+ *
+ * Revision 02: IODEC is latched, but ACR is the live address, so IODEC
+ * also stays set into the next bus cycle with a new address under it.
+ * DONE now also sets, so that RDY is not pulled:
+ *   - on a port that isn't the ACRTC's (+1, +3, +4..+7). Without this,
+ *     an access there followed by a fetch at +0 or +2 (A2 = A0 = 0) pulled
+ *     RDY low until U60's latch reopened in T2 of that fetch.
+ *   - when IODEC is set but the live status shows no I/O. If the status
+ *     reached U60 after its latch closed, the stale sINP/sOUT of the cycle
+ *     before was latched into IODEC for a fetch at +0 or +2: RDY was then
+ *     held low with no strobe, so no ~DTACK came, and the CPU waited for
+ *     ever. Now RDY lets go one GAL delay after the status changes.
+ * In a real access IODEC can't rise before the status this GAL sees,
+ * because IODEC comes from it through U61 and U60. The hold terms no
+ * longer need ACR, so DONE set on another port holds while IODEC does. */
 DONE      = CRT_CS & DTACK
-          # DONE & IODEC & ACR & !CRT_CS
-          # DONE & IODEC & ACR & DTACK ;
+          # IODEC & !ACR
+          # IODEC & !sINP & !sOUT
+          # DONE & IODEC & !CRT_CS
+          # DONE & IODEC & DTACK ;
 DONE.OE   = 'b'1 ;
 RDY       = 'b'0 ;
 RDY.OE    = IODEC & ACR & !DTACK & !DONE ;
